@@ -17,7 +17,6 @@ addons:
 cache:
   directories:
     - MOM6-examples
-#   - build # Uncomment this line to save time building. Less robust when FMS changes version!
 
 # Install tools and clone the configurations repository
 before_install:
@@ -41,6 +40,7 @@ script:
  - ./house_cleaning/trailer.py -e TEOS10 src config_src
  - bash MOM6-examples/tools/tests/Travis-MOM6/build_ocean_only.sh
  - bash MOM6-examples/tools/tests/Travis-MOM6/build_symmetric_ocean_only.sh
+ - bash MOM6-examples/tools/tests/Travis-MOM6/build_openmp_ocean_only.sh
  - bash MOM6-examples/tools/tests/Travis-MOM6/run_tests.sh
 
 before_cache:

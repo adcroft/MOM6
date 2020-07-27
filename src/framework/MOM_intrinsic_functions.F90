@@ -7,6 +7,8 @@
 module fortran_intrinsics
 
 public :: f_sin
+public :: f_atan
+public :: f_tan
 contains
 
 !> sin(x)
@@ -14,6 +16,18 @@ real elemental function f_sin(x)
   real, intent(in) :: x !< Argument to sin(x)
   f_sin = sin(x)
 end function f_sin
+
+!> atan(x)
+real elemental function f_atan(x)
+  real, intent(in) :: x !< Argument to atan(x)
+  f_atan = atan(x)
+end function f_atan
+
+!> tan(x)
+real elemental function f_tan(x)
+  real, intent(in) :: x !< Argument to tan(x)
+  f_tan = tan(x)
+end function f_tan
 
 end module fortran_intrinsics
 
@@ -28,12 +42,16 @@ module MOM_intrinsic_functions
 use iso_fortran_env, only : stdout => output_unit, stderr => error_unit
 use iso_fortran_env, only : int64, real64
 use fortran_intrinsics, only : f_sin
+use fortran_intrinsics, only : f_atan
+use fortran_intrinsics, only : f_tan
 
 implicit none ; private
 
 public :: invcosh, cuberoot
 public :: intrinsic_functions_unit_tests
 public :: sin
+public :: tan
+public :: atan
 
 ! Floating point model, if bit layout from high to low is (sign, exp, frac)
 
@@ -376,6 +394,125 @@ real elemental function cos(x)
 
 end function cos
 
+!> Returns tan(x). Input assumed to be in range -pi/2..pi/2.
+real elemental function tan(x)
+  real, intent(in) :: x !< Argument of tan(x) [radians]
+  real :: a ! abs(x) or multiples thereof
+  real :: d ! denominator in division expressions
+
+  a = abs(x)
+  if (a<=0.125*pi) then
+    ! a is in range 0..pi/8 for which tan_series is accurate
+    ! (or 0..22.5 in degrees)
+    tan = tan_series( a )
+    tan = sign( tan, x)
+  elseif (a<=0.25*pi) then
+    ! Reduce range from pi/8..pi/4 to pi/16..pi/8
+    ! (or 22.5...45 to 11.25...22.5 in degrees)
+    a = 0.5 * a
+    tan = tan_series( a )
+    !d = 1.0 / ( 1.0 - tan**2 )
+    d = 1.0 / ( ( 1.0 - tan ) * ( 1.0 + tan ) )
+    tan = sign( 2.0 * tan * d, x )
+  else ! a>pi/4
+    ! Reduce range from
+    ! (or 45...90 to 11.25...22.5 in degrees)
+    ! or pi/4..pi/2 to pi/8..pi/8
+    a = 0.25 * a
+    tan = tan_series( a )
+    !d = 1.0 / ( 1.0 - tan**2 )
+    d = 1.0 / ( ( 1.0 - tan ) * ( 1.0 + tan ) )
+    tan = 2.0 * tan * d
+    !d = 1.0 / ( 1.0 - tan**2 )
+    d = 1.0 / ( ( 1.0 - tan ) * ( 1.0 + tan ) )
+    tan = sign( 2.0 * tan * d, x )
+  endif
+
+  contains
+
+  !> Returns tangent of x if x is in range -pi/6..pi/6.
+  !! Calculated using Horner's method.
+  real elemental function tan_series(x)
+    real, intent(in) :: x !< Argument of tan(x) in range -pi/6..pi/6 [radians]
+    ! Local variables
+    !integer, parameter :: N(17) =(/ 1, 1, 2, 17, 62, 1382, 21844, 929569, 6404582, 443861162, 18888466084, &
+    !  113927491862, 58870668456604, 8374643517010684, 689005380505609448, 129848163681107301953, &
+    !  1736640792209901647222/) ! Numerators from http://oeis.org/A002430
+    !integer, parameter :: D(17) = (/1, 3, 15, 315, 2835, 155925, 6081075, 638512875, 10854718875, 1856156927625, &
+    !  194896477400625, 2900518163668125, 3698160658676859375, 1298054391195577640625, 263505041412702261046875, &
+    !  122529844256906551386796875, 4043484860477916195764296875/) ! Denominators from http://oeis.org/A036279
+    real, parameter :: C(17) = (/ 1.0, 0.33333333333333333, 0.13333333333333333, 5.3968253968253971E-002, &
+      2.1869488536155203E-002, 8.8632355299021973E-003, 3.5921280365724811E-003, 1.4558343870513183E-003, &
+      5.9002744094558595E-004, 2.3912911424355248E-004, 9.6915379569294509E-005, 3.9278323883316833E-005, &
+      1.5918905069328964E-005, 6.4516892156554306E-006, 2.6147711512907546E-006, 1.0597268320104654E-006, &
+      4.2949110782738063E-007 /) ! Coefficients in Taylor series
+    real :: x2 ! x**2
+    real :: r ! accumulated terms
+    integer :: j ! term number
+
+    x2 = min(1.0, x*x)
+    r = C(17)
+    do j = 16, 1, -1
+      r = C(j) + x2 * r
+    enddo
+
+    tan_series = r * x
+
+  end function tan_series
+
+end function tan
+
+!> Returns arctan(x). Results in in range -pi/2..pi/2. [radians]
+real elemental function atan(x)
+  real, intent(in) :: x !< Argument of atan(x)
+  real :: a ! abs(x)
+
+  a = abs(x)
+  if (a<=0.5) then
+    atan = sign( atan_series( a ), x)
+  elseif (a<2.0) then
+    atan = sign( p4atx( a - 1.0 ), x)
+  else ! a>=2
+    atan = atan_series( 1.0 / a )
+    atan = sign( 0.5*pi - atan, x)
+  endif
+
+  contains
+
+  !> Returns the arctangent of x if x is in range -3/4..3/4
+  !! This is calculated using Horner's method for simplicity.
+  real elemental function atan_series(x)
+    real, intent(in) :: x !< Argument of arctangent in range -3/4..3/4
+    ! Local variables
+    integer, parameter :: n = 56 ! Number of terms (could be dynamically determined)
+    real :: x2 ! x**2
+    real :: r ! accumulated terms
+    real :: d ! polynomial coefficient
+    integer :: j ! term number
+
+    x2 = min(1.0, x*x)
+    r = 1.0 / float(2*n-1)
+    do j = n-1, 1, -1
+      d = 1.0 / float(2*j-1)
+      r = d - x2 * r
+    enddo
+
+    atan_series = r * x
+
+  end function atan_series
+
+  !> Returns pi/4 + arctan ( x / ( 2 + x) )
+  real elemental function p4atx(x)
+    real, intent(in) :: x !< Argument of function
+    real :: d ! reciprocal of denominator
+
+    d = 1.0 / ( 2.0 + x )
+    p4atx = 0.25*pi + atan_series( x*d )
+
+  end function p4atx
+
+end function atan
+
 !> Returns true if any unit test of intrinsic_functions fails, or false if they all pass.
 function intrinsic_functions_unit_tests(verbose) result(fail)
   logical, intent(in) :: verbose !< If true, write results to stdout
@@ -411,6 +548,8 @@ function intrinsic_functions_unit_tests(verbose) result(fail)
   if (verbose) write(stdout,'(a21,1pe24.16)') 'module pi:',pi
   if (verbose) write(stdout,'(a21,2a24,x,a)') '','result','correct result','err/epsilon'
 
+  fail = test(fail, pi, 4.0 * f_atan( 1.0 ), 'module pi (v. library)')
+
   ! Sine tests
   if (verbose) write(stdout,*) 'Tests of sin()'
   fail = test(fail, sin(0.0), 0., 'sin(0)')
@@ -444,6 +583,28 @@ function intrinsic_functions_unit_tests(verbose) result(fail)
   x = 0.5
   fail = test(fail, cos(x)**2+sin(x)**2, 1., 'cos^2+sin^2, x=1/2')
 
+  ! Tangent tests
+  if (verbose) write(stdout,*) 'Tests of tan()'
+  fail = test(fail, tan(0.0), 0., 'tan(0)')
+  fail = test(fail, tan(0.0625*pi), f_tan(0.0625*pi), 'tan(pi/16) v. lib')
+  fail = test(fail, tan(0.125*pi), f_tan(0.125*pi), 'tan(pi/8) v. lib')
+  fail = test(fail, tan(0.1875*pi), f_tan(0.1875*pi), 'tan(3/16*pi) v. lib', inexact=1.)
+  fail = test(fail, tan(pi/3.0), sqrt(3.0), 'tan(pi/6)=1/sqrt(3)', inexact=1.)
+  fail = test(fail, tan(0.25*pi), 1.0, 'tan(pi/4)=1', inexact=1.)
+  fail = test(fail, tan(pi/3.0), sqrt(3.0), 'tan(pi/3)=sqrt(3)', inexact=1.)
+ !fail = test(fail, tan(0.375*pi), f_tan(0.375*pi), 'tan(3/8 pi) v. lib', inexact=1.)
+ !fail = test(fail, tan(0.49*pi), f_tan(0.49*pi), 'tan(49/50 pi) v. lib', inexact=1.)
+
+  ! Arc-tangent tests
+  if (verbose) write(stdout,*) 'Tests of atan()'
+  fail = test(fail, atan(1.0 / sqrt(3.0)), pi/6.0, 'atan(3**-0.5)')
+  fail = test(fail, atan(0.0), 0., 'atan(0)')
+  fail = test(fail, atan(0.125), f_atan(0.125), 'atan(1/8)')
+  fail = test(fail, atan(0.75), f_atan(0.75), 'atan(3/4)')
+  fail = test(fail, atan(1.0), 0.25*pi, 'atan(1)')
+  fail = test(fail, atan(1.5), f_atan(1.5), 'atan(3/2)')
+  fail = test(fail, atan(4.0), f_atan(4.0), 'atan(4)', inexact=1.)
+  fail = test(fail, atan(-1.0), -0.25*pi, 'atan(-1)')
 
   if (verbose .and. .not. fail) write(stdout,*) 'Pass'
 

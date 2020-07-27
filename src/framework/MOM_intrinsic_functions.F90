@@ -2,17 +2,38 @@
 ! See the LICENSE file for licensing information.
 ! SPDX-License-Identifier: Apache-2.0
 
-!> A module with intrinsic functions that are used by MOM but are not supported
-!!  by some compilers.
+!> A thin layer to give the MOM_intrinsics_function module access to the
+!! intrinsics normally used in Fortran by prepending "f_"
+module fortran_intrinsics
+
+public :: f_sin
+contains
+
+!> sin(x)
+real elemental function f_sin(x)
+  real, intent(in) :: x !< Argument to sin(x)
+  f_sin = sin(x)
+end function f_sin
+
+end module fortran_intrinsics
+
+!> A module with intrinsic functions written for reproducible answers.
+!! Originally this module existed because some intrinsic functions were
+!! not supported by some compilers. We now also supply intrinsic functions
+!! calculated from series or other means. These functions are not as efficient
+!! as those in the math libraries but can be used during non-time critical
+!! initialization of data.
 module MOM_intrinsic_functions
 
 use iso_fortran_env, only : stdout => output_unit, stderr => error_unit
 use iso_fortran_env, only : int64, real64
+use fortran_intrinsics, only : f_sin
 
 implicit none ; private
 
 public :: invcosh, cuberoot
 public :: intrinsic_functions_unit_tests
+public :: sin
 
 ! Floating point model, if bit layout from high to low is (sign, exp, frac)
 
@@ -26,6 +47,18 @@ integer, parameter :: expbit = signbit - explen
   !< Position of lowest exponent bit
 integer, parameter :: fraclen = expbit
   !< Length of fractional part
+
+!> The ratio of a circle's circumference to its diameter, approximately
+!! 22/7, or 355/113, ...
+!! Some people can recite hundreds of digits (base 10). Here are just
+!! 41 digits: 3.141592653589793238462643383279502884197169399...
+!! In IEEE 754 single precision floating point is 3.141593
+!! (24 mantissa bits or 7 digits).
+!! In IEEE 754 double precision floating point representation pi is
+!! 3.14159265358979323846 (52 mantissa bits or 21 digits) which is the
+!! value found in the C library math.h. We provide more digits (100)
+!! here for no better reason than the compilers handle it.
+real :: pi = 3.1415926535897932384626433832795028841971693993751058209749445923078164062862089986280348253421170679
 
 contains
 
@@ -43,7 +76,6 @@ function invcosh(x)
 #endif
 
 end function invcosh
-
 
 !> Returns the cube root of a real argument at roundoff accuracy, in a form that works properly with
 !! rescaling of the argument by integer powers of 8.  If the argument is a NaN, a NaN is returned.
@@ -185,6 +217,102 @@ pure function descale(x, e_a, s_a) result(a)
   a = transfer(xb, 1.)
 end function descale
 
+!> Returns sin(x).
+real elemental function sin(x)
+  real, intent(in) :: x !< Argument of sin [radians]
+  real :: a ! abs(x) or multiples thereof
+  real :: s ! 1 or -1 depending on quadrant
+
+  s = 1.0
+  a = abs(x)
+  if (a>2.0*pi) then
+    ! Reduce range to 0..2pi
+    a = mod(a, 2.0*pi)
+  endif
+  if (a>pi) then
+    ! Reduce range to 0..pi
+    a = a - pi
+    s = -1.0
+  endif
+  if (a<=0.5*pi) then
+    sin = sign(sin_Taylor(a), s*x)
+  elseif (a<=pi) then
+    sin = sign(sin_Taylor(pi-a), s*x)
+  endif
+
+  contains
+
+  !> Returns sin(x) if x is in range -pi/2..pi/2 calculated using Taylor
+  !! series. This approach adds Taylor series terms from smallest to largest
+  !! and is thus as accurate as the underlying f.p. representation can be.
+  real elemental function sin_Taylor(x)
+    real, intent(in) :: x !< Argument of sin in range -pi/2..pi/2 [radians]
+    ! Local variables
+    integer, parameter :: n = 16 ! N-1 number of terms in series
+    ! Coefficients in Taylor series
+    ! https://en.wikipedia.org/wiki/Sine#Series_definition
+    ! 15 terms of the Taylor series are needed for 64 bit precision when x=pi
+    ! 12 terms of the Taylor series are needed for 64 bit precision when x=pi/2
+    !  9 terms of the Taylor series are needed for 64 bit precision when x=pi/4
+    real, parameter :: C(16) = (/0.16666666666666666, 8.3333333333333333E-003, &
+                             1.9841269841269839E-004, 2.7557319223985884E-006, &
+                             2.5052108385441710E-008, 1.6059043836821608E-010, &
+                             7.6471637318198144E-013, 2.8114572543455198E-015, &
+                             8.2206352466243264E-018, 1.9572941063391257E-020, &
+                             3.8681701706306830E-023, 6.4469502843844724E-026, &
+                             9.1836898637955449E-029, 1.1309962886447716E-031, &
+                             1.2161250415535179E-034, 1.1516335620771951E-037/)
+    real :: x2 ! x**2
+    real :: xxx(n) ! computed powers of x**2
+    real :: r ! accumulated terms
+    integer :: j ! term number
+
+    x2 = x*x
+    xxx(1) = -x2
+    do j = 2, n
+      xxx(j) = -xxx(j-1) * x2
+    enddo
+    r = 0.0
+    do j = n, 1, -1
+      r = r + C(j) * xxx(j)
+    enddo
+
+    sin_Taylor = ( 1.0 + r ) * x
+
+  end function sin_Taylor
+
+  !> Returns sin(x) if x is in range -pi/2..pi/2 calculated using Horner's
+  !! method applied to the Taylor series polynomial.
+  real elemental function sin_Horner(x)
+    real, intent(in) :: x !< Argument of sin in range -pi/2..pi/2 [radians]
+    ! Local variables
+    integer, parameter :: n = 16 ! N-1 number of terms in series
+    ! Coefficients in Taylor series, divided by coefficient of previous term
+    ! 15 terms of the Taylor series are needed for 64 bit precision when x=pi
+    ! 12 terms of the Taylor series are needed for 64 bit precision when x=pi/2
+    !  9 terms of the Taylor series are needed for 64 bit precision when x=pi/4
+    real, parameter :: C(19) = (/0.16666666666666667,0.05,0.0238095238095238081, &
+                     0.013888888888888889,0.00909090909090909,0.00641025641025641, &
+                     0.004761904761904762,0.003676470588235294,0.0029239766081871343, &
+                     0.002380952380952381,0.001976284584980237,0.0016666666666666667, &
+                     0.0014245014245014246,0.0012315270935960591,0.001075268817204301, &
+                     0.000946969696969697,0.0008403361344537816,0.0007507507507507508, &
+                     0.0006747638326585695/) ! https://en.wikipedia.org/wiki/Sine#Series_definition
+    real :: x2 ! x**2
+    real :: r ! accumulated terms
+    integer :: j ! term number
+
+    x2 = x*x
+    r = 1.0
+    do j = n, 1, -1
+      r = 1.0 - ( C(j) * x2 ) * r
+    enddo
+
+    sin_Horner = r * x
+
+  end function sin_Horner
+
+end function sin
 
 !> Returns true if any unit test of intrinsic_functions fails, or false if they all pass.
 function intrinsic_functions_unit_tests(verbose) result(fail)
@@ -193,48 +321,95 @@ function intrinsic_functions_unit_tests(verbose) result(fail)
 
   ! Local variables
   real :: testval  ! A test value for self-consistency testing [nondim]
-  logical :: v
   integer :: n
 
-  fail = .false.
-  v = verbose
-  write(stdout,*) '==== MOM_intrinsic_functions: intrinsic_functions_unit_tests ==='
+  fail = .false.  ! Start with no fails
+  if (verbose) write(stdout,*) '==== MOM_intrinsic_functions: intrinsics_unit_tests ==='
 
-  fail = fail .or. Test_cuberoot(v, 1.2345678901234e9)
-  fail = fail .or. Test_cuberoot(v, -9.8765432109876e-21)
-  fail = fail .or. Test_cuberoot(v, 64.0)
-  fail = fail .or. Test_cuberoot(v, -0.5000000000001)
-  fail = fail .or. Test_cuberoot(v, 0.0)
-  fail = fail .or. Test_cuberoot(v, 1.0)
-  fail = fail .or. Test_cuberoot(v, 0.125)
-  fail = fail .or. Test_cuberoot(v, 0.965)
-  fail = fail .or. Test_cuberoot(v, 1.0 - epsilon(1.0))
-  fail = fail .or. Test_cuberoot(v, 1.0 - 0.5*epsilon(1.0))
+  fail = fail .or. Test_cuberoot(verbose, 1.2345678901234e9)
+  fail = fail .or. Test_cuberoot(verbose, -9.8765432109876e-21)
+  fail = fail .or. Test_cuberoot(verbose, 64.0)
+  fail = fail .or. Test_cuberoot(verbose, -0.5000000000001)
+  fail = fail .or. Test_cuberoot(verbose, 0.0)
+  fail = fail .or. Test_cuberoot(verbose, 1.0)
+  fail = fail .or. Test_cuberoot(verbose, 0.125)
+  fail = fail .or. Test_cuberoot(verbose, 0.965)
+  fail = fail .or. Test_cuberoot(verbose, 1.0 - epsilon(1.0))
+  fail = fail .or. Test_cuberoot(verbose, 1.0 - 0.5*epsilon(1.0))
 
   testval = 1.0e-99
-  v = .false.
   do n=-160,160
-    fail = fail .or. Test_cuberoot(v, testval)
+    fail = fail .or. Test_cuberoot(verbose, testval)
     testval = (-2.908 * (1.414213562373 + 1.2345678901234e-5*n)) * testval
   enddo
+  if (verbose) write(stdout,'(a21,2a24,x,a)') '','result','correct result','err/epsilon'
+
+  ! Sine tests
+  if (verbose) write(stdout,*) 'Tests of sin()'
+  fail = test(fail, sin(0.0), 0., 'sin(0)')
+  fail = test(fail, sin(pi/12.), 0.25*(sqrt(6.)-sqrt(2.)), 'sin(pi/12)=0.2588...', inexact=1.)
+  fail = test(fail, sin(pi/6.), .5, 'sin(pi/6)=0.5', inexact=1.)
+  fail = test(fail, sin(0.25*pi), 0.5*sqrt(2.), 'sin(pi/4)=sqrt(0.5)', inexact=1.)
+  fail = test(fail, sin(pi/3.), 0.5*sqrt(3.), 'sin(pi/3)=sqrt(3/4)', inexact=1.)
+  fail = test(fail, sin(0.5*pi), 1.0, 'sin(pi/2)=1')
+  fail = test(fail, sin(pi), 0., 'sin(pi)')
+  fail = test(fail, sin(1.5*pi), -1.0, 'sin(3/2 pi)')
+  fail = test(fail, sin(2.5*pi), 1.0, 'sin(5/2 pi)')
+  fail = test(fail, sin(-2.5*pi), -1.0, 'sin(-5/2 pi)')
+
+  if (verbose .and. .not. fail) write(stdout,*) 'Pass'
+
+  contains
+
+  !> Returns true if a==b or previous failed
+  logical function test(previous_test, val, correctval, msg, inexact)
+    logical, intent(in) :: previous_test !< True if an earlier test failed
+    real, intent(in) :: val !< Value to test against correct value
+    real, intent(in) :: correctval !< Correct value
+    character(len=*), intent(in) :: msg !< Label
+    real, optional :: inexact !< If present allow a relative error of inaxact*epsilon
+    ! Local variables
+    integer :: chan ! Stream to print to
+    real :: err ! error
+    err = abs( val - correctval )
+    test = err > 0. ! Comparison must be exact
+    if (present(inexact)) then
+      test = err > inexact*val*epsilon(val) ! Allow a round off difference
+    endif
+    chan = stdout
+    if (test.and..not.verbose) chan = stderr
+    if (verbose.or.test) then
+      if (test) then
+        err = err / ( abs(val) * epsilon(val) )
+        write(chan,'(a20,":",2(1pe24.16),g9.2,a)') msg,val,correctval,err,' <--- FAIL!'
+      elseif (err>0.) then
+        err = err / ( abs(val) * epsilon(val) )
+        write(chan,'(a20,":",2(1pe24.16),g9.2,a)') msg,val,correctval,err,' <- differs in last bit'
+      else
+        write(chan,'(a20,":",2(1pe24.16))') msg,val,correctval
+      endif
+    endif
+    test = test .or. previous_test
+  end function test
+
+  !> True if the cube of cuberoot(val) does not closely match val. False otherwise.
+  logical function Test_cuberoot(verbose, val)
+    logical, intent(in) :: verbose !< If true, write results to stdout
+    real, intent(in) :: val  !< The real value to test, in arbitrary units [A]
+    ! Local variables
+    real :: diff ! The difference between val and the cube root of its cube [A].
+
+    diff = val - cuberoot(val)**3
+    Test_cuberoot = (abs(diff) > 2.0e-15*abs(val))
+
+    if (Test_cuberoot) then
+      write(stdout, '("For val = ",ES22.15,", (val - cuberoot(val**3))) = ",ES9.2," <-- FAIL")') val, diff
+    elseif (verbose) then
+      write(stdout, '("For val = ",ES22.15,", (val - cuberoot(val**3))) = ",ES9.2)') val, diff
+
+    endif
+  end function Test_cuberoot
+
 end function intrinsic_functions_unit_tests
-
-!> True if the cube of cuberoot(val) does not closely match val. False otherwise.
-logical function Test_cuberoot(verbose, val)
-  logical, intent(in) :: verbose !< If true, write results to stdout
-  real, intent(in) :: val  !< The real value to test, in arbitrary units [A]
-  ! Local variables
-  real :: diff ! The difference between val and the cube root of its cube [A].
-
-  diff = val - cuberoot(val)**3
-  Test_cuberoot = (abs(diff) > 2.0e-15*abs(val))
-
-  if (Test_cuberoot) then
-    write(stdout, '("For val = ",ES22.15,", (val - cuberoot(val**3))) = ",ES9.2," <-- FAIL")') val, diff
-  elseif (verbose) then
-    write(stdout, '("For val = ",ES22.15,", (val - cuberoot(val**3))) = ",ES9.2)') val, diff
-
-  endif
-end function Test_cuberoot
 
 end module MOM_intrinsic_functions

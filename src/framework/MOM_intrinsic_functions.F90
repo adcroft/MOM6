@@ -314,6 +314,68 @@ real elemental function sin(x)
 
 end function sin
 
+!> Returns cos(x).
+real elemental function cos(x)
+  real, intent(in) :: x !< Argument of sin [radians]
+  real :: a ! abs(x) or multiples thereof
+
+  a = abs(x)
+  if (a>=2.0*pi) then
+    ! Reduce range to 0..2pi
+    a = mod(a, 2.0*pi)
+  endif
+  if (a>pi) then
+    ! Reduce range to 0..pi
+    a = abs(pi - a)
+  endif
+  if (a<=0.5*pi) then
+    cos = cos_Taylor(a)
+  elseif (a<=pi) then
+    cos = -cos_Taylor(pi-a)
+  endif
+
+  contains
+
+  !> Returns cos(x) if x is in range -pi/2..pi/2 calculated using Taylor
+  !! series. This approach adds Taylor series terms from smallest to largest
+  !! and is thus as accurate as the underlying f.p. representation can be.
+  real elemental function cos_Taylor(x)
+    real, intent(in) :: x !< Argument of sin in range -pi/2..pi/2 [radians]
+    ! Local variables
+    integer, parameter :: n = 16 ! N-1 number of terms in series
+    ! Coefficients in Taylor series
+    ! https://en.wikipedia.org/wiki/Sine#Series_definition
+    real, parameter :: C(20) = (/ 0.50000000000000000, 4.1666666666666664E-002, &
+                              1.3888888888888887E-003, 2.4801587301587298E-005, &
+                              2.7557319223985888E-007, 2.0876756987868096E-009, &
+                              1.1470745597729723E-011, 4.7794773323873846E-014, &
+                              1.5619206968586225E-016, 4.1103176233121644E-019, &
+                              8.8967913924505722E-022, 1.6117375710961182E-024, &
+                              2.4795962632247972E-027, 3.2798892370698378E-030, &
+                              3.7699876288159054E-033, 3.8003907548547434E-036, &
+                              3.3871575355211618E-039, 2.6882202662866363E-042, &
+                              1.9119632050402820E-045, 1.2256174391283858E-048/)
+    real :: x2 ! x**2
+    real :: xxx(n) ! computed powers of x**2
+    real :: r ! accumulated terms
+    integer :: j ! term number
+
+    x2 = x*x
+    xxx(1) = -x2
+    do j = 2, n
+      xxx(j) = -xxx(j-1) * x2
+    enddo
+    r = 0.0
+    do j = n, 1, -1
+      r = r + C(j) * xxx(j)
+    enddo
+
+    cos_Taylor = 1.0 + r
+
+  end function cos_Taylor
+
+end function cos
+
 !> Returns true if any unit test of intrinsic_functions fails, or false if they all pass.
 function intrinsic_functions_unit_tests(verbose) result(fail)
   logical, intent(in) :: verbose !< If true, write results to stdout
@@ -321,11 +383,13 @@ function intrinsic_functions_unit_tests(verbose) result(fail)
 
   ! Local variables
   real :: testval  ! A test value for self-consistency testing [nondim]
+  real :: x ! Temporary argument
   integer :: n
 
   fail = .false.  ! Start with no fails
   if (verbose) write(stdout,*) '==== MOM_intrinsic_functions: intrinsics_unit_tests ==='
 
+  ! Cube root tests
   fail = fail .or. Test_cuberoot(verbose, 1.2345678901234e9)
   fail = fail .or. Test_cuberoot(verbose, -9.8765432109876e-21)
   fail = fail .or. Test_cuberoot(verbose, 64.0)
@@ -342,6 +406,9 @@ function intrinsic_functions_unit_tests(verbose) result(fail)
     fail = fail .or. Test_cuberoot(verbose, testval)
     testval = (-2.908 * (1.414213562373 + 1.2345678901234e-5*n)) * testval
   enddo
+
+  ! Trig tests
+  if (verbose) write(stdout,'(a21,1pe24.16)') 'module pi:',pi
   if (verbose) write(stdout,'(a21,2a24,x,a)') '','result','correct result','err/epsilon'
 
   ! Sine tests
@@ -356,6 +423,27 @@ function intrinsic_functions_unit_tests(verbose) result(fail)
   fail = test(fail, sin(1.5*pi), -1.0, 'sin(3/2 pi)')
   fail = test(fail, sin(2.5*pi), 1.0, 'sin(5/2 pi)')
   fail = test(fail, sin(-2.5*pi), -1.0, 'sin(-5/2 pi)')
+
+  ! Cosine tests
+  if (verbose) write(stdout,*) 'Tests of cos()'
+  fail = test(fail, cos(0.), 1., 'cos(0)=1')
+  fail = test(fail, cos(0.25*pi), sqrt(0.5), 'cos(pi/4)',inexact=1.)
+  fail = test(fail, cos(0.5*pi), 0., 'cos(pi/2)=0')
+  fail = test(fail, cos(pi), -1., 'cos(pi)=-1')
+  fail = test(fail, cos(1.5*pi), 0., 'cos(3/2 pi)=0')
+  fail = test(fail, cos(2.0*pi), 1., 'cos(2pi)=-1')
+
+  ! Tests that sin(x)**2 + cos(x)**2 = 1 (or less within a bit)
+  if (verbose) write(stdout,*) 'Tests of sin(x)**2 + cos(x)**2'
+  x = 0.5*pi
+  fail = test(fail, cos(x)**2+sin(x)**2, 1., 'cos^2+sin^2, x=pi/2')
+  x = pi/3.
+  fail = test(fail, cos(x)**2+sin(x)**2, 1., 'cos^2+sin^2, x=pi/3')
+  x = 0.25
+  fail = test(fail, cos(x)**2+sin(x)**2, 1., 'cos^2+sin^2, x=1/4', inexact=1.)
+  x = 0.5
+  fail = test(fail, cos(x)**2+sin(x)**2, 1., 'cos^2+sin^2, x=1/2')
+
 
   if (verbose .and. .not. fail) write(stdout,*) 'Pass'
 

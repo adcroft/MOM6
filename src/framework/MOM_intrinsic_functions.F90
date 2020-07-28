@@ -431,7 +431,6 @@ real elemental function tan(x)
   contains
 
   !> Returns tangent of x if x is in range -pi/6..pi/6.
-  !! Calculated using Horner's method.
   real elemental function tan_series(x)
     real, intent(in) :: x !< Argument of tan(x) in range -pi/6..pi/6 [radians]
     ! Local variables
@@ -445,15 +444,21 @@ real elemental function tan(x)
       2.1869488536155203E-002, 8.8632355299021973E-003, 3.5921280365724811E-003, 1.4558343870513183E-003, &
       5.9002744094558595E-004, 2.3912911424355248E-004, 9.6915379569294509E-005, 3.9278323883316833E-005, &
       1.5918905069328964E-005, 6.4516892156554306E-006, 2.6147711512907546E-006, 1.0597268320104654E-006, &
-      4.2949110782738063E-007 /) ! Coefficients in Taylor series
+      4.2949110782738063E-007 /) ! Coefficients in Taylor series (N/D)
     real :: x2 ! x**2
     real :: r ! accumulated terms
     integer :: j ! term number
+    real :: term(17) ! Actual coefficient in Taylor series
 
-    x2 = min(1.0, x*x)
-    r = C(17)
-    do j = 16, 1, -1
-      r = C(j) + x2 * r
+    x2 = x*x
+    r = 1.0
+    do j = 1, 17
+      term(j) = C(j) * r
+      r = r * x2
+    enddo
+    r = 0.0
+    do j = 17, 1, -1
+      r = r + term(j)
     enddo
 
     tan_series = r * x
@@ -592,8 +597,8 @@ function intrinsic_functions_unit_tests(verbose) result(fail)
   fail = test(fail, tan(pi/3.0), sqrt(3.0), 'tan(pi/6)=1/sqrt(3)', inexact=1.)
   fail = test(fail, tan(0.25*pi), 1.0, 'tan(pi/4)=1', inexact=1.)
   fail = test(fail, tan(pi/3.0), sqrt(3.0), 'tan(pi/3)=sqrt(3)', inexact=1.)
- !fail = test(fail, tan(0.375*pi), f_tan(0.375*pi), 'tan(3/8 pi) v. lib', inexact=1.)
- !fail = test(fail, tan(0.49*pi), f_tan(0.49*pi), 'tan(49/50 pi) v. lib', inexact=1.)
+  fail = test(fail, tan(0.375*pi), f_tan(0.375*pi), 'tan(3/8 pi) v. lib', inexact=2.)
+  fail = test(fail, tan(0.49*pi), f_tan(0.49*pi), 'tan(49/50 pi) v. lib', inexact=36.)
 
   ! Arc-tangent tests
   if (verbose) write(stdout,*) 'Tests of atan()'
@@ -616,7 +621,7 @@ function intrinsic_functions_unit_tests(verbose) result(fail)
     real, intent(in) :: val !< Value to test against correct value
     real, intent(in) :: correctval !< Correct value
     character(len=*), intent(in) :: msg !< Label
-    real, optional :: inexact !< If present allow a relative error of inaxact*epsilon
+    real, optional :: inexact !< If present allow a relative error of inexact*epsilon
     ! Local variables
     integer :: chan ! Stream to print to
     real :: err ! error
@@ -631,11 +636,15 @@ function intrinsic_functions_unit_tests(verbose) result(fail)
       if (test) then
         err = err / ( abs(val) * epsilon(val) )
         write(chan,'(a20,":",2(1pe24.16),g9.2,a)') msg,val,correctval,err,' <--- FAIL!'
-      elseif (err>0.) then
-        err = err / ( abs(val) * epsilon(val) )
-        write(chan,'(a20,":",2(1pe24.16),g9.2,a)') msg,val,correctval,err,' <- differs in last bit'
-      else
+      elseif (err<=0.) then
         write(chan,'(a20,":",2(1pe24.16))') msg,val,correctval
+      else
+        err = err / ( abs(val) * epsilon(val) )
+        if (err>1.) then
+          write(chan,'(a20,":",2(1pe24.16),g9.2,a)') msg,val,correctval,err,' <- differ in last bits'
+        else
+          write(chan,'(a20,":",2(1pe24.16),g9.2,a)') msg,val,correctval,err,' <- differs in last bit'
+        endif
       endif
     endif
     test = test .or. previous_test

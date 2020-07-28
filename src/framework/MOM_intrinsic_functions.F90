@@ -49,9 +49,10 @@ implicit none ; private
 
 public :: invcosh, cuberoot
 public :: intrinsic_functions_unit_tests
-public :: sin
-public :: tan
-public :: atan
+public :: sin_m6
+public :: cos_m6
+public :: tan_m6
+public :: atan_m6
 
 ! Floating point model, if bit layout from high to low is (sign, exp, frac)
 
@@ -236,7 +237,7 @@ pure function descale(x, e_a, s_a) result(a)
 end function descale
 
 !> Returns sin(x).
-real elemental function sin(x)
+real elemental function sin_m6(x)
   real, intent(in) :: x !< Argument of sin [radians]
   real :: a ! abs(x) or multiples thereof
   real :: s ! 1 or -1 depending on quadrant
@@ -253,9 +254,9 @@ real elemental function sin(x)
     s = -1.0
   endif
   if (a<=0.5*pi) then
-    sin = sign(sin_Taylor(a), s*x)
+    sin_m6 = sign(sin_Taylor(a), s*x)
   elseif (a<=pi) then
-    sin = sign(sin_Taylor(pi-a), s*x)
+    sin_m6 = sign(sin_Taylor(pi-a), s*x)
   endif
 
   contains
@@ -330,11 +331,11 @@ real elemental function sin(x)
 
   end function sin_Horner
 
-end function sin
+end function sin_m6
 
 !> Returns cos(x).
-real elemental function cos(x)
-  real, intent(in) :: x !< Argument of sin [radians]
+real elemental function cos_m6(x)
+  real, intent(in) :: x !< Argument of cos [radians]
   real :: a ! abs(x) or multiples thereof
 
   a = abs(x)
@@ -347,9 +348,9 @@ real elemental function cos(x)
     a = abs(pi - a)
   endif
   if (a<=0.5*pi) then
-    cos = cos_Taylor(a)
+    cos_m6 = cos_Taylor(a)
   elseif (a<=pi) then
-    cos = -cos_Taylor(pi-a)
+    cos_m6 = -cos_Taylor(pi-a)
   endif
 
   contains
@@ -392,10 +393,10 @@ real elemental function cos(x)
 
   end function cos_Taylor
 
-end function cos
+end function cos_m6
 
 !> Returns tan(x). Input assumed to be in range -pi/2..pi/2.
-real elemental function tan(x)
+real elemental function tan_m6(x)
   real, intent(in) :: x !< Argument of tan(x) [radians]
   real :: a ! abs(x) or multiples thereof
   real :: d ! denominator in division expressions
@@ -404,28 +405,28 @@ real elemental function tan(x)
   if (a<=0.125*pi) then
     ! a is in range 0..pi/8 for which tan_series is accurate
     ! (or 0..22.5 in degrees)
-    tan = tan_series( a )
-    tan = sign( tan, x)
+    tan_m6 = tan_series( a )
+    tan_m6 = sign( tan_m6, x)
   elseif (a<=0.25*pi) then
     ! Reduce range from pi/8..pi/4 to pi/16..pi/8
     ! (or 22.5...45 to 11.25...22.5 in degrees)
     a = 0.5 * a
-    tan = tan_series( a )
-    !d = 1.0 / ( 1.0 - tan**2 )
-    d = 1.0 / ( ( 1.0 - tan ) * ( 1.0 + tan ) )
-    tan = sign( 2.0 * tan * d, x )
+    tan_m6 = tan_series( a )
+    !d = 1.0 / ( 1.0 - tan_m6**2 )
+    d = 1.0 / ( ( 1.0 - tan_m6 ) * ( 1.0 + tan_m6 ) )
+    tan_m6 = sign( 2.0 * tan_m6 * d, x )
   else ! a>pi/4
     ! Reduce range from
     ! (or 45...90 to 11.25...22.5 in degrees)
     ! or pi/4..pi/2 to pi/8..pi/8
     a = 0.25 * a
-    tan = tan_series( a )
-    !d = 1.0 / ( 1.0 - tan**2 )
-    d = 1.0 / ( ( 1.0 - tan ) * ( 1.0 + tan ) )
-    tan = 2.0 * tan * d
-    !d = 1.0 / ( 1.0 - tan**2 )
-    d = 1.0 / ( ( 1.0 - tan ) * ( 1.0 + tan ) )
-    tan = sign( 2.0 * tan * d, x )
+    tan_m6 = tan_series( a )
+    !d = 1.0 / ( 1.0 - tan_m6**2 )
+    d = 1.0 / ( ( 1.0 - tan_m6 ) * ( 1.0 + tan_m6 ) )
+    tan_m6 = 2.0 * tan_m6 * d
+    !d = 1.0 / ( 1.0 - tan_m6**2 )
+    d = 1.0 / ( ( 1.0 - tan_m6 ) * ( 1.0 + tan_m6 ) )
+    tan_m6 = sign( 2.0 * tan_m6 * d, x )
   endif
 
   contains
@@ -465,21 +466,21 @@ real elemental function tan(x)
 
   end function tan_series
 
-end function tan
+end function tan_m6
 
 !> Returns arctan(x). Results in in range -pi/2..pi/2. [radians]
-real elemental function atan(x)
+real elemental function atan_m6(x)
   real, intent(in) :: x !< Argument of atan(x)
   real :: a ! abs(x)
 
   a = abs(x)
   if (a<=0.5) then
-    atan = sign( atan_series( a ), x)
+    atan_m6 = sign( atan_series( a ), x)
   elseif (a<2.0) then
-    atan = sign( p4atx( a - 1.0 ), x)
+    atan_m6 = sign( p4atx( a - 1.0 ), x)
   else ! a>=2
-    atan = atan_series( 1.0 / a )
-    atan = sign( 0.5*pi - atan, x)
+    atan_m6 = atan_series( 1.0 / a )
+    atan_m6 = sign( 0.5*pi - atan_m6, x)
   endif
 
   contains
@@ -516,7 +517,7 @@ real elemental function atan(x)
 
   end function p4atx
 
-end function atan
+end function atan_m6
 
 !> Returns true if any unit test of intrinsic_functions fails, or false if they all pass.
 function intrinsic_functions_unit_tests(verbose) result(fail)
@@ -553,63 +554,63 @@ function intrinsic_functions_unit_tests(verbose) result(fail)
   if (verbose) write(stdout,'(a21,1pe24.16)') 'module pi:',pi
   if (verbose) write(stdout,'(a21,2a24,x,a)') '','result','correct result','err/epsilon'
 
-  fail = test(fail, pi, 4.0 * f_atan( 1.0 ), 'module pi (v. library)')
+  fail = test(fail, pi, 4.0 * atan( 1.0 ), 'module pi (v. library)')
 
   ! Sine tests
   if (verbose) write(stdout,*) 'Tests of sin()'
-  fail = test(fail, sin(0.0), 0., 'sin(0)')
-  fail = test(fail, sin(pi/12.), 0.25*(sqrt(6.)-sqrt(2.)), 'sin(pi/12)=0.2588...', inexact=1.)
-  fail = test(fail, sin(pi/6.), .5, 'sin(pi/6)=0.5', inexact=1.)
-  fail = test(fail, sin(0.25*pi), 0.5*sqrt(2.), 'sin(pi/4)=sqrt(0.5)', inexact=1.)
-  fail = test(fail, sin(pi/3.), 0.5*sqrt(3.), 'sin(pi/3)=sqrt(3/4)', inexact=1.)
-  fail = test(fail, sin(0.5*pi), 1.0, 'sin(pi/2)=1')
-  fail = test(fail, sin(pi), 0., 'sin(pi)')
-  fail = test(fail, sin(1.5*pi), -1.0, 'sin(3/2 pi)')
-  fail = test(fail, sin(2.5*pi), 1.0, 'sin(5/2 pi)')
-  fail = test(fail, sin(-2.5*pi), -1.0, 'sin(-5/2 pi)')
+  fail = test(fail, sin_m6(0.0), 0., 'sin(0)')
+  fail = test(fail, sin_m6(pi/12.), 0.25*(sqrt(6.)-sqrt(2.)), 'sin(pi/12)=0.2588...', inexact=1.)
+  fail = test(fail, sin_m6(pi/6.), .5, 'sin(pi/6)=0.5', inexact=1.)
+  fail = test(fail, sin_m6(0.25*pi), 0.5*sqrt(2.), 'sin(pi/4)=sqrt(0.5)', inexact=1.)
+  fail = test(fail, sin_m6(pi/3.), 0.5*sqrt(3.), 'sin(pi/3)=sqrt(3/4)', inexact=1.)
+  fail = test(fail, sin_m6(0.5*pi), 1.0, 'sin(pi/2)=1')
+  fail = test(fail, sin_m6(pi), 0., 'sin(pi)')
+  fail = test(fail, sin_m6(1.5*pi), -1.0, 'sin(3/2 pi)')
+  fail = test(fail, sin_m6(2.5*pi), 1.0, 'sin(5/2 pi)')
+  fail = test(fail, sin_m6(-2.5*pi), -1.0, 'sin(-5/2 pi)')
 
   ! Cosine tests
   if (verbose) write(stdout,*) 'Tests of cos()'
-  fail = test(fail, cos(0.), 1., 'cos(0)=1')
-  fail = test(fail, cos(0.25*pi), sqrt(0.5), 'cos(pi/4)',inexact=1.)
-  fail = test(fail, cos(0.5*pi), 0., 'cos(pi/2)=0')
-  fail = test(fail, cos(pi), -1., 'cos(pi)=-1')
-  fail = test(fail, cos(1.5*pi), 0., 'cos(3/2 pi)=0')
-  fail = test(fail, cos(2.0*pi), 1., 'cos(2pi)=-1')
+  fail = test(fail, cos_m6(0.), 1., 'cos(0)=1')
+  fail = test(fail, cos_m6(0.25*pi), sqrt(0.5), 'cos(pi/4)=sqrt(0.5)',inexact=1.)
+  fail = test(fail, cos_m6(0.5*pi), 0., 'cos(pi/2)=0')
+  fail = test(fail, cos_m6(pi), -1., 'cos(pi)=-1')
+  fail = test(fail, cos_m6(1.5*pi), 0., 'cos(3/2 pi)=0')
+  fail = test(fail, cos_m6(2.0*pi), 1., 'cos(2pi)=-1')
 
   ! Tests that sin(x)**2 + cos(x)**2 = 1 (or less within a bit)
   if (verbose) write(stdout,*) 'Tests of sin(x)**2 + cos(x)**2'
   x = 0.5*pi
-  fail = test(fail, cos(x)**2+sin(x)**2, 1., 'cos^2+sin^2, x=pi/2')
+  fail = test(fail, cos_m6(x)**2+sin_m6(x)**2, 1., 'cos^2+sin^2, x=pi/2')
   x = pi/3.
-  fail = test(fail, cos(x)**2+sin(x)**2, 1., 'cos^2+sin^2, x=pi/3')
+  fail = test(fail, cos_m6(x)**2+sin_m6(x)**2, 1., 'cos^2+sin^2, x=pi/3')
   x = 0.25
-  fail = test(fail, cos(x)**2+sin(x)**2, 1., 'cos^2+sin^2, x=1/4', inexact=1.)
+  fail = test(fail, cos_m6(x)**2+sin_m6(x)**2, 1., 'cos^2+sin^2, x=1/4', inexact=1.)
   x = 0.5
-  fail = test(fail, cos(x)**2+sin(x)**2, 1., 'cos^2+sin^2, x=1/2')
+  fail = test(fail, cos_m6(x)**2+sin_m6(x)**2, 1., 'cos^2+sin^2, x=1/2')
 
   ! Tangent tests
   if (verbose) write(stdout,*) 'Tests of tan()'
-  fail = test(fail, tan(0.0), 0., 'tan(0)')
-  fail = test(fail, tan(0.0625*pi), f_tan(0.0625*pi), 'tan(pi/16) v. lib')
-  fail = test(fail, tan(0.125*pi), f_tan(0.125*pi), 'tan(pi/8) v. lib')
-  fail = test(fail, tan(0.1875*pi), f_tan(0.1875*pi), 'tan(3/16*pi) v. lib', inexact=1.)
-  fail = test(fail, tan(pi/3.0), sqrt(3.0), 'tan(pi/6)=1/sqrt(3)', inexact=1.)
-  fail = test(fail, tan(0.25*pi), 1.0, 'tan(pi/4)=1', inexact=1.)
-  fail = test(fail, tan(pi/3.0), sqrt(3.0), 'tan(pi/3)=sqrt(3)', inexact=1.)
-  fail = test(fail, tan(0.375*pi), f_tan(0.375*pi), 'tan(3/8 pi) v. lib', inexact=2.)
-  fail = test(fail, tan(0.49*pi), f_tan(0.49*pi), 'tan(49/50 pi) v. lib', inexact=36.)
+  fail = test(fail, tan_m6(0.0), 0., 'tan(0)')
+  fail = test(fail, tan_m6(0.0625*pi), tan(0.0625*pi), 'tan(pi/16) v. lib')
+  fail = test(fail, tan_m6(0.125*pi), tan(0.125*pi), 'tan(pi/8) v. lib')
+  fail = test(fail, tan_m6(0.1875*pi), tan(0.1875*pi), 'tan(3/16*pi) v. lib', inexact=1.)
+  fail = test(fail, tan_m6(pi/3.0), sqrt(3.0), 'tan(pi/6)=1/sqrt(3)', inexact=1.)
+  fail = test(fail, tan_m6(0.25*pi), 1.0, 'tan(pi/4)=1', inexact=1.)
+  fail = test(fail, tan_m6(pi/3.0), sqrt(3.0), 'tan(pi/3)=sqrt(3)', inexact=1.)
+  fail = test(fail, tan_m6(0.375*pi), tan(0.375*pi), 'tan(3/8 pi) v. lib', inexact=2.)
+  fail = test(fail, tan_m6(0.49*pi), tan(0.49*pi), 'tan(49/50 pi) v. lib', inexact=36.)
 
   ! Arc-tangent tests
   if (verbose) write(stdout,*) 'Tests of atan()'
-  fail = test(fail, atan(1.0 / sqrt(3.0)), pi/6.0, 'atan(3**-0.5)')
-  fail = test(fail, atan(0.0), 0., 'atan(0)')
-  fail = test(fail, atan(0.125), f_atan(0.125), 'atan(1/8)')
-  fail = test(fail, atan(0.75), f_atan(0.75), 'atan(3/4)')
-  fail = test(fail, atan(1.0), 0.25*pi, 'atan(1)')
-  fail = test(fail, atan(1.5), f_atan(1.5), 'atan(3/2)')
-  fail = test(fail, atan(4.0), f_atan(4.0), 'atan(4)', inexact=1.)
-  fail = test(fail, atan(-1.0), -0.25*pi, 'atan(-1)')
+  fail = test(fail, atan_m6(1.0 / sqrt(3.0)), pi/6.0, 'atan(3**-0.5)')
+  fail = test(fail, atan_m6(0.0), 0., 'atan(0)')
+  fail = test(fail, atan_m6(0.125), atan(0.125), 'atan(1/8)')
+  fail = test(fail, atan_m6(0.75), atan(0.75), 'atan(3/4)')
+  fail = test(fail, atan_m6(1.0), 0.25*pi, 'atan(1)')
+  fail = test(fail, atan_m6(1.5), atan(1.5), 'atan(3/2)')
+  fail = test(fail, atan_m6(4.0), atan(4.0), 'atan(4)', inexact=1.)
+  fail = test(fail, atan_m6(-1.0), -0.25*pi, 'atan(-1)')
 
   if (verbose .and. .not. fail) write(stdout,*) 'Pass'
 

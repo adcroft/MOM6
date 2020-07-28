@@ -77,7 +77,9 @@ integer, parameter :: fraclen = expbit
 !! 3.14159265358979323846 (52 mantissa bits or 21 digits) which is the
 !! value found in the C library math.h. We provide more digits (100)
 !! here for no better reason than the compilers handle it.
-real :: pi = 3.1415926535897932384626433832795028841971693993751058209749445923078164062862089986280348253421170679
+real, parameter :: pi = 3.1415926535897932384626433832795028841971693993751058209749445923078164062862089986280348253421170679
+
+logical :: use_fortran_intrinsics = .false.
 
 contains
 
@@ -259,6 +261,8 @@ real elemental function sin_m6(x)
     sin_m6 = sign(sin_Taylor(pi-a), s*x)
   endif
 
+  if (use_fortran_intrinsics) sin_m6 = sin(x)
+
   contains
 
   !> Returns sin(x) if x is in range -pi/2..pi/2 calculated using Taylor
@@ -353,6 +357,8 @@ real elemental function cos_m6(x)
     cos_m6 = -cos_Taylor(pi-a)
   endif
 
+  if (use_fortran_intrinsics) cos_m6 = cos(x)
+
   contains
 
   !> Returns cos(x) if x is in range -pi/2..pi/2 calculated using Taylor
@@ -429,6 +435,8 @@ real elemental function tan_m6(x)
     tan_m6 = sign( 2.0 * tan_m6 * d, x )
   endif
 
+  if (use_fortran_intrinsics) tan_m6 = tan(x)
+
   contains
 
   !> Returns tangent of x if x is in range -pi/6..pi/6.
@@ -482,6 +490,8 @@ real elemental function atan_m6(x)
     atan_m6 = atan_series( 1.0 / a )
     atan_m6 = sign( 0.5*pi - atan_m6, x)
   endif
+
+  if (use_fortran_intrinsics) atan_m6 = atan(x)
 
   contains
 

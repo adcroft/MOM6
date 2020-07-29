@@ -53,6 +53,10 @@ public :: sin_m6
 public :: cos_m6
 public :: tan_m6
 public :: atan_m6
+public :: sind_m6
+public :: cosd_m6
+public :: pi
+public :: pi_180
 
 ! Floating point model, if bit layout from high to low is (sign, exp, frac)
 
@@ -78,6 +82,7 @@ integer, parameter :: fraclen = expbit
 !! value found in the C library math.h. We provide more digits (100)
 !! here for no better reason than the compilers handle it.
 real, parameter :: pi = 3.1415926535897932384626433832795028841971693993751058209749445923078164062862089986280348253421170679
+real, parameter :: pi_180 = 0.0174532925199432957692369076848861271344287188854172545609719144017100911460344944368224156963450948216
 
 logical :: use_fortran_intrinsics = .false.
 
@@ -238,7 +243,7 @@ pure function descale(x, e_a, s_a) result(a)
   a = transfer(xb, 1.)
 end function descale
 
-!> Returns sin(x).
+!> Returns sin(x) where x is in radians
 real elemental function sin_m6(x)
   real, intent(in) :: x !< Argument of sin [radians]
   real :: a ! abs(x) or multiples thereof
@@ -263,81 +268,108 @@ real elemental function sin_m6(x)
 
   if (use_fortran_intrinsics) sin_m6 = sin(x)
 
-  contains
-
-  !> Returns sin(x) if x is in range -pi/2..pi/2 calculated using Taylor
-  !! series. This approach adds Taylor series terms from smallest to largest
-  !! and is thus as accurate as the underlying f.p. representation can be.
-  real elemental function sin_Taylor(x)
-    real, intent(in) :: x !< Argument of sin in range -pi/2..pi/2 [radians]
-    ! Local variables
-    integer, parameter :: n = 16 ! N-1 number of terms in series
-    ! Coefficients in Taylor series
-    ! https://en.wikipedia.org/wiki/Sine#Series_definition
-    ! 15 terms of the Taylor series are needed for 64 bit precision when x=pi
-    ! 12 terms of the Taylor series are needed for 64 bit precision when x=pi/2
-    !  9 terms of the Taylor series are needed for 64 bit precision when x=pi/4
-    real, parameter :: C(16) = (/0.16666666666666666, 8.3333333333333333E-003, &
-                             1.9841269841269839E-004, 2.7557319223985884E-006, &
-                             2.5052108385441710E-008, 1.6059043836821608E-010, &
-                             7.6471637318198144E-013, 2.8114572543455198E-015, &
-                             8.2206352466243264E-018, 1.9572941063391257E-020, &
-                             3.8681701706306830E-023, 6.4469502843844724E-026, &
-                             9.1836898637955449E-029, 1.1309962886447716E-031, &
-                             1.2161250415535179E-034, 1.1516335620771951E-037/)
-    real :: x2 ! x**2
-    real :: xxx(n) ! computed powers of x**2
-    real :: r ! accumulated terms
-    integer :: j ! term number
-
-    x2 = x*x
-    xxx(1) = -x2
-    do j = 2, n
-      xxx(j) = -xxx(j-1) * x2
-    enddo
-    r = 0.0
-    do j = n, 1, -1
-      r = r + C(j) * xxx(j)
-    enddo
-
-    sin_Taylor = ( 1.0 + r ) * x
-
-  end function sin_Taylor
-
-  !> Returns sin(x) if x is in range -pi/2..pi/2 calculated using Horner's
-  !! method applied to the Taylor series polynomial.
-  real elemental function sin_Horner(x)
-    real, intent(in) :: x !< Argument of sin in range -pi/2..pi/2 [radians]
-    ! Local variables
-    integer, parameter :: n = 16 ! N-1 number of terms in series
-    ! Coefficients in Taylor series, divided by coefficient of previous term
-    ! 15 terms of the Taylor series are needed for 64 bit precision when x=pi
-    ! 12 terms of the Taylor series are needed for 64 bit precision when x=pi/2
-    !  9 terms of the Taylor series are needed for 64 bit precision when x=pi/4
-    real, parameter :: C(19) = (/0.16666666666666667,0.05,0.0238095238095238081, &
-                     0.013888888888888889,0.00909090909090909,0.00641025641025641, &
-                     0.004761904761904762,0.003676470588235294,0.0029239766081871343, &
-                     0.002380952380952381,0.001976284584980237,0.0016666666666666667, &
-                     0.0014245014245014246,0.0012315270935960591,0.001075268817204301, &
-                     0.000946969696969697,0.0008403361344537816,0.0007507507507507508, &
-                     0.0006747638326585695/) ! https://en.wikipedia.org/wiki/Sine#Series_definition
-    real :: x2 ! x**2
-    real :: r ! accumulated terms
-    integer :: j ! term number
-
-    x2 = x*x
-    r = 1.0
-    do j = n, 1, -1
-      r = 1.0 - ( C(j) * x2 ) * r
-    enddo
-
-    sin_Horner = r * x
-
-  end function sin_Horner
-
 end function sin_m6
 
-!> Returns cos(x).
+!> Returns sin(x) where x is in degrees
+real elemental function sind_m6(x)
+  real, intent(in) :: x !< Argument of sin [degrees]
+  real :: a ! abs(x) or multiples thereof
+  real :: s ! 1 or -1 depending on quadrant
+  real :: d2r ! degrees to radians
+
+  d2r = pi / 180.
+  s = 1.0
+  a = abs(x)
+  if (a>360.) then
+    ! Reduce range to 0..360
+    a = mod(a, 360.)
+  endif
+  if (a>180.) then
+    ! Reduce range to 0..180
+    a = a - 180.
+    s = -1.0
+  endif
+  if (a<=90.) then
+    sind_m6 = sign(sin_Taylor(d2r*a), s*x)
+  elseif (a<=180.) then
+    sind_m6 = sign(sin_Taylor(d2r*(180.-a)), s*x)
+  endif
+
+  if (use_fortran_intrinsics) sind_m6 = sin(d2r*x)
+
+end function sind_m6
+
+!> Returns sin(x) if x is in range -pi/2..pi/2 calculated using Taylor
+!! series. This approach adds Taylor series terms from smallest to largest
+!! and is thus as accurate as the underlying f.p. representation can be.
+real elemental function sin_Taylor(x)
+  real, intent(in) :: x !< Argument of sin in range -pi/2..pi/2 [radians]
+  ! Local variables
+  integer, parameter :: n = 16 ! N-1 number of terms in series
+  ! Coefficients in Taylor series
+  ! https://en.wikipedia.org/wiki/Sine#Series_definition
+  ! 15 terms of the Taylor series are needed for 64 bit precision when x=pi
+  ! 12 terms of the Taylor series are needed for 64 bit precision when x=pi/2
+  !  9 terms of the Taylor series are needed for 64 bit precision when x=pi/4
+  real, parameter :: C(16) = (/0.16666666666666666, 8.3333333333333333E-003, &
+                           1.9841269841269839E-004, 2.7557319223985884E-006, &
+                           2.5052108385441710E-008, 1.6059043836821608E-010, &
+                           7.6471637318198144E-013, 2.8114572543455198E-015, &
+                           8.2206352466243264E-018, 1.9572941063391257E-020, &
+                           3.8681701706306830E-023, 6.4469502843844724E-026, &
+                           9.1836898637955449E-029, 1.1309962886447716E-031, &
+                           1.2161250415535179E-034, 1.1516335620771951E-037/)
+  real :: x2 ! x**2
+  real :: xxx(n) ! computed powers of x**2
+  real :: r ! accumulated terms
+  integer :: j ! term number
+
+  x2 = x*x
+  xxx(1) = -x2
+  do j = 2, n
+    xxx(j) = -xxx(j-1) * x2
+  enddo
+  r = 0.0
+  do j = n, 1, -1
+    r = r + C(j) * xxx(j)
+  enddo
+
+  sin_Taylor = ( 1.0 + r ) * x
+
+end function sin_Taylor
+
+! !> Returns sin(x) if x is in range -pi/2..pi/2 calculated using Horner's
+! !! method applied to the Taylor series polynomial.
+! real elemental function sin_Horner(x)
+!   real, intent(in) :: x !< Argument of sin in range -pi/2..pi/2 [radians]
+!   ! Local variables
+!   integer, parameter :: n = 16 ! N-1 number of terms in series
+!   ! Coefficients in Taylor series, divided by coefficient of previous term
+!   ! 15 terms of the Taylor series are needed for 64 bit precision when x=pi
+!   ! 12 terms of the Taylor series are needed for 64 bit precision when x=pi/2
+!   !  9 terms of the Taylor series are needed for 64 bit precision when x=pi/4
+!   real, parameter :: C(19) = (/0.16666666666666667,0.05,0.0238095238095238081, &
+!                    0.013888888888888889,0.00909090909090909,0.00641025641025641, &
+!                    0.004761904761904762,0.003676470588235294,0.0029239766081871343, &
+!                    0.002380952380952381,0.001976284584980237,0.0016666666666666667, &
+!                    0.0014245014245014246,0.0012315270935960591,0.001075268817204301, &
+!                    0.000946969696969697,0.0008403361344537816,0.0007507507507507508, &
+!                    0.0006747638326585695/) ! https://en.wikipedia.org/wiki/Sine#Series_definition
+!   real :: x2 ! x**2
+!   real :: r ! accumulated terms
+!   integer :: j ! term number
+
+!   x2 = x*x
+!   r = 1.0
+!   do j = n, 1, -1
+!     r = 1.0 - ( C(j) * x2 ) * r
+!   enddo
+
+!   sin_Horner = r * x
+
+! end function sin_Horner
+
+!> Returns cos(x) where x is in radians
 real elemental function cos_m6(x)
   real, intent(in) :: x !< Argument of cos [radians]
   real :: a ! abs(x) or multiples thereof
@@ -359,47 +391,71 @@ real elemental function cos_m6(x)
 
   if (use_fortran_intrinsics) cos_m6 = cos(x)
 
-  contains
-
-  !> Returns cos(x) if x is in range -pi/2..pi/2 calculated using Taylor
-  !! series. This approach adds Taylor series terms from smallest to largest
-  !! and is thus as accurate as the underlying f.p. representation can be.
-  real elemental function cos_Taylor(x)
-    real, intent(in) :: x !< Argument of sin in range -pi/2..pi/2 [radians]
-    ! Local variables
-    integer, parameter :: n = 16 ! N-1 number of terms in series
-    ! Coefficients in Taylor series
-    ! https://en.wikipedia.org/wiki/Sine#Series_definition
-    real, parameter :: C(20) = (/ 0.50000000000000000, 4.1666666666666664E-002, &
-                              1.3888888888888887E-003, 2.4801587301587298E-005, &
-                              2.7557319223985888E-007, 2.0876756987868096E-009, &
-                              1.1470745597729723E-011, 4.7794773323873846E-014, &
-                              1.5619206968586225E-016, 4.1103176233121644E-019, &
-                              8.8967913924505722E-022, 1.6117375710961182E-024, &
-                              2.4795962632247972E-027, 3.2798892370698378E-030, &
-                              3.7699876288159054E-033, 3.8003907548547434E-036, &
-                              3.3871575355211618E-039, 2.6882202662866363E-042, &
-                              1.9119632050402820E-045, 1.2256174391283858E-048/)
-    real :: x2 ! x**2
-    real :: xxx(n) ! computed powers of x**2
-    real :: r ! accumulated terms
-    integer :: j ! term number
-
-    x2 = x*x
-    xxx(1) = -x2
-    do j = 2, n
-      xxx(j) = -xxx(j-1) * x2
-    enddo
-    r = 0.0
-    do j = n, 1, -1
-      r = r + C(j) * xxx(j)
-    enddo
-
-    cos_Taylor = 1.0 + r
-
-  end function cos_Taylor
-
 end function cos_m6
+
+!> Returns cos(x) where x is in degrees
+real elemental function cosd_m6(x)
+  real, intent(in) :: x !< Argument of cos [degrees]
+  real :: a ! abs(x) or multiples thereof
+  real :: d2r ! degrees to radians
+
+  d2r = pi / 180.
+  a = abs(x)
+  if (a>=360.) then
+    ! Reduce range to 0..2pi
+    a = mod(a, 360.)
+  endif
+  if (a>180.) then
+    ! Reduce range to 0..pi
+    a = abs(180. - a)
+  endif
+  if (a<=90.) then
+    cosd_m6 = cos_Taylor(d2r*a)
+  elseif (a<=180.) then
+    cosd_m6 = -cos_Taylor(d2r*(180.-a))
+  endif
+
+  if (use_fortran_intrinsics) cosd_m6 = cos(d2r*x)
+
+end function cosd_m6
+
+!> Returns cos(x) if x is in range -pi/2..pi/2 calculated using Taylor
+!! series. This approach adds Taylor series terms from smallest to largest
+!! and is thus as accurate as the underlying f.p. representation can be.
+real elemental function cos_Taylor(x)
+  real, intent(in) :: x !< Argument of sin in range -pi/2..pi/2 [radians]
+  ! Local variables
+  integer, parameter :: n = 16 ! N-1 number of terms in series
+  ! Coefficients in Taylor series
+  ! https://en.wikipedia.org/wiki/Sine#Series_definition
+  real, parameter :: C(20) = (/ 0.50000000000000000, 4.1666666666666664E-002, &
+                            1.3888888888888887E-003, 2.4801587301587298E-005, &
+                            2.7557319223985888E-007, 2.0876756987868096E-009, &
+                            1.1470745597729723E-011, 4.7794773323873846E-014, &
+                            1.5619206968586225E-016, 4.1103176233121644E-019, &
+                            8.8967913924505722E-022, 1.6117375710961182E-024, &
+                            2.4795962632247972E-027, 3.2798892370698378E-030, &
+                            3.7699876288159054E-033, 3.8003907548547434E-036, &
+                            3.3871575355211618E-039, 2.6882202662866363E-042, &
+                            1.9119632050402820E-045, 1.2256174391283858E-048/)
+  real :: x2 ! x**2
+  real :: xxx(n) ! computed powers of x**2
+  real :: r ! accumulated terms
+  integer :: j ! term number
+
+  x2 = x*x
+  xxx(1) = -x2
+  do j = 2, n
+    xxx(j) = -xxx(j-1) * x2
+  enddo
+  r = 0.0
+  do j = n, 1, -1
+    r = r + C(j) * xxx(j)
+  enddo
+
+  cos_Taylor = 1.0 + r
+
+end function cos_Taylor
 
 !> Returns tan(x). Input assumed to be in range -pi/2..pi/2.
 real elemental function tan_m6(x)
@@ -613,14 +669,33 @@ function intrinsic_functions_unit_tests(verbose) result(fail)
 
   ! Arc-tangent tests
   if (verbose) write(stdout,*) 'Tests of atan()'
-  fail = test(fail, atan_m6(1.0 / sqrt(3.0)), pi/6.0, 'atan(3**-0.5)')
-  fail = test(fail, atan_m6(0.0), 0., 'atan(0)')
-  fail = test(fail, atan_m6(0.125), atan(0.125), 'atan(1/8)')
-  fail = test(fail, atan_m6(0.75), atan(0.75), 'atan(3/4)')
-  fail = test(fail, atan_m6(1.0), 0.25*pi, 'atan(1)')
-  fail = test(fail, atan_m6(1.5), atan(1.5), 'atan(3/2)')
-  fail = test(fail, atan_m6(4.0), atan(4.0), 'atan(4)', inexact=1.)
-  fail = test(fail, atan_m6(-1.0), -0.25*pi, 'atan(-1)')
+  fail = test(fail, atan_m6(0.0), 0., 'atan(0)=0')
+  fail = test(fail, atan_m6(0.125), atan(0.125), 'atan(1/8) v. lib')
+  fail = test(fail, atan_m6(1.0/sqrt(3.0)), pi/6.0, 'atan(3**-0.5)=pi/6')
+  fail = test(fail, atan_m6(0.75), atan(0.75), 'atan(3/4) v. lib')
+  fail = test(fail, atan_m6(1.0), 0.25*pi, 'atan(1)=pi/4')
+  fail = test(fail, atan_m6(1.5), atan(1.5), 'atan(3/2) v. lib')
+  fail = test(fail, atan_m6(4.0), atan(4.0), 'atan(4) v. lib', inexact=1.)
+  fail = test(fail, atan_m6(-1.0), -0.25*pi, 'atan(-1)=-pi/4')
+
+  ! Sine tests in degrees
+  if (verbose) write(stdout,*) 'Tests of sind() in degrees'
+  fail = test(fail, sind_m6(0.0), 0., 'sin(0)')
+  fail = test(fail, sind_m6(30.), .5, 'sin(30)=0.5', inexact=1.)
+  fail = test(fail, sind_m6(45.), 0.5*sqrt(2.), 'sin(45)=sqrt(0.5)', inexact=1.)
+  fail = test(fail, sind_m6(60.), 0.5*sqrt(3.), 'sin(60)=sqrt(3/4)', inexact=1.)
+  fail = test(fail, sind_m6(90.), 1.0, 'sin(90)=1')
+  fail = test(fail, sind_m6(180.), 0., 'sin(180)')
+  fail = test(fail, sind_m6(270.), -1.0, 'sin(270)')
+
+  ! Cosine tests in degrees
+  if (verbose) write(stdout,*) 'Tests of cosd() in degrees'
+  fail = test(fail, cosd_m6(0.), 1., 'cos(0)=1')
+  fail = test(fail, cosd_m6(45.), sqrt(0.5), 'cos(45)=sqrt(0.5)',inexact=1.)
+  fail = test(fail, cosd_m6(90.), 0., 'cos(90)=0')
+  fail = test(fail, cosd_m6(180.), -1., 'cos(180)=-1')
+  fail = test(fail, cosd_m6(270.), 0., 'cos(270)=0')
+  fail = test(fail, cosd_m6(360.), 1., 'cos(360)=-1')
 
   if (verbose .and. .not. fail) write(stdout,*) 'Pass'
 

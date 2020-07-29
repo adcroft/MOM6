@@ -49,6 +49,8 @@ implicit none ; private
 
 public :: invcosh, cuberoot
 public :: intrinsic_functions_unit_tests
+public :: exp_m6
+public :: expm1_m6
 public :: sin_m6
 public :: cos_m6
 public :: tan_m6
@@ -269,6 +271,45 @@ real elemental function sin_m6(x)
   if (use_fortran_intrinsics) sin_m6 = sin(x)
 
 end function sin_m6
+
+!> Returns exp(x)
+real elemental function exp_m6(x)
+  real, intent(in) :: x !< Argument of exp()
+
+  if (use_fortran_intrinsics) then
+    exp_m6 = exp(x)
+  else
+    exp_m6 = 1.0 + expm1_m6(x)
+  endif
+
+end function exp_m6
+
+!> Returns exp(x)-1 evaluated using Horner's method
+real elemental function expm1_m6(x)
+  real, intent(in) :: x !< Argument of exp(x)-1
+  ! Local variables
+  integer :: n ! term number
+  integer :: nt ! number of terms
+  real :: r ! accumulated terms
+
+  if (use_fortran_intrinsics) then
+    expm1_m6 = exp(x) - 1.0
+  else
+    r = 0.
+    nt = 40
+    r = 1.0
+    do n = 2, 350
+      r = (x*r)/float(n)
+      if (r<0.125*epsilon(r)) exit
+    enddo
+    nt = n
+    do n = nt,1,-1
+      r = x/float(n) * ( 1.0 + r )
+    enddo
+    expm1_m6 = r
+  endif
+
+end function expm1_m6
 
 !> Returns sin(x) where x is in degrees
 real elemental function sind_m6(x)
@@ -696,6 +737,15 @@ function intrinsic_functions_unit_tests(verbose) result(fail)
   fail = test(fail, cosd_m6(180.), -1., 'cos(180)=-1')
   fail = test(fail, cosd_m6(270.), 0., 'cos(270)=0')
   fail = test(fail, cosd_m6(360.), 1., 'cos(360)=-1')
+
+  ! Exponential function tests
+  if (verbose) write(stdout,*) 'Tests of exp()'
+  fail = test(fail, exp_m6(0.), 1., 'exp(0)=1')
+  fail = test(fail, exp_m6(1.e-2), exp(1.e-2), 'exp(.01) v. lib')
+  fail = test(fail, exp_m6(1.e-1), exp(1.e-1), 'exp(.1) v. lib')
+  fail = test(fail, exp_m6(1.), exp(1.), 'exp(1) v. lib')
+  fail = test(fail, exp_m6(1.e1), exp(1.e1), 'exp(10) v. lib')
+  fail = test(fail, exp_m6(1.e2), exp(1.e2), 'exp(100) v. lib')
 
   if (verbose .and. .not. fail) write(stdout,*) 'Pass'
 

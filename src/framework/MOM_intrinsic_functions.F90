@@ -78,10 +78,10 @@ integer, parameter :: fraclen = expbit
 !! (24 mantissa bits or 7 digits).
 !! In IEEE 754 double precision floating point representation pi is
 !! 3.14159265358979323846 (52 mantissa bits or 21 digits) which is the
-!! value found in the C library math.h. We provide more digits (100)
-!! here for no better reason than the compilers handle it.
-real, parameter :: pi = 3.1415926535897932384626433832795028841971693993751058209749445923078164062862089986280348253421170679
-real, parameter :: pi_180 = 0.0174532925199432957692369076848861271344287188854172545609719144017100911460344944368224156963450948216
+!! value found in the C library math.h. We provide more digits (40)
+!! here (rounded) for no better reason than the compilers handle it.
+real, parameter :: pi = 3.141592653589793238462643383279502884197
+real, parameter :: pi_180 = 0.01745329251994329576923690768488612713443
 
 logical :: use_fortran_intrinsics = .false.
 

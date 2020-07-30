@@ -47,14 +47,11 @@ use fortran_intrinsics, only : f_tan
 
 implicit none ; private
 
-public :: invcosh, cuberoot
 public :: intrinsic_functions_unit_tests
-public :: exp_m6
-public :: expm1_m6
+public :: invcosh
+public :: cuberoot
 public :: sin_m6
 public :: cos_m6
-public :: tan_m6
-public :: atan_m6
 public :: sind_m6
 public :: cosd_m6
 public :: pi
@@ -272,45 +269,6 @@ real elemental function sin_m6(x)
 
 end function sin_m6
 
-!> Returns exp(x)
-real elemental function exp_m6(x)
-  real, intent(in) :: x !< Argument of exp()
-
-  if (use_fortran_intrinsics) then
-    exp_m6 = exp(x)
-  else
-    exp_m6 = 1.0 + expm1_m6(x)
-  endif
-
-end function exp_m6
-
-!> Returns exp(x)-1 evaluated using Horner's method
-real elemental function expm1_m6(x)
-  real, intent(in) :: x !< Argument of exp(x)-1
-  ! Local variables
-  integer :: n ! term number
-  integer :: nt ! number of terms
-  real :: r ! accumulated terms
-
-  if (use_fortran_intrinsics) then
-    expm1_m6 = exp(x) - 1.0
-  else
-    r = 0.
-    nt = 40
-    r = 1.0
-    do n = 2, 350
-      r = (x*r)/float(n)
-      if (r<0.125*epsilon(r)) exit
-    enddo
-    nt = n
-    do n = nt,1,-1
-      r = x/float(n) * ( 1.0 + r )
-    enddo
-    expm1_m6 = r
-  endif
-
-end function expm1_m6
-
 !> Returns sin(x) where x is in degrees
 real elemental function sind_m6(x)
   real, intent(in) :: x !< Argument of sin [degrees]
@@ -498,134 +456,6 @@ real elemental function cos_Taylor(x)
 
 end function cos_Taylor
 
-!> Returns tan(x). Input assumed to be in range -pi/2..pi/2.
-real elemental function tan_m6(x)
-  real, intent(in) :: x !< Argument of tan(x) [radians]
-  real :: a ! abs(x) or multiples thereof
-  real :: d ! denominator in division expressions
-
-  a = abs(x)
-  if (a<=0.125*pi) then
-    ! a is in range 0..pi/8 for which tan_series is accurate
-    ! (or 0..22.5 in degrees)
-    tan_m6 = tan_series( a )
-    tan_m6 = sign( tan_m6, x)
-  elseif (a<=0.25*pi) then
-    ! Reduce range from pi/8..pi/4 to pi/16..pi/8
-    ! (or 22.5...45 to 11.25...22.5 in degrees)
-    a = 0.5 * a
-    tan_m6 = tan_series( a )
-    !d = 1.0 / ( 1.0 - tan_m6**2 )
-    d = 1.0 / ( ( 1.0 - tan_m6 ) * ( 1.0 + tan_m6 ) )
-    tan_m6 = sign( 2.0 * tan_m6 * d, x )
-  else ! a>pi/4
-    ! Reduce range from
-    ! (or 45...90 to 11.25...22.5 in degrees)
-    ! or pi/4..pi/2 to pi/8..pi/8
-    a = 0.25 * a
-    tan_m6 = tan_series( a )
-    !d = 1.0 / ( 1.0 - tan_m6**2 )
-    d = 1.0 / ( ( 1.0 - tan_m6 ) * ( 1.0 + tan_m6 ) )
-    tan_m6 = 2.0 * tan_m6 * d
-    !d = 1.0 / ( 1.0 - tan_m6**2 )
-    d = 1.0 / ( ( 1.0 - tan_m6 ) * ( 1.0 + tan_m6 ) )
-    tan_m6 = sign( 2.0 * tan_m6 * d, x )
-  endif
-
-  if (use_fortran_intrinsics) tan_m6 = tan(x)
-
-  contains
-
-  !> Returns tangent of x if x is in range -pi/6..pi/6.
-  real elemental function tan_series(x)
-    real, intent(in) :: x !< Argument of tan(x) in range -pi/6..pi/6 [radians]
-    ! Local variables
-    !integer, parameter :: N(17) =(/ 1, 1, 2, 17, 62, 1382, 21844, 929569, 6404582, 443861162, 18888466084, &
-    !  113927491862, 58870668456604, 8374643517010684, 689005380505609448, 129848163681107301953, &
-    !  1736640792209901647222/) ! Numerators from http://oeis.org/A002430
-    !integer, parameter :: D(17) = (/1, 3, 15, 315, 2835, 155925, 6081075, 638512875, 10854718875, 1856156927625, &
-    !  194896477400625, 2900518163668125, 3698160658676859375, 1298054391195577640625, 263505041412702261046875, &
-    !  122529844256906551386796875, 4043484860477916195764296875/) ! Denominators from http://oeis.org/A036279
-    real, parameter :: C(17) = (/ 1.0, 0.33333333333333333, 0.13333333333333333, 5.3968253968253971E-002, &
-      2.1869488536155203E-002, 8.8632355299021973E-003, 3.5921280365724811E-003, 1.4558343870513183E-003, &
-      5.9002744094558595E-004, 2.3912911424355248E-004, 9.6915379569294509E-005, 3.9278323883316833E-005, &
-      1.5918905069328964E-005, 6.4516892156554306E-006, 2.6147711512907546E-006, 1.0597268320104654E-006, &
-      4.2949110782738063E-007 /) ! Coefficients in Taylor series (N/D)
-    real :: x2 ! x**2
-    real :: r ! accumulated terms
-    integer :: j ! term number
-    real :: term(17) ! Actual coefficient in Taylor series
-
-    x2 = x*x
-    r = 1.0
-    do j = 1, 17
-      term(j) = C(j) * r
-      r = r * x2
-    enddo
-    r = 0.0
-    do j = 17, 1, -1
-      r = r + term(j)
-    enddo
-
-    tan_series = r * x
-
-  end function tan_series
-
-end function tan_m6
-
-!> Returns arctan(x). Results in in range -pi/2..pi/2. [radians]
-real elemental function atan_m6(x)
-  real, intent(in) :: x !< Argument of atan(x)
-  real :: a ! abs(x)
-
-  a = abs(x)
-  if (a<=0.5) then
-    atan_m6 = sign( atan_series( a ), x)
-  elseif (a<2.0) then
-    atan_m6 = sign( p4atx( a - 1.0 ), x)
-  else ! a>=2
-    atan_m6 = atan_series( 1.0 / a )
-    atan_m6 = sign( 0.5*pi - atan_m6, x)
-  endif
-
-  if (use_fortran_intrinsics) atan_m6 = atan(x)
-
-  contains
-
-  !> Returns the arctangent of x if x is in range -3/4..3/4
-  !! This is calculated using Horner's method for simplicity.
-  real elemental function atan_series(x)
-    real, intent(in) :: x !< Argument of arctangent in range -3/4..3/4
-    ! Local variables
-    integer, parameter :: n = 56 ! Number of terms (could be dynamically determined)
-    real :: x2 ! x**2
-    real :: r ! accumulated terms
-    real :: d ! polynomial coefficient
-    integer :: j ! term number
-
-    x2 = min(1.0, x*x)
-    r = 1.0 / float(2*n-1)
-    do j = n-1, 1, -1
-      d = 1.0 / float(2*j-1)
-      r = d - x2 * r
-    enddo
-
-    atan_series = r * x
-
-  end function atan_series
-
-  !> Returns pi/4 + arctan ( x / ( 2 + x) )
-  real elemental function p4atx(x)
-    real, intent(in) :: x !< Argument of function
-    real :: d ! reciprocal of denominator
-
-    d = 1.0 / ( 2.0 + x )
-    p4atx = 0.25*pi + atan_series( x*d )
-
-  end function p4atx
-
-end function atan_m6
-
 !> Returns true if any unit test of intrinsic_functions fails, or false if they all pass.
 function intrinsic_functions_unit_tests(verbose) result(fail)
   logical, intent(in) :: verbose !< If true, write results to stdout
@@ -696,29 +526,6 @@ function intrinsic_functions_unit_tests(verbose) result(fail)
   x = 0.5
   fail = test(fail, cos_m6(x)**2+sin_m6(x)**2, 1., 'cos^2+sin^2, x=1/2')
 
-  ! Tangent tests
-  if (verbose) write(stdout,*) 'Tests of tan()'
-  fail = test(fail, tan_m6(0.0), 0., 'tan(0)')
-  fail = test(fail, tan_m6(0.0625*pi), tan(0.0625*pi), 'tan(pi/16) v. lib')
-  fail = test(fail, tan_m6(0.125*pi), tan(0.125*pi), 'tan(pi/8) v. lib')
-  fail = test(fail, tan_m6(0.1875*pi), tan(0.1875*pi), 'tan(3/16*pi) v. lib', inexact=1.)
-  fail = test(fail, tan_m6(pi/3.0), sqrt(3.0), 'tan(pi/6)=1/sqrt(3)', inexact=1.)
-  fail = test(fail, tan_m6(0.25*pi), 1.0, 'tan(pi/4)=1', inexact=1.)
-  fail = test(fail, tan_m6(pi/3.0), sqrt(3.0), 'tan(pi/3)=sqrt(3)', inexact=1.)
-  fail = test(fail, tan_m6(0.375*pi), tan(0.375*pi), 'tan(3/8 pi) v. lib', inexact=2.)
-  fail = test(fail, tan_m6(0.49*pi), tan(0.49*pi), 'tan(49/50 pi) v. lib', inexact=36.)
-
-  ! Arc-tangent tests
-  if (verbose) write(stdout,*) 'Tests of atan()'
-  fail = test(fail, atan_m6(0.0), 0., 'atan(0)=0')
-  fail = test(fail, atan_m6(0.125), atan(0.125), 'atan(1/8) v. lib')
-  fail = test(fail, atan_m6(1.0/sqrt(3.0)), pi/6.0, 'atan(3**-0.5)=pi/6')
-  fail = test(fail, atan_m6(0.75), atan(0.75), 'atan(3/4) v. lib')
-  fail = test(fail, atan_m6(1.0), 0.25*pi, 'atan(1)=pi/4')
-  fail = test(fail, atan_m6(1.5), atan(1.5), 'atan(3/2) v. lib')
-  fail = test(fail, atan_m6(4.0), atan(4.0), 'atan(4) v. lib', inexact=1.)
-  fail = test(fail, atan_m6(-1.0), -0.25*pi, 'atan(-1)=-pi/4')
-
   ! Sine tests in degrees
   if (verbose) write(stdout,*) 'Tests of sind() in degrees'
   fail = test(fail, sind_m6(0.0), 0., 'sin(0)')
@@ -737,15 +544,6 @@ function intrinsic_functions_unit_tests(verbose) result(fail)
   fail = test(fail, cosd_m6(180.), -1., 'cos(180)=-1')
   fail = test(fail, cosd_m6(270.), 0., 'cos(270)=0')
   fail = test(fail, cosd_m6(360.), 1., 'cos(360)=-1')
-
-  ! Exponential function tests
-  if (verbose) write(stdout,*) 'Tests of exp()'
-  fail = test(fail, exp_m6(0.), 1., 'exp(0)=1')
-  fail = test(fail, exp_m6(1.e-2), exp(1.e-2), 'exp(.01) v. lib')
-  fail = test(fail, exp_m6(1.e-1), exp(1.e-1), 'exp(.1) v. lib')
-  fail = test(fail, exp_m6(1.), exp(1.), 'exp(1) v. lib')
-  fail = test(fail, exp_m6(1.e1), exp(1.e1), 'exp(10) v. lib')
-  fail = test(fail, exp_m6(1.e2), exp(1.e2), 'exp(100) v. lib')
 
   if (verbose .and. .not. fail) write(stdout,*) 'Pass'
 

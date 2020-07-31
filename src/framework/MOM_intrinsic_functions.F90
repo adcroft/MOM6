@@ -477,8 +477,10 @@ real elemental function rootin(x, n)
   do while ( abs(rootin - xn)>0. ) ! rootin==xn means we found a unique solution
     xnm1 = xn
     xn = rootin ! previous iteration to allow testing for convergence
-    recip = 1.0 / ( float(n) * xn**(n-1) )
-    rootin = xn + recip * ( A - xn**n )
+   !recip = 1.0 / ( float(n) * xn**(n-1) )
+   !rootin = xn + recip * ( A - xn**n )
+    recip = 1.0 / ( float(n) * pow(xn,n-1) )
+    rootin = xn + recip * ( A - pow(xn,n) )
     if ( abs(rootin - xnm1)<=0. ) then
       ! If rootin==xnm1 then the solution is oscillating in the last bit
       ! so we choose the larger value and stop iterating
@@ -507,6 +509,43 @@ real elemental function rootin(x, n)
   if (use_fortran_intrinsics) rootin = x**(1.0/float(n))
 
 end function rootin
+
+!> Return x**n calculated by squaring
+real elemental function pow(x,n)
+  real, intent(in) :: x !< Argument to raised to the n'th power
+  integer, intent(in) :: n !< Power to which to raise x (assume non-negative)
+  ! Local variables
+  real :: arg ! x recursively multiplied on itself
+  integer :: m ! A count of powers yet to be consumed
+
+  if (n==0) then ! x^0 = 1
+    pow = 1.
+    return
+  elseif (n==1) then ! x^1 = x
+    pow = x
+    return
+  elseif (n<0) then ! x^(-n) = (1/x)^n
+    arg = 1.0 / x
+    m = -n
+  else
+    arg = x
+    m = n
+  endif
+
+  pow = 1.
+  do while (m>1)
+    if (mod(m,2)==0) then ! m is even
+      arg = arg * arg
+      m = m / 2
+    else ! m is odd
+      pow = pow * arg
+      arg = arg * arg
+      m = ( m - 1 ) / 2
+    endif
+  enddo
+  pow = pow * arg
+
+end function pow
 
 !> Returns true if any unit test of intrinsic_functions fails, or false if they all pass.
 function intrinsic_functions_unit_tests(verbose) result(fail)
@@ -596,6 +635,18 @@ function intrinsic_functions_unit_tests(verbose) result(fail)
   fail = test(fail, cosd_m6(180.), -1., 'cos(180)=-1')
   fail = test(fail, cosd_m6(270.), 0., 'cos(270)=0')
   fail = test(fail, cosd_m6(360.), 1., 'cos(360)=-1')
+
+  ! Test pow()
+  if (verbose) write(stdout,*) 'Tests of pow()'
+  fail = test(fail, pow(0.,5), 0., 'pow(0,5)=0')
+  fail = test(fail, pow(1.,7), 1., 'pow(1,7)=1')
+  fail = test(fail, pow(2.,0), 1., 'pow(2,0)=1')
+  fail = test(fail, pow(2.,1), 2., 'pow(2,1)=2')
+  fail = test(fail, pow(2.,2), 4., 'pow(2,2)=4')
+  fail = test(fail, pow(-2.,3), -8., 'pow(2,3)=8')
+  fail = test(fail, pow(0.5,3), 0.125, 'pow(1/2,3)=1/8')
+  fail = test(fail, pow(0.5,-3), 8., 'pow(1/2,-3)=8')
+  fail = test(fail, pow(0.5,-4), 16., 'pow(1/2,-4)=16')
 
   ! Test rootin()
   if (verbose) write(stdout,*) 'Tests of rootin()'

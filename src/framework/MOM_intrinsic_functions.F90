@@ -56,6 +56,7 @@ public :: sind_m6
 public :: cosd_m6
 public :: pi
 public :: pi_180
+public :: rootin
 
 ! Floating point model, if bit layout from high to low is (sign, exp, frac)
 
@@ -456,6 +457,57 @@ real elemental function cos_Taylor(x)
 
 end function cos_Taylor
 
+!> Returns x**(1/n), the integer n'th root of x
+real elemental function rootin(x, n)
+  real, intent(in) :: x !< Argument to be raised to (1/n)
+  integer, intent(in) :: n !< Inverse power (assumed >1)
+  ! Local variables
+  real :: a ! x/n
+  real :: nm1on ! (n-1)/n
+  real :: recip ! 1/x**(n-1)
+  real :: xn, xnm1 ! previous iteration results
+
+  a = abs(x)
+  if (a<=0.) then ! zero is a special case
+    rootin = 0.
+    return
+  endif
+  xn = -1.
+  rootin = 1.0 ! Since n'th roots are closer to 1 than "x" we start at 1
+  do while ( abs(rootin - xn)>0. ) ! rootin==xn means we found a unique solution
+    xnm1 = xn
+    xn = rootin ! previous iteration to allow testing for convergence
+    recip = 1.0 / ( float(n) * xn**(n-1) )
+    rootin = xn + recip * ( A - xn**n )
+    if ( abs(rootin - xnm1)<=0. ) then
+      ! If rootin==xnm1 then the solution is oscillating in the last bit
+      ! so we choose the larger value and stop iterating
+      rootin = max(xn, xnm1)
+      exit
+    endif
+  enddo
+
+! ! Heron's method is mathematically the same as Newton's method but
+! ! arrives as a different result (last-bit difference)
+! a = 1.0 / float(n)
+! nm1on = float(n-1) * a ! (n-1)/n
+! a = a * abs(x) ! x/n
+!
+! xnm1 = -1.
+! xn = 0.
+! rootin = 1.
+! do while ( abs(rootin - xn)>0. .and. abs(rootin - xnm1)>0. )
+!   xnm1 = xn
+!   xn = rootin ! previous iteration to allow testing for convergence
+!   recip = 1.0 / ( rootin**(n-1) ) ! 1/x
+!   rootin = nm1on * rootin + recip * a ! x <- (n-1)/n * x + A / x**(n-1)
+! enddo
+
+  if (mod(n,2)==1) rootin = sign(rootin, x) ! Allow negative roots for odd powers
+  if (use_fortran_intrinsics) rootin = x**(1.0/float(n))
+
+end function rootin
+
 !> Returns true if any unit test of intrinsic_functions fails, or false if they all pass.
 function intrinsic_functions_unit_tests(verbose) result(fail)
   logical, intent(in) :: verbose !< If true, write results to stdout
@@ -488,8 +540,8 @@ function intrinsic_functions_unit_tests(verbose) result(fail)
   enddo
 
   ! Trig tests
-  if (verbose) write(stdout,'(a21,1pe24.16)') 'module pi:',pi
-  if (verbose) write(stdout,'(a21,2a24,x,a)') '','result','correct result','err/epsilon'
+  if (verbose) write(stdout,'(a25,1pe24.16)') 'module pi:',pi
+  if (verbose) write(stdout,'(a25,2a24,x,a)') '','result','correct result','err/epsilon'
 
   fail = test(fail, pi, 4.0 * atan( 1.0 ), 'module pi (v. library)')
 
@@ -545,6 +597,29 @@ function intrinsic_functions_unit_tests(verbose) result(fail)
   fail = test(fail, cosd_m6(270.), 0., 'cos(270)=0')
   fail = test(fail, cosd_m6(360.), 1., 'cos(360)=-1')
 
+  ! Test rootin()
+  if (verbose) write(stdout,*) 'Tests of rootin()'
+  fail = test(fail, rootin(0.,2), 0., 'rootin(0,2)=0')
+  fail = test(fail, rootin(0.,5), 0., 'rootin(0,5)=0')
+  fail = test(fail, rootin(1.,2), 1., 'rootin(1,2)=0')
+  fail = test(fail, rootin(1.,3), 1., 'rootin(1,3)=0')
+  fail = test(fail, rootin(1.,4), 1., 'rootin(1,4)=0')
+  fail = test(fail, rootin(1.,5), 1., 'rootin(1,5)=0')
+  fail = test(fail, rootin(0.25,2), 0.5, 'rootin(1/4,2)=1/2')
+  fail = test(fail, rootin(0.125,3), 0.5, 'rootin(1/8,2)=1/2')
+  fail = test(fail, rootin(-0.125,3), -0.5, 'rootin(-1/8,2)=-1/2')
+  fail = test(fail, rootin(4.,2), 2., 'rootin(4,2)=2')
+  fail = test(fail, rootin(9.,2), 3., 'rootin(9,2)=3')
+  fail = test(fail, rootin(16.,2), 4., 'rootin(16,2)=4')
+  fail = test(fail, rootin(25.,2), 5., 'rootin(25,2)=5')
+  fail = test(fail, rootin(-125.,3), -5., 'rootin(-125,3)=-5')
+  fail = test(fail, rootin(2.**30,30), 2., 'rootin(2**30,30)=2')
+  fail = test(fail, rootin(-5.**13,13), -5., 'rootin(-5**13,13)=-5', inexact=1.)
+  fail = test(fail, rootin(0.5,2), sqrt(0.5), 'rootin(1/2,2)=sqrt(1/2)', inexact=1.)
+  fail = test(fail, rootin(2.,2), sqrt(2.0), 'rootin(2,2)=sqrt(2)', inexact=1.)
+  x = rootin(2.,2)
+  fail = test(fail, x**2, 2.0, 'rootin(2,2)**2=2', inexact=1.)
+
   if (verbose .and. .not. fail) write(stdout,*) 'Pass'
 
   contains
@@ -561,23 +636,23 @@ function intrinsic_functions_unit_tests(verbose) result(fail)
     real :: err ! error
     err = abs( val - correctval )
     test = err > 0. ! Comparison must be exact
-    if (present(inexact)) then
-      test = err > inexact*val*epsilon(val) ! Allow a round off difference
+    if (present(inexact).and.test) then
+      test = err / ( abs(correctval) * epsilon(val) ) > inexact ! Allow a round off difference
     endif
     chan = stdout
     if (test.and..not.verbose) chan = stderr
     if (verbose.or.test) then
       if (test) then
-        err = err / ( abs(val) * epsilon(val) )
-        write(chan,'(a20,":",2(1pe24.16),g9.2,a)') msg,val,correctval,err,' <--- FAIL!'
+        err = err / ( abs(val) * epsilon(correctval) )
+        write(chan,'(a24,":",2(1pe24.16),g9.2,a)') msg,val,correctval,err,' <--- FAIL!'
       elseif (err<=0.) then
-        write(chan,'(a20,":",2(1pe24.16))') msg,val,correctval
+        write(chan,'(a24,":",2(1pe24.16))') msg,val,correctval
       else
-        err = err / ( abs(val) * epsilon(val) )
+        err = err / ( abs(val) * epsilon(correctval) )
         if (err>1.) then
-          write(chan,'(a20,":",2(1pe24.16),g9.2,a)') msg,val,correctval,err,' <- differ in last bits'
+          write(chan,'(a24,":",2(1pe24.16),g9.2,a)') msg,val,correctval,err,' <- differ in last bits'
         else
-          write(chan,'(a20,":",2(1pe24.16),g9.2,a)') msg,val,correctval,err,' <- differs in last bit'
+          write(chan,'(a24,":",2(1pe24.16),g9.2,a)') msg,val,correctval,err,' <- differs in last bit'
         endif
       endif
     endif

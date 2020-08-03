@@ -82,9 +82,12 @@ integer, parameter :: fraclen = expbit
 !! value found in the C library math.h. We provide more digits (40)
 !! here (rounded) for no better reason than the compilers handle it.
 real, parameter :: pi = 3.141592653589793238462643383279502884197
+!> For efficiency, pi/180 which converts degrees to radians
 real, parameter :: pi_180 = 0.01745329251994329576923690768488612713443
 
-logical :: use_fortran_intrinsics = .false.
+!> Module parameter to allow global switching between MOM6 intrinsic
+!! functions and the FORTRAN intrinsic functions
+logical, parameter :: use_fortran_intrinsics = .false.
 
 contains
 
@@ -275,9 +278,7 @@ real elemental function sind_m6(x)
   real, intent(in) :: x !< Argument of sin [degrees]
   real :: a ! abs(x) or multiples thereof
   real :: s ! 1 or -1 depending on quadrant
-  real :: d2r ! degrees to radians
 
-  d2r = pi / 180.
   s = 1.0
   a = abs(x)
   if (a>360.) then
@@ -290,12 +291,12 @@ real elemental function sind_m6(x)
     s = -1.0
   endif
   if (a<=90.) then
-    sind_m6 = sign(sin_Taylor(d2r*a), s*x)
+    sind_m6 = sign(sin_Taylor(pi_180*a), s*x)
   elseif (a<=180.) then
-    sind_m6 = sign(sin_Taylor(d2r*(180.-a)), s*x)
+    sind_m6 = sign(sin_Taylor(pi_180*(180.-a)), s*x)
   endif
 
-  if (use_fortran_intrinsics) sind_m6 = sin(d2r*x)
+  if (use_fortran_intrinsics) sind_m6 = sin(pi_180*x)
 
 end function sind_m6
 
@@ -397,9 +398,7 @@ end function cos_m6
 real elemental function cosd_m6(x)
   real, intent(in) :: x !< Argument of cos [degrees]
   real :: a ! abs(x) or multiples thereof
-  real :: d2r ! degrees to radians
 
-  d2r = pi / 180.
   a = abs(x)
   if (a>=360.) then
     ! Reduce range to 0..2pi
@@ -410,12 +409,12 @@ real elemental function cosd_m6(x)
     a = abs(180. - a)
   endif
   if (a<=90.) then
-    cosd_m6 = cos_Taylor(d2r*a)
+    cosd_m6 = cos_Taylor(pi_180*a)
   elseif (a<=180.) then
-    cosd_m6 = -cos_Taylor(d2r*(180.-a))
+    cosd_m6 = -cos_Taylor(pi_180*(180.-a))
   endif
 
-  if (use_fortran_intrinsics) cosd_m6 = cos(d2r*x)
+  if (use_fortran_intrinsics) cosd_m6 = cos(pi_180*x)
 
 end function cosd_m6
 

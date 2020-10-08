@@ -644,10 +644,13 @@ subroutine vertvisc_coef(u, v, h, forces, visc, dt, G, GV, US, CS, OBC)
     hvel, &     ! hvel is the thickness used at a velocity grid point [H ~> m or kg m-2].
     hvel_shelf  ! The equivalent of hvel under shelves [H ~> m or kg m-2].
   real, dimension(SZIB_(G),SZK_(G)+1) :: &
+    Kv_diag     ! The total u viscosity at an interface [Z2 T-1 ~> m2 s-1].
+  real, dimension(SZIB_(G),SZK_(G)+1) :: &
     a_cpl, &    ! The drag coefficients across interfaces [Z T-1 ~> m s-1].  a_cpl times
                 ! the velocity difference gives the stress across an interface.
     a_shelf, &  ! The drag coefficients across interfaces in water columns under
                 ! ice shelves [Z T-1 ~> m s-1].
+    Ku_diag, &  ! The total u viscosity at an interface [Z2 T-1 ~> m2 s-1].
     z_i         ! An estimate of each interface's height above the bottom,
                 ! normalized by the bottom boundary layer thickness, nondim.
   real, dimension(SZIB_(G)) :: &
@@ -701,11 +704,11 @@ subroutine vertvisc_coef(u, v, h, forces, visc, dt, G, GV, US, CS, OBC)
   I_valBL = 0.0 ; if (CS%harm_BL_val > 0.0) I_valBL = 1.0 / CS%harm_BL_val
 
   if (CS%id_Kv_u > 0) then
-    allocate(Kv_u(G%IsdB:G%IedB,G%jsd:G%jed,G%ke)) ; Kv_u(:,:,:) = 0.0
+    allocate(Kv_u(G%IsdB:G%IedB,G%jsd:G%jed,G%ke+1)) ; Kv_u(:,:,:) = 0.0
   endif
 
   if (CS%id_Kv_v > 0) then
-    allocate(Kv_v(G%isd:G%ied,G%JsdB:G%JedB,G%ke)) ; Kv_v(:,:,:) = 0.0
+    allocate(Kv_v(G%isd:G%ied,G%JsdB:G%JedB,G%ke+1)) ; Kv_v(:,:,:) = 0.0
   endif
 
   if (CS%debug .or. (CS%id_hML_u > 0)) then
@@ -808,7 +811,7 @@ subroutine vertvisc_coef(u, v, h, forces, visc, dt, G, GV, US, CS, OBC)
     endif
 
     call find_coupling_coef(a_cpl, hvel, do_i, h_harm, bbl_thick, kv_bbl, z_i, h_ml, &
-                            dt, j, G, GV, US, CS, visc, forces, work_on_u=.true., OBC=OBC)
+                            dt, j, G, GV, US, CS, visc, forces, work_on_u=.true., OBC=OBC, Kv_out=Ku_diag)
     if (allocated(hML_u)) then
       do i=isq,ieq ; if (do_i(i)) then ; hML_u(I,j) = h_ml(I) ; endif ; enddo
     endif
@@ -882,8 +885,8 @@ subroutine vertvisc_coef(u, v, h, forces, visc, dt, G, GV, US, CS, OBC)
 
     ! Diagnose total Kv at u-points
     if (CS%id_Kv_u > 0) then
-      do k=1,nz ; do I=Isq,Ieq
-        if (do_i(I)) Kv_u(I,j,k) = 0.5 * GV%H_to_Z*(CS%a_u(I,j,K)+CS%a_u(I,j,K+1)) * CS%h_u(I,j,k)
+      do K=1,nz+1 ; do I=Isq,Ieq
+        if (do_i(I)) Kv_u(I,j,K) = Ku_diag(I,K)
       enddo ; enddo
     endif
 
@@ -977,7 +980,7 @@ subroutine vertvisc_coef(u, v, h, forces, visc, dt, G, GV, US, CS, OBC)
     endif
 
     call find_coupling_coef(a_cpl, hvel, do_i, h_harm, bbl_thick, kv_bbl, z_i, h_ml, &
-                            dt, j, G, GV, US, CS, visc, forces, work_on_u=.false., OBC=OBC)
+                            dt, j, G, GV, US, CS, visc, forces, work_on_u=.false., OBC=OBC, Kv_out=Kv_diag)
     if ( allocated(hML_v)) then
        do i=is,ie ; if (do_i(i)) then ; hML_v(i,J) = h_ml(i) ; endif ; enddo
     endif
@@ -1050,8 +1053,8 @@ subroutine vertvisc_coef(u, v, h, forces, visc, dt, G, GV, US, CS, OBC)
 
     ! Diagnose total Kv at v-points
     if (CS%id_Kv_v > 0) then
-      do k=1,nz ; do i=is,ie
-        if (do_i(I)) Kv_v(i,J,k) = 0.5 * GV%H_to_Z*(CS%a_v(i,J,K)+CS%a_v(i,J,K+1)) * CS%h_v(i,J,k)
+      do K=1,nz+1 ; do i=is,ie
+        if (do_i(I)) Kv_v(i,J,K) = Kv_diag(i,K)
       enddo ; enddo
     endif
 
@@ -1088,7 +1091,7 @@ end subroutine vertvisc_coef
 !! If BOTTOMDRAGLAW is defined, the minimum of Hbbl and half the adjacent
 !! layer thicknesses are used to calculate a_cpl near the bottom.
 subroutine find_coupling_coef(a_cpl, hvel, do_i, h_harm, bbl_thick, kv_bbl, z_i, h_ml, &
-                              dt, j, G, GV, US, CS, visc, forces, work_on_u, OBC, shelf)
+                              dt, j, G, GV, US, CS, visc, forces, work_on_u, OBC, shelf, Kv_out)
   type(ocean_grid_type),     intent(in)  :: G  !< Ocean grid structure
   type(verticalGrid_type),   intent(in)  :: GV !< Ocean vertical grid structure
   type(unit_scale_type),     intent(in)  :: US !< A dimensional unit scaling type
@@ -1117,6 +1120,8 @@ subroutine find_coupling_coef(a_cpl, hvel, do_i, h_harm, bbl_thick, kv_bbl, z_i,
   type(ocean_OBC_type),      pointer     :: OBC   !< Open boundary condition structure
   logical,         optional, intent(in)  :: shelf !< If present and true, use a surface boundary
                                                   !! condition appropriate for an ice shelf.
+  real, dimension(SZIB_(G),SZK_(GV)+1), &
+                   optional, intent(out) :: Kv_out !< The total viscosity at an interface [Z2 T-1 ~> m2 s-1].
 
   ! Local variables
 
@@ -1174,7 +1179,6 @@ subroutine find_coupling_coef(a_cpl, hvel, do_i, h_harm, bbl_thick, kv_bbl, z_i,
 
 !    The following loop calculates the vertical average velocity and
 !  surface mixed layer contributions to the vertical viscosity.
-  do i=is,ie ; Kv_tot(i,1) = 0.0 ; enddo
   if ((GV%nkml>0) .or. do_shelf) then ; do k=2,nz ; do i=is,ie
     if (do_i(i)) Kv_tot(i,K) = CS%Kv
   enddo ; enddo ; else
@@ -1359,6 +1363,8 @@ subroutine find_coupling_coef(a_cpl, hvel, do_i, h_harm, bbl_thick, kv_bbl, z_i,
       if (a_ml > a_cpl(i,K)) a_cpl(i,K) = a_ml
     endif ; endif ; enddo ; enddo
   endif
+
+  if (present(Kv_out)) Kv_out(:,:) = Kv_tot(:,:)
 
 end subroutine find_coupling_coef
 
@@ -1764,10 +1770,10 @@ subroutine vertvisc_init(MIS, Time, G, GV, US, param_file, diag, ADp, dirs, &
   CS%id_Kv_slow = register_diag_field('ocean_model', 'Kv_slow', diag%axesTi, Time, &
      'Slow varying vertical viscosity', 'm2 s-1', conversion=US%Z2_T_to_m2_s)
 
-  CS%id_Kv_u = register_diag_field('ocean_model', 'Kv_u', diag%axesCuL, Time, &
+  CS%id_Kv_u = register_diag_field('ocean_model', 'Kv_u', diag%axesCui, Time, &
      'Total vertical viscosity at u-points', 'm2 s-1', conversion=US%Z2_T_to_m2_s)
 
-  CS%id_Kv_v = register_diag_field('ocean_model', 'Kv_v', diag%axesCvL, Time, &
+  CS%id_Kv_v = register_diag_field('ocean_model', 'Kv_v', diag%axesCvi, Time, &
      'Total vertical viscosity at v-points', 'm2 s-1', conversion=US%Z2_T_to_m2_s)
 
   CS%id_au_vv = register_diag_field('ocean_model', 'au_visc', diag%axesCui, Time, &

@@ -1,3 +1,5 @@
-#override SPLIT=False
-#override USE_RK2=True
-#override FIX_UNSPLIT_DT_VISC_BUG = False !   [Boolean] default = False
+#override SPLIT = False
+#override USE_RK2 = True
+#override FIX_UNSPLIT_DT_VISC_BUG = False
+#override EQN_OF_STATE = "TEOS10"
+#override TFREEZE_FORM = "TEOS10"

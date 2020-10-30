@@ -69,8 +69,15 @@ NK = 10                         !   [nondim]
 ! Parameters providing information about the vertical grid.
 
 ! === module MOM ===
-ENABLE_THERMODYNAMICS = False   !   [Boolean] default = True
+ENABLE_THERMODYNAMICS = True   !   [Boolean] default = True
                                 ! If true, Temperature and salinity are used as state
+TS_CONFIG = "linear"
+T_TOP = 20.
+T_RANGE = 2.
+S_TOP = 34.
+S_RANGE = 0.5
+HMIX_STRESS = 1.
+BULK_RI_ML = 0.25
                                 ! variables.
 DT = 120.0                      !   [s]
                                 ! The (baroclinic) dynamics time step.  The time-step that
@@ -176,11 +183,11 @@ OBC_ZERO_BIHARMONIC = True      !   [Boolean] default = False
                                 ! viscosity term.
 OBC_SEGMENT_001 = "J=N,I=N:0,FLATHER,ORLANSKI" !
                                 ! Documentation needs to be dynamic?????
-OBC_SEGMENT_002 = "J=0,I=0:N,FLATHER,ORLANSKI" !
+OBC_SEGMENT_002 = "J=0,I=0:N,FLATHER,ORLANSKI_TAN" !
                                 ! Documentation needs to be dynamic?????
-OBC_SEGMENT_003 = "I=N,J=0:N,FLATHER,ORLANSKI" !
+OBC_SEGMENT_003 = "I=N,J=0:N,FLATHER,ORLANSKI_GRAD" !
                                 ! Documentation needs to be dynamic?????
-OBC_SEGMENT_004 = "I=0,J=N:0,FLATHER,ORLANSKI" !
+OBC_SEGMENT_004 = "I=0,J=N:0,FLATHER,OBLIQUE" !
                                 ! Documentation needs to be dynamic?????
 OBC_SEGMENT_001_DATA = "U=value:0.0,V=value:0.0,SSH=value:0.0"
 OBC_SEGMENT_002_DATA = "U=value:0.0,V=value:0.0,SSH=value:0.0"
@@ -236,17 +243,17 @@ LAPLACIAN = True                !   [Boolean] default = False
                                 ! If true, use a Laplacian horizontal viscosity.
 KH = 25.0                       !   [m2 s-1] default = 0.0
                                 ! The background Laplacian horizontal viscosity.
-KH_VEL_SCALE = 0.003            !   [m s-1] default = 0.0
+KH_VEL_SCALE = 0.005            !   [m s-1] default = 0.0
                                 ! The velocity scale which is multiplied by the grid
                                 ! spacing to calculate the Laplacian viscosity.
                                 ! The final viscosity is the largest of this scaled
                                 ! viscosity, the Smagorinsky viscosity and KH.
 SMAGORINSKY_KH = True           !   [Boolean] default = False
                                 ! If true, use a Smagorinsky nonlinear eddy viscosity.
-SMAG_LAP_CONST = 0.15           !   [nondim] default = 0.0
+SMAG_LAP_CONST = 0.05           !   [nondim] default = 0.0
                                 ! The nondimensional Laplacian Smagorinsky constant,
                                 ! often 0.15.
-AH_VEL_SCALE = 0.003            !   [m s-1] default = 0.0
+AH_VEL_SCALE = 0.005            !   [m s-1] default = 0.0
                                 ! The velocity scale which is multiplied by the cube of
                                 ! the grid spacing to calculate the Laplacian viscosity.
                                 ! The final viscosity is the largest of this scaled
@@ -254,7 +261,7 @@ AH_VEL_SCALE = 0.003            !   [m s-1] default = 0.0
 SMAGORINSKY_AH = True           !   [Boolean] default = False
                                 ! If true, use a biharmonic Smagorinsky nonlinear eddy
                                 ! viscosity.
-SMAG_BI_CONST = 0.06            !   [nondim] default = 0.0
+SMAG_BI_CONST = 0.16            !   [nondim] default = 0.0
                                 ! The nondimensional biharmonic Smagorinsky constant,
                                 ! typically 0.015 - 0.06.
 

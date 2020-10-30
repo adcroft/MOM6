@@ -5,7 +5,6 @@
     restart_output_dir = 'RESTART/'
     parameter_filename =
         'MOM_input',
-        'MOM_tc_variant',
         'MOM_override',
 /
 

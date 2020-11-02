@@ -1,7 +1,6 @@
 #override TOPO_CONFIG = "spoon"
 #override REMAPPING_SCHEME = "PPM_H4"
 #override REGRIDDING_COORDINATE_MODE = "SIGMA"
-#override USE_KPP = True
 TIDES = True
 TIDE_M2 = True
 TIDE_S2 = True
@@ -14,3 +13,7 @@ TIDE_Q1 = True
 TIDE_MF = True
 TIDE_MM = True
 TIDE_SAL_SCALAR_VALUE = 1.
+MEKE_ADVECTION_FACTOR = 1.
+!MEKE_MIN_LSCALE = True
+!MEKE_TOPOGRAPHIC_BETA = 1.
+!#override USE_KPP = True

@@ -1,4 +1,3 @@
-EOS_QUADRATURE = True
 /* This input file provides the adjustable run-time parameters for version 6 of
    the Modular Ocean Model (MOM6), a numerical ocean model developed at NOAA-GFDL.
    Where appropriate, parameters use usually given in MKS units.
@@ -580,13 +579,14 @@ GRID_ROTATION_ANGLE_BUGS = True !   [Boolean] default = True
 INTERPOLATE_RES_FN = True       !   [Boolean] default = True
 GILL_EQUATORIAL_LD = False      !   [Boolean] default = False
 USE_LAND_MASK_FOR_HVISC = False !   [Boolean] default = False
-INTEGRAL_BT_CONTINUITY = True
-LINEARIZED_BT_CORIOLIS = False
-BT_USE_VISC_REM_U_UH0 = True
-ADJUST_BT_CONT = True
 KAPPA_SHEAR_ITER_BUG = True     !   [Boolean] default = True
 KAPPA_SHEAR_ALL_LAYER_TKE_BUG = True !   [Boolean] default = True
 BULKML_CONV_MOMENTUM_BUG = True !   [Boolean] default = True
 PEN_SW_ABSORB_MINTHICK = 0.001  !   [m] default = 0.001
 GUST_CONST = 0.02               !   [Pa] default = 0.02
 FIX_USTAR_GUSTLESS_BUG = False  !   [Boolean] default = False
+EOS_QUADRATURE = True
+INTEGRAL_BT_CONTINUITY = True
+BT_USE_VISC_REM_U_UH0 = True
+!ADJUST_BT_CONT = True
+!LINEARIZED_BT_CORIOLIS = False

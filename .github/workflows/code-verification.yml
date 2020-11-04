@@ -13,7 +13,7 @@ jobs:
         submodules: recursive
 
     - name: Install needed packages
-      run: sudo apt-get install netcdf-bin libnetcdf-dev libnetcdff-dev mpich libmpich-dev python3
+      run: sudo apt-get install netcdf-bin libnetcdf-dev libnetcdff-dev mpich libmpich-dev
 
     - name: Compile FMS library
       run: |

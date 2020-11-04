@@ -18,34 +18,34 @@ jobs:
     - name: Compile FMS library
       run: |
         cd .testing
-        make deps/lib/libFMS.a -s -j
+        make deps/lib/libFMS.a -s -j 2
 
     - name: Compile symmetric
       run: |
         cd .testing
-        make build/symmetric/MOM6 -s -j
+        make build/symmetric/MOM6 -s -j 2
 
     - name: Compile openMP
       run: |
         cd .testing
-        make build/openmp/MOM6 -s -j
+        make build/openmp/MOM6 -s -j 2
 
     - name: Compile asymmetric
       run: |
         cd .testing
-        make build/asymmetric/MOM6 -s -j
+        make build/asymmetric/MOM6 -s -j 2
 
     - name: Compile repro
       run: |
         cd .testing
-        make -s -j
+        make -s -j 2
       env:
         TIME: ''
 
     - name: Test
       run: |
         cd .testing
-        make test -s
+        make test -s -j 2
 
     - name: Summary
       run: |

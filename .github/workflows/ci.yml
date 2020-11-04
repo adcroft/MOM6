@@ -14,9 +14,7 @@ jobs:
       run: sudo apt-get install netcdf-bin libnetcdf-dev libnetcdff-dev mpich libmpich-dev python3
 
     - name: Fetch submodules
-      run:
-        git submodule init
-        git submodule update
+      run: git submodule update --init --recursive
 
     - name: Compile
       run: |

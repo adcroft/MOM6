@@ -3,12 +3,13 @@ name: Code verification
 on: [push, pull_request]
 
 jobs:
-  build:
+  build-test:
 
     runs-on: ubuntu-latest
 
     env:
       FCFLAGS_DEBUG: -g -O0 -Wextra -Wno-compare-reals -fbacktrace -ffpe-trap=invalid,zero,overflow -fcheck=bounds
+      FCFLAGS_REPRO: -g -O2 -fbacktrace
       FCFLAGS_INIT: -finit-real=snan -finit-integer=2147483647 -finit-derived
       FCFLAGS_COVERAGE: --coverage
 
@@ -30,25 +31,16 @@ jobs:
         cd .testing
         make build/symmetric/MOM6 -j
 
-    - name: Compile openMP
+    - name: Compile repro
       run: |
         cd .testing
-        make build/openmp/MOM6 -j
-
-    - name: Compile asymmetric
-      run: |
-        cd .testing
-        make build/asymmetric/MOM6 -j
-
-    #- name: Compile repro
-    #  run: |
-    #    cd .testing
-    #    make -s -j
+        make -s -j
+        make build/repro/MOM6 -j
 
     - name: Test
       run: |
         cd .testing
-        make test -s
+        make test.repros -s
       env:
         TIME: ''
 

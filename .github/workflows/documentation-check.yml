@@ -23,6 +23,7 @@ jobs:
         cd docs
         perl -e 'print "perl version $^V" . "\n"'
         mkdir _build && make nortd DOXYGEN_RELEASE=Release_1_8_13 UPDATEHTMLEQS=Y
+        cat _build/doxygen_warn_nortd_log.txt
 
     - name: Report errors
       run: |

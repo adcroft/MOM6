@@ -9,8 +9,9 @@ jobs:
 
     - name: Install needed packages
       run: >
-        sudo apt-get install python3-sphinx python3-lxml perl
-                             texlive-binaries texlive-base bibtool tex-common texlive-bibtex-extra
+        sudo apt-get install
+        python3-sphinx python3-lxml perl
+        texlive-binaries texlive-base bibtool tex-common texlive-bibtex-extra
 
 
     steps:

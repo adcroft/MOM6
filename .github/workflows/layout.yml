@@ -34,9 +34,9 @@ jobs:
     - name: Create validation data
       run: |
         cd .testing
-        make run.symmetric -s
+        make run.symmetric -k -s
 
     - name: Test layout
       run: |
         cd .testing
-        make test.layouts -s
+        make test.layouts -k -s

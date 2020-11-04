@@ -1,9 +1,9 @@
-name: NaN initialization
+name: Regression
 
-on: [push, pull_request]
+on: [pull_request_target]
 
 jobs:
-  build-test-nans:
+  build-test-regression:
 
     runs-on: ubuntu-latest
 
@@ -11,6 +11,8 @@ jobs:
       FCFLAGS_DEBUG: -g -O0 -Wextra -Wno-compare-reals -fbacktrace -ffpe-trap=invalid,zero,overflow -fcheck=bounds
       FCFLAGS_INIT: -finit-real=snan -finit-integer=2147483647 -finit-derived
       FCFLAGS_COVERAGE: --coverage
+      MOM_TARGET_SLUG: $GITHUB_REPOSITORY
+      MOM_TARGET_LOCAL_BRANCH: $GITHUB_REF
       TIME: ''
 
     steps:
@@ -36,7 +38,11 @@ jobs:
         cd .testing
         make run.symmetric -k -s
 
-    - name: Test NaNs
+    - name: Regression test 
       run: |
+        echo $MOM_TARGET_SLUG
+        echo $GITHUB_REPOSITORY
+        echo $MOM_TARGET_LOCAL_BRANCH
+        echo $GITHUB_REF
         cd .testing
-        make test.nans -k -s
+        make test.regressions -k -s

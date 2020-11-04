@@ -9,14 +9,13 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+      with:
+        submodules: recursive
 
     - name: Install needed packages
       run: sudo apt-get install netcdf-bin libnetcdf-dev libnetcdff-dev mpich libmpich-dev python3
 
-    - name: Fetch submodules
-      run: git submodule update --init --recursive
-
-    - name: Compile
+    - name: Compile FMS library
       run: |
         cd .testing
         make deps/lib/libFMS.a -s -j
@@ -24,27 +23,24 @@ jobs:
     - name: Compile symmetric
       run: |
         cd .testing
-        make build/symmetric/MOM6 -s -j 2
+        make build/symmetric/MOM6 -s -j
 
     - name: Compile openMP
       run: |
         cd .testing
-        make build/openmp/MOM6 -s -j 2
+        make build/openmp/MOM6 -s -j
 
     - name: Compile asymmetric
       run: |
         cd .testing
-        make build/asymmetric/MOM6 -s -j 2
+        make build/asymmetric/MOM6 -s -j
 
     - name: Compile repro
       run: |
         cd .testing
-        make build/repro/MOM6 -s -j 2
-
-    - name: Compile anything else
-      run: |
-        cd .testing
-        make -s -j 2
+        make -s -j
+      env:
+        TIME: ''
 
     - name: Test
       run: |

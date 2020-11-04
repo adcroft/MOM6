@@ -3,7 +3,7 @@ name: Code verification
 on: [push, pull_request]
 
 jobs:
-  build:
+  build-test:
 
     runs-on: ubuntu-latest
 
@@ -11,6 +11,7 @@ jobs:
       FCFLAGS_DEBUG: -g -O0 -Wextra -Wno-compare-reals -fbacktrace -ffpe-trap=invalid,zero,overflow -fcheck=bounds
       FCFLAGS_INIT: -finit-real=snan -finit-integer=2147483647 -finit-derived
       FCFLAGS_COVERAGE: --coverage
+      TIME: ''
 
     steps:
     - name: Install needed packages
@@ -49,8 +50,6 @@ jobs:
       run: |
         cd .testing
         make test -s
-      env:
-        TIME: ''
 
     - name: Summary
       run: |

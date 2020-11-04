@@ -1,4 +1,4 @@
-name: Reproducing optimization
+name: OpenMP
 
 on: [push, pull_request]
 
@@ -9,7 +9,6 @@ jobs:
 
     env:
       FCFLAGS_DEBUG: -g -O0 -Wextra -Wno-compare-reals -fbacktrace -ffpe-trap=invalid,zero,overflow -fcheck=bounds
-      FCFLAGS_REPRO: -g -O2 -fbacktrace
       FCFLAGS_INIT: -finit-real=snan -finit-integer=2147483647 -finit-derived
       FCFLAGS_COVERAGE: --coverage
       TIME: ''
@@ -27,10 +26,10 @@ jobs:
         cd .testing
         make deps/lib/libFMS.a -s -j
 
-    - name: Compile MOM6 using repro optimization
+    - name: Compile with openMP
       run: |
         cd .testing
-        make build/repro/MOM6 -j
+        make build/openmp/MOM6 -j
 
     - name: Compile MOM6 in symmetric memory mode
       run: |
@@ -42,7 +41,7 @@ jobs:
         cd .testing
         make run.symmetric -s
 
-    - name: Test optimization
+    - name: Test openMP
       run: |
         cd .testing
-        make test.repros -s
+        make test.openmps -s

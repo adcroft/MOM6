@@ -8,12 +8,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+    - name: Install needed packages
+      run: sudo apt-get install netcdf-bin libnetcdf-dev libnetcdff-dev mpich libmpich-dev
+
     - uses: actions/checkout@v2
       with:
         submodules: recursive
-
-    - name: Install needed packages
-      run: sudo apt-get install netcdf-bin libnetcdf-dev libnetcdff-dev mpich libmpich-dev
 
     - name: Compile FMS library
       run: |

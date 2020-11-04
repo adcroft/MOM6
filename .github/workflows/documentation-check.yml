@@ -7,14 +7,13 @@ jobs:
 
     runs-on: ubuntu-latest
 
+    steps:
     - name: Install needed packages
       run: >
         sudo apt-get install
         python3-sphinx python3-lxml perl
         texlive-binaries texlive-base bibtool tex-common texlive-bibtex-extra
 
-
-    steps:
     - uses: actions/checkout@v2
       with:
         submodules: recursive

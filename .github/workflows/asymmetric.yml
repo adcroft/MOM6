@@ -1,9 +1,9 @@
-name: Asymmetric-symmetric memory mode
+name: Asymmetric-symmetric array declaration
 
 on: [push, pull_request]
 
 jobs:
-  build-test:
+  build-test-asymmetric:
 
     runs-on: ubuntu-latest
 

@@ -1,9 +1,9 @@
-name: NaNs
+name: NaN initialization
 
 on: [push, pull_request]
 
 jobs:
-  build-test:
+  build-test-nans:
 
     runs-on: ubuntu-latest
 

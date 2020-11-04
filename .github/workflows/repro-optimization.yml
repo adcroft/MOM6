@@ -3,7 +3,7 @@ name: Reproducing optimization
 on: [push, pull_request]
 
 jobs:
-  build-test:
+  build-test-repro:
 
     runs-on: ubuntu-latest
 

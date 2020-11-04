@@ -3,7 +3,7 @@ name: Restart
 on: [push, pull_request]
 
 jobs:
-  build-test:
+  build-test-restarts:
 
     runs-on: ubuntu-latest
 

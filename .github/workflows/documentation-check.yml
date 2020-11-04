@@ -1,9 +1,9 @@
-name: Check documentation
+name: Doxygen
 
 on: [push, pull_request]
 
 jobs:
-  build:
+  doxygen:
 
     runs-on: ubuntu-latest
 

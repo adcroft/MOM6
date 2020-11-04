@@ -3,7 +3,7 @@ name: OpenMP
 on: [push, pull_request]
 
 jobs:
-  build-test:
+  build-test-openmp:
 
     runs-on: ubuntu-latest
 

@@ -3,7 +3,7 @@ name: Dimensional consistency
 on: [push, pull_request]
 
 jobs:
-  build-test:
+  build-test-dims:
 
     runs-on: ubuntu-latest
 

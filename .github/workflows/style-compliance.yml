@@ -1,9 +1,9 @@
-name: Code compliance
+name: Code style
 
 on: [push, pull_request]
 
 jobs:
-  build:
+  check-style:
 
     runs-on: ubuntu-latest
 

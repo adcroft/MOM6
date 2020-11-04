@@ -10,13 +10,13 @@ jobs:
     steps:
     - uses: actions/checkout@v2
 
-    - name: Install xmllint
-      run: sudo apt-get install netcdf-bin libnetcdf-dev libnetcdff-dev mpich libmpich-dev
+    - name: Install needed packages
+      run: sudo apt-get install netcdf-bin libnetcdf-dev libnetcdff-dev mpich libmpich-dev python3
 
-    - name: Set up Python
-      uses: actions/setup-python@v2
-      with:
-        python-version: 3.7
+    - name: Fetch submodules
+      run:
+        git submodule init
+        git submodule update
 
     - name: Compile
       run: |

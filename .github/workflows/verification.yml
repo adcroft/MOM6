@@ -1,4 +1,4 @@
-name: CI
+name: Code verification
 
 on: [push, pull_request]
 
@@ -18,34 +18,34 @@ jobs:
     - name: Compile FMS library
       run: |
         cd .testing
-        make deps/lib/libFMS.a -s -j 2
+        make deps/lib/libFMS.a -s -j
 
     - name: Compile symmetric
       run: |
         cd .testing
-        make build/symmetric/MOM6 -s -j 2
+        make build/symmetric/MOM6 -s -j
 
     - name: Compile openMP
       run: |
         cd .testing
-        make build/openmp/MOM6 -s -j 2
+        make build/openmp/MOM6 -s -j
 
     - name: Compile asymmetric
       run: |
         cd .testing
-        make build/asymmetric/MOM6 -s -j 2
+        make build/asymmetric/MOM6 -s -j
 
     - name: Compile repro
       run: |
         cd .testing
-        make -s -j 2
-      env:
-        TIME: ''
+        make -s -j
 
     - name: Test
       run: |
         cd .testing
-        make test -s -j 2
+        make test -s
+      env:
+        TIME: ''
 
     - name: Summary
       run: |

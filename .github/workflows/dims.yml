@@ -1,4 +1,4 @@
-name: Code verification
+name: Dimensional consistency
 
 on: [push, pull_request]
 
@@ -26,32 +26,17 @@ jobs:
         cd .testing
         make deps/lib/libFMS.a -s -j
 
-    - name: Compile symmetric
+    - name: Compile MOM6 in symmetric memory mode
       run: |
         cd .testing
         make build/symmetric/MOM6 -j
 
-    - name: Compile openMP
+    - name: Create validation data
       run: |
         cd .testing
-        make build/openmp/MOM6 -j
+        make run.symmetric -s
 
-    - name: Compile asymmetric
+    - name: Test dims
       run: |
         cd .testing
-        make build/asymmetric/MOM6 -j
-
-    #- name: Compile repro
-    #  run: |
-    #    cd .testing
-    #    make -s -j
-
-    - name: Test
-      run: |
-        cd .testing
-        make test -s
-
-    - name: Summary
-      run: |
-        cd .testing
-        make test -s
+        make test.dims -s

@@ -30,6 +30,9 @@ jobs:
         git log --oneline | head -10
         pwd
 
+    - name: Setup .testing
+      uses: ./.github/actions/testing-setup
+
     - name: Compile FMS library
       run: |
         make deps/lib/libFMS.a -s -j

@@ -1,0 +1,23 @@
+name: 'Build-.testing-prerequisites'
+description: 'Build pre-requisites for .testing including FMS and a symmetric MOM6 executable'
+runs:
+  using: 'composite'
+  steps:
+    - run: pwd
+      shell: bash
+
+    - name: Info
+      shell: bash
+      run: |
+        env
+        git log --oneline | head -10
+        pwd
+
+    - name: Compile FMS library
+      shell: bash
+      run: make deps/lib/libFMS.a -s -j
+
+    - name: Compile MOM6 in symmetric memory mode
+      shell: bash
+      run: make build/symmetric/MOM6 -j
+

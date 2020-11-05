@@ -1,6 +1,6 @@
 name: Regression
 
-on: [pull_request_target]
+on: [pull_request]
 
 jobs:
   build-test-regression:
@@ -15,7 +15,11 @@ jobs:
       MOM_TARGET_LOCAL_BRANCH: $GITHUB_REF
       TIME: ''
 
+
     steps:
+    - name: Info
+      run: env
+
     - name: Install needed packages
       run: sudo apt-get install netcdf-bin libnetcdf-dev libnetcdff-dev mpich libmpich-dev
 

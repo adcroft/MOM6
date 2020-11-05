@@ -21,30 +21,11 @@ jobs:
       with:
         submodules: recursive
 
-    - name: Install needed packages
-      run: sudo apt-get install netcdf-bin libnetcdf-dev libnetcdff-dev mpich libmpich-dev
-
-    - name: Info
-      run: |
-        env
-        git log --oneline | head -10
-        pwd
-
     - name: Setup .testing
       uses: ./.github/actions/testing-setup
 
-    - name: Compile FMS library
-      run: |
-        make deps/lib/libFMS.a -s -j
-
-    - name: Compile MOM6 in symmetric memory mode
-      run: |
-        make build/symmetric/MOM6 -j
-
     - name: Create validation data
-      run: |
-        make run.symmetric -k -s
+      run: make run.symmetric -k -s
 
     - name: Test NaNs
-      run: |
-        make test.nans -k -s
+      run: make test.nans -k -s

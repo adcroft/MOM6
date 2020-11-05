@@ -1,11 +1,14 @@
 name: NaN initialization
 
-on: [push]
+on: [push, pull_request]
 
 jobs:
   build-test-nans:
 
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: .testing
 
     env:
       FCFLAGS_DEBUG: -g -O0 -Wextra -Wno-compare-reals -fbacktrace -ffpe-trap=invalid,zero,overflow -fcheck=bounds
@@ -21,22 +24,24 @@ jobs:
       with:
         submodules: recursive
 
+    - name: Info
+      run: |
+        env
+        git log --oneline | head -10
+        pwd
+
     - name: Compile FMS library
       run: |
-        cd .testing
         make deps/lib/libFMS.a -s -j
 
     - name: Compile MOM6 in symmetric memory mode
       run: |
-        cd .testing
         make build/symmetric/MOM6 -j
 
     - name: Create validation data
       run: |
-        cd .testing
         make run.symmetric -k -s
 
     - name: Test NaNs
       run: |
-        cd .testing
         make test.nans -k -s

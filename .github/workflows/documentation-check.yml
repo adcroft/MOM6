@@ -1,6 +1,6 @@
 name: Doxygen
 
-on: [push]
+on: [push, pull_request]
 
 jobs:
   doxygen:

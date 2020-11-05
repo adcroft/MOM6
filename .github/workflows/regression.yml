@@ -11,8 +11,6 @@ jobs:
       FCFLAGS_DEBUG: -g -O0 -Wextra -Wno-compare-reals -fbacktrace -ffpe-trap=invalid,zero,overflow -fcheck=bounds
       FCFLAGS_INIT: -finit-real=snan -finit-integer=2147483647 -finit-derived
       FCFLAGS_COVERAGE: --coverage
-      MOM_TARGET_SLUG: ${GITHUB_REPOSITORY}
-      MOM_TARGET_LOCAL_BRANCH: ${GITHUB_BASE_REF}
       TIME: ''
 
 
@@ -42,11 +40,12 @@ jobs:
         cd .testing
         make run.symmetric -k -s
 
+    - name: Compile reference model
+      run: |
+        cd .testing
+        make build.regressions MOM_TARGET_SLUG=$GITHUB_REPOSITORY MOM_TARGET_LOCAL_BRANCH=$GITHUB_BASE_REF DO_REGRESSION_TESTS=true -j
+
     - name: Regression test 
       run: |
-        echo $MOM_TARGET_SLUG
-        echo $GITHUB_REPOSITORY
-        echo $MOM_TARGET_LOCAL_BRANCH
-        echo $GITHUB_REF
         cd .testing
-        make test.regressions -k -s
+        make test.regressions DO_REGRESSION_TESTS=true -k -s

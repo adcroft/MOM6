@@ -1,6 +1,6 @@
 name: Asymmetric-symmetric array declaration
 
-on: [push]
+on: [push, pull_request]
 
 jobs:
   build-test-asymmetric:

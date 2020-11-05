@@ -11,8 +11,8 @@ jobs:
       FCFLAGS_DEBUG: -g -O0 -Wextra -Wno-compare-reals -fbacktrace -ffpe-trap=invalid,zero,overflow -fcheck=bounds
       FCFLAGS_INIT: -finit-real=snan -finit-integer=2147483647 -finit-derived
       FCFLAGS_COVERAGE: --coverage
-      MOM_TARGET_SLUG: $GITHUB_REPOSITORY
-      MOM_TARGET_LOCAL_BRANCH: $GITHUB_REF
+      MOM_TARGET_SLUG: ${GITHUB_REPOSITORY}
+      MOM_TARGET_LOCAL_BRANCH: ${GITHUB_BASE_REF}
       TIME: ''
 
 

@@ -1,6 +1,6 @@
 name: Dimensional consistency
 
-on: [push, pull_request]
+on: [push]
 
 jobs:
   build-test-dims:

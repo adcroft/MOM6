@@ -509,7 +509,7 @@ subroutine initialize_regridding(CS, GV, US, max_depth, param_file, mdl, coord_m
              'RHO target densities for interfaces', units=coordinateUnits(coord_mode))
   endif
 
-  ! initialise coordinate-specific control structure
+  ! Initialize coordinate-specific control structure
   call initCoord(CS, GV, US, coord_mode)
 
   if (main_parameters .and. coord_is_state_dependent) then
@@ -533,6 +533,33 @@ subroutine initialize_regridding(CS, GV, US, max_depth, param_file, mdl, coord_m
     call set_regrid_params(CS, min_thickness=tmpReal)
   else
     call set_regrid_params(CS, min_thickness=0.)
+  endif
+
+  if (coordinateMode(coord_mode) == REGRIDDING_HYCOM1) then
+    call get_param(param_file, mdl, "USE_Z_ONLY_IN_ML", tmpLogical, &
+                 "If true, use z*-space only in the upper-most part of the column not "//&
+                 "resolved by the nominal density coordinate. If false, z*-space is used "//&
+                 "wherever the isopycnal depth would be shallower than the nominal z*-depth.", &
+                 default=.false.)
+    call set_regrid_params(CS, use_z_only_in_ML=tmpLogical)
+    if (tmpLogical) then
+      call get_param(param_file, mdl, "ZSPACE_MIN_EXTENT", tmpReal, &
+                     "The minimum extent of the z*-space region.", &
+                     units="m", default=0.0, scale=GV%m_to_H)
+      call set_regrid_params(CS, zspace_min_extent=tmpReal)
+      call get_param(param_file, mdl, "MLB_EXTRA_MAX", tmpReal, &
+                     "Maximum extra depth for mixed-layer depth estimate to use for z*-space.", &
+                     units="m", default=0.0, scale=GV%m_to_H)
+      call set_regrid_params(CS, MLB_extra_max=tmpReal)
+      call get_param(param_file, mdl, "MLB_EXTRA_FRAC", tmpReal, &
+                     "Extra fraction for mixed-layer depth estimate to use for z*-space.", &
+                     units="nondim", default=0.0)
+      call set_regrid_params(CS, MLB_extra_frac=tmpReal)
+      call get_param(param_file, mdl, "INTERIOR_MIN_THICKNESS", tmpReal, &
+                     "A minimum thickness to use below the z*-space region.", &
+                     units="m", default=0.0, scale=GV%m_to_H)
+      call set_regrid_params(CS, interior_min_thickness=tmpReal)
+    endif
   endif
 
   if (coordinateMode(coord_mode) == REGRIDDING_SLIGHT) then
@@ -2208,7 +2235,8 @@ subroutine set_regrid_params( CS, boundary_extrapolation, min_thickness, old_gri
              compress_fraction, ref_pressure, dz_min_surface, nz_fixed_surface, Rho_ML_avg_depth, &
              nlay_ML_to_interior, fix_haloclines, halocline_filt_len, &
              halocline_strat_tol, integrate_downward_for_e, remap_answers_2018, &
-             adaptTimeRatio, adaptZoom, adaptZoomCoeff, adaptBuoyCoeff, adaptAlpha, adaptDoMin, adaptDrho0)
+             adaptTimeRatio, adaptZoom, adaptZoomCoeff, adaptBuoyCoeff, adaptAlpha, adaptDoMin, adaptDrho0, &
+             use_z_only_in_ML, zspace_min_extent, MLB_extra_frac, MLB_extra_max, interior_min_thickness)
   type(regridding_CS), intent(inout) :: CS !< Regridding control structure
   logical, optional, intent(in) :: boundary_extrapolation !< Extrapolate in boundary cells
   real,    optional, intent(in) :: min_thickness    !< Minimum thickness allowed when building the
@@ -2247,6 +2275,11 @@ subroutine set_regrid_params( CS, boundary_extrapolation, min_thickness, old_gri
                                                     !! the depths specified by the regridding coordinate.
   real,    optional, intent(in) :: adaptDrho0       !< Reference density difference for stratification-dependent
                                                     !! diffusion. [R ~> kg m-3]
+  logical, optional, intent(in) :: use_z_only_in_ML !< If true, only use z-space in the surface mixed layer (HYBRID)
+  real,    optional, intent(in) :: zspace_min_extent !< The minimum extent of z*-space region (HYBRID) [Z ~> m]
+  real,    optional, intent(in) :: MLB_extra_frac   !< Extra fraction for MLB estimate (HYBRID) [nondim]
+  real,    optional, intent(in) :: MLB_extra_max    !< Maximum extra for MLB estimate (HYBRID) [Z ~> m]
+  real,    optional, intent(in) :: interior_min_thickness !< The minimum thickness to use between interior interfaces (HYBRID) [Z ~> m]
 
   if (present(interp_scheme)) call set_interp_scheme(CS%interp_CS, interp_scheme)
   if (present(boundary_extrapolation)) call set_interp_extrap(CS%interp_CS, boundary_extrapolation)
@@ -2283,8 +2316,13 @@ subroutine set_regrid_params( CS, boundary_extrapolation, min_thickness, old_gri
     if (associated(CS%rho_CS) .and. (present(interp_scheme) .or. present(boundary_extrapolation))) &
       call set_rho_params(CS%rho_CS, interp_CS=CS%interp_CS)
   case (REGRIDDING_HYCOM1)
-    if (associated(CS%hycom_CS) .and. (present(interp_scheme) .or. present(boundary_extrapolation))) &
-      call set_hycom_params(CS%hycom_CS, interp_CS=CS%interp_CS)
+    if (associated(CS%hycom_CS)) then
+      if ((present(interp_scheme) .or. present(boundary_extrapolation))) &
+        call set_hycom_params(CS%hycom_CS, interp_CS=CS%interp_CS)
+      call set_hycom_params(CS%hycom_CS, use_z_only_in_ML=use_z_only_in_ML, &
+                            zspace_min_extent=zspace_min_extent, MLB_extra_frac=MLB_extra_frac, &
+                            MLB_extra_max=MLB_extra_max, interior_min_thickness=interior_min_thickness)
+    endif
   case (REGRIDDING_SLIGHT)
     if (present(min_thickness))       call set_slight_params(CS%slight_CS, min_thickness=min_thickness)
     if (present(dz_min_surface))      call set_slight_params(CS%slight_CS, dz_ml_min=dz_min_surface)

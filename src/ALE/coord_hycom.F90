@@ -178,74 +178,101 @@ subroutine build_hycom1_column(CS, eqn_of_state, nz, depth, h, T, S, p_col, &
   ! Sweep down the interfaces bounding to z* space where needed
   stretching = z_col(nz+1) / depth ! Stretches z* to z
   if (CS%use_z_only_in_ML) then
- !  ! Find Mixed layer depth
- !  MLB = z_col(2)
- !  dr = rho_col(1) + 0.05
- !  find_MLD: do K = 2,nz
- !    if ( rho_col(k) >= dr ) then
- !      ! rho_col(k-1) - rho(cool(1) < 0.03
- !      ! rho_col(k) - rho(cool(1) >= 0.03
- !      a = ( dr - rho_col(k-1) ) / ( rho_col(k) - rho_col(k-1) )
- !      MLB = 0.5*( a*(z_col(K)+z_col(K+1)) - (1.0-a)*(z_col(K-1)+z_col(K)) )
- !      exit find_MLD
- !    endif
- !    MLB = z_col(K+1)
- !  enddo find_MLD
- !  ! Given MLB, find a NII and KMB in nominal rho grid
- !  NII = z_col_new(2)
- !  KMB = 1
- !  find_NII: do K = 2, CS%nk+1
- !    NII = z_col_new(K)
- !    KMB = K-1
- !    if (NII > MLB) exit find_NII
- !  enddo find_NII
-
-    ! As a proxy for the ML depth, find the first isopycnal that is not snapped to the surface
-    ! (Use the first nominal resolution as a threshold)
-    MLB = z_col_new(1)
+    ! Find Mixed layer depth
+    MLB = z_col(2)
+    dr = rho_col(1) + 0.05
+    find_MLD: do K = 2,nz
+      if ( rho_col(k) >= dr ) then
+        ! rho_col(k-1) - rho(cool(1) < 0.03
+        ! rho_col(k) - rho(cool(1) >= 0.03
+        a = ( dr - rho_col(k-1) ) / ( rho_col(k) - rho_col(k-1) )
+        MLB = 0.5*( a*(z_col(K)+z_col(K+1)) - (1.0-a)*(z_col(K-1)+z_col(K)) )
+        exit find_MLD
+      endif
+      MLB = z_col(K+1)
+    enddo find_MLD
+    ! Given MLB, find a NII and KMB in nominal rho grid
     NII = z_col_new(2)
-    KMB = 1
-    find_MLB: do K = 2, CS%nk
-      MLB = z_col_new(K)
-      NII = z_col_new(K+1)
-      KMB = K
-      if (MLB - z_col_new(1) > z_scale * CS%coordinateResolution(1) ) exit find_MLB
-    enddo find_MLB
+    KNII = 1
+    find_NII: do K = 2, CS%nk+1
+      NII = z_col_new(K)
+      KNII = K
+      if (NII > MLB) exit find_NII
+    enddo find_NII
 
-    ! At this point MLB is an approximate ML depth. Now we extend and add some constraints
-    MLB = MLB + min(MLB * CS%MLB_extra_frac, CS%MLB_extra_max)
-    MLB = max(MLB, CS%zspace_min_extent)
-    NII = NII + min(NII * CS%MLB_extra_frac, CS%MLB_extra_max)
-    NII = max(NII, CS%zspace_min_extent)
-    MLB = min(MLB, NII)
-    nominal_z = 0.
     KBZ = 1
-    do K = 2, CS%nk+1
+    do K = 2, CS%nk
       ! Here, nominal_z is the depth an interface would have if it is in the z* region
       nominal_z = nominal_z + (z_scale * CS%coordinateResolution(k-1)) * stretching
-      if ( z_col_new(K) < NII ) then ! For all interfaces above the NII
-        if ( nominal_z <= MLB) then ! z*-space if the nominal z is in the mixed layer
-          z_col_new(K) = nominal_z
-          KBZ = min(K, KMB) ! Index to the last interface we put in z* region
-                            ! (safety limit of KMB might not be needed)
+      if ( nominal_z <= MLB) then ! z*-space if the nominal z is in the mixed layer
+        z_col_new(K) = nominal_z
+        KBZ = K ! Index to the last interface we put in z* region
+        exit
+      endif
+    enddo
+    if (z_col_new(KBZ+1)<MLB) then
+      do K = KBZ+1, KNII
+        if ( z_col_new(K) < MLB ) then ! These interfaces are snapped to the surface
+          a = real(K-KBZ) / real(KNII-KBZ) ! a=0 @ K=KBZ, a=1 @ K=KNII
+          z_col_new(K) = (1.0-a)*z_col_new(KBZ) + a*NII
         else
-          a = real(K-KBZ) / real(KMB+1-KBZ) ! a=0 @ K=KBZ, a=1 @ K=KMB+1
-          z_col_new(K) = (1.0-a)*MLB + a*NII
-   !      z_col_new(K) = MLB
           z_col_new(K) = max( z_col_new(K), z_col_new(K-1) + zscale * CS%interior_min_thickness )
         endif
-      else
-        ! Otherwise we found the target isopycnal in the interior
+      enddo
+      do K = KNII+1, CS%nk
         z_col_new(K) = max( z_col_new(K), z_col_new(K-1) + zscale * CS%interior_min_thickness )
-      endif
-   !  nominal_z = min( nominal_z, MLB )
-   !  ! If the interpolated position was within the surface mixed-layer and we use z*-space
-   !  z_col_new(K) = max( z_col_new(K), nominal_z )
-   !  ! Otherwise we found the target isopycnal in the interior
-   !  z_col_new(K) = max( z_col_new(K), z_col_new(K-1) + zscale * CS%interior_min_thickness )
-      ! Make sure that the interface is not below the bottom topography
-      z_col_new(K) = min( z_col_new(K), z_col(nz+1) )
-    enddo
+      enddo
+      do K = 2, CS%nk
+        z_col_new(K) = min( z_col_new(K), z_col(nz+1) )
+      enddo
+    endif
+
+!   ! As a proxy for the ML depth, find the first isopycnal that is not snapped to the surface
+!   ! (Use the first nominal resolution as a threshold)
+!   MLB = z_col_new(1)
+!   NII = z_col_new(2)
+!   KMB = 1
+!   find_MLB: do K = 2, CS%nk
+!     MLB = z_col_new(K)
+!     NII = z_col_new(K+1)
+!     KMB = K
+!     if (MLB - z_col_new(1) > z_scale * CS%coordinateResolution(1) ) exit find_MLB
+!   enddo find_MLB
+
+!   ! At this point MLB is an approximate ML depth. Now we extend and add some constraints
+!   MLB = MLB + min(MLB * CS%MLB_extra_frac, CS%MLB_extra_max)
+!   MLB = max(MLB, CS%zspace_min_extent)
+!   NII = NII + min(NII * CS%MLB_extra_frac, CS%MLB_extra_max)
+!   NII = max(NII, CS%zspace_min_extent)
+!   MLB = min(MLB, NII)
+!   nominal_z = 0.
+!   KBZ = 1
+!   do K = 2, CS%nk+1
+!     ! Here, nominal_z is the depth an interface would have if it is in the z* region
+!     nominal_z = nominal_z + (z_scale * CS%coordinateResolution(k-1)) * stretching
+!     if ( z_col_new(K) < NII ) then ! For all interfaces above the NII
+!       if ( nominal_z <= MLB) then ! z*-space if the nominal z is in the mixed layer
+!         z_col_new(K) = nominal_z
+!         KBZ = min(K, KMB) ! Index to the last interface we put in z* region
+!                           ! (safety limit of KMB might not be needed)
+!       else
+!         a = real(K-KBZ) / real(KMB+1-KBZ) ! a=0 @ K=KBZ, a=1 @ K=KMB+1
+!         z_col_new(K) = (1.0-a)*MLB + a*NII
+!  !      z_col_new(K) = MLB
+!         z_col_new(K) = max( z_col_new(K), z_col_new(K-1) + zscale * CS%interior_min_thickness )
+!       endif
+!     else
+!       ! Otherwise we found the target isopycnal in the interior
+!       z_col_new(K) = max( z_col_new(K), z_col_new(K-1) + zscale * CS%interior_min_thickness )
+!     endif
+!  !  nominal_z = min( nominal_z, MLB )
+!  !  ! If the interpolated position was within the surface mixed-layer and we use z*-space
+!  !  z_col_new(K) = max( z_col_new(K), nominal_z )
+!  !  ! Otherwise we found the target isopycnal in the interior
+!  !  z_col_new(K) = max( z_col_new(K), z_col_new(K-1) + zscale * CS%interior_min_thickness )
+!     ! Make sure that the interface is not below the bottom topography
+!     z_col_new(K) = min( z_col_new(K), z_col(nz+1) )
+!   enddo
   else
     nominal_z = 0.
     do K = 2, CS%nk+1

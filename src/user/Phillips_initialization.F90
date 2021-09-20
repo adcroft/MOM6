@@ -78,8 +78,8 @@ subroutine Phillips_initialize_thickness(h, G, GV, US, param_file, just_read_par
                  "The interface height scale associated with the "//&
                  "zonal-mean jet.", units="m", scale=US%m_to_Z, &
                  fail_if_missing=.not.just_read, do_not_log=just_read)
-  ! If re-entrant in the Y direction we using a sinusoidal function
-  ! instead of a tanh. len_lat/jet_width should be an integer in this case.
+  ! If re-entrant in the Y direction, we use a sine function instead of a
+  ! tanh. The ratio len_lat/jet_width should be an integer in this case.
   call get_param(param_file, mdl, "REENTRANT_Y", reentrant_y, &
                  default=.false., do_not_log=.true.)
 
@@ -166,8 +166,8 @@ subroutine Phillips_initialize_velocity(u, v, G, GV, US, param_file, just_read_p
                  "The interface height scale associated with the "//&
                  "zonal-mean jet.", units="m", scale=US%m_to_Z, &
                  fail_if_missing=.not.just_read, do_not_log=just_read)
-  ! If re-entrant in the Y direction we using a sinusoidal function
-  ! instead of a tanh. len_lat/jet_width should be an integer in this case.
+  ! If re-entrant in the Y direction, we use a sine function instead of a
+  ! tanh. The ratio len_lat/jet_width should be an integer in this case.
   call get_param(param_file, mdl, "REENTRANT_Y", reentrant_y, &
                  default=.false., do_not_log=.true.)
 
@@ -279,8 +279,8 @@ subroutine Phillips_initialize_sponges(G, GV, US, tv, param_file, CSp, h)
                  "The interface height scale associated with the "//&
                  "zonal-mean jet.", units="m", scale=US%m_to_Z, &
                  fail_if_missing=.true.)
-  ! If re-entrant in the Y direction we using a sinusoidal function
-  ! instead of a tanh. len_lat/jet_width should be an integer in this case.
+  ! If re-entrant in the Y direction, we use a sine function instead of a
+  ! tanh. The ratio len_lat/jet_width should be an integer in this case.
   call get_param(param_file, mdl, "REENTRANT_Y", reentrant_y, &
                  default=.false., do_not_log=.true.)
 

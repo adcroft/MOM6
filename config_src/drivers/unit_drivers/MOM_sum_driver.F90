@@ -24,19 +24,22 @@ program MOM_main
   use MOM_file_parser, only : read_param, get_param, log_param, log_version, param_file_type
   use MOM_file_parser, only : open_param_file, close_param_file
   use MOM_grid, only : MOM_grid_init, ocean_grid_type
+  use MOM_dyn_horgrid, only : dyn_horgrid_type
   use MOM_grid_initialize, only : set_grid_metrics
   use MOM_io, only : MOM_io_init, file_exists, open_file, close_file
   use MOM_io, only : check_nml_error, io_infra_init, io_infra_end
   use MOM_io, only : APPEND_FILE, ASCII_FILE, READONLY_FILE, SINGLE_FILE
+  use MOM_unit_scaling, only : unit_scale_type, unit_scaling_init
 
   implicit none
 
 #include <MOM_memory.h>
 
   type(ocean_grid_type) :: grid ! A structure containing metrics and grid info.
-
+  type(dyn_horgrid_type) :: dG ! A structure containing metrics and grid info.
   type(param_file_type) :: param_file ! The structure indicating the file(s)
                                 ! containing all run-time parameters.
+  type(unit_scale_type), pointer :: US => NULL() ! Structure containing various unit conversion factors
   real    :: max_depth          ! The maximum ocean depth [m]
   integer :: verbosity
   integer :: num_sums
@@ -76,11 +79,13 @@ program MOM_main
   verbosity = 2 ; call read_param(param_file, "VERBOSITY", verbosity)
   call MOM_set_verbosity(verbosity)
 
+  call unit_scaling_init(param_file, US)
+
   call MOM_domains_init(grid%domain, param_file)
 
   call MOM_io_init(param_file)
 !  call diag_mediator_init(param_file)
-  call MOM_grid_init(grid, param_file)
+  call MOM_grid_init(grid, param_file, US)
 
   is = grid%isc ; ie = grid%iec ; js = grid%jsc ; je = grid%jec
   isd = grid%isd ; ied = grid%ied ; jsd = grid%jsd ; jed = grid%jed
@@ -100,7 +105,7 @@ program MOM_main
   allocate(depth_tot_fastR(num_sums)) ; depth_tot_fastR(:) = 0.0
 
 ! Set up the parameters of the physical domain (i.e. the grid), G
-  call set_grid_metrics(grid, param_file)
+  call set_grid_metrics(dG, param_file, US)
 
 ! Set up the bottom depth, grid%bathyT either analytically or from file
   call get_param(param_file, "MOM", "MAXIMUM_DEPTH", max_depth, &

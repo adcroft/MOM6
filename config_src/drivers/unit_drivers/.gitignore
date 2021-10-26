@@ -1,11 +1,1 @@
-CMakeCache.txt
-CMakeFiles
-cmake_install.cmake
-libFMS.a
-libMOM6.a
-Makefile
-modules
-MOM6-solo
-MOM6x
-MOM_sum_driver
-test_MOM_remapping
+build

@@ -51,11 +51,16 @@ CPPFLAGS = @CPPFLAGS@
 FFLAGS = @FCFLAGS@
 LDFLAGS = @LDFLAGS@ @LIBS@
 
+SRC_DIRS = @SRC_DIRS@
+
 # Gather modulefiles
 TMPFILES = $(wildcard *.mod)
 
-include Makefile.mkmf
+-include Makefile.dep
 
+.PHONY: depend
+depend:
+	../../../ac/makemake -o Makefile.dep $(SRC_DIRS)
 
 # Delete any files associated with configuration (including the Makefile).
 .PHONY: distclean

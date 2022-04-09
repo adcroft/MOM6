@@ -139,6 +139,9 @@ ifeq ($(DO_PROFILE), false)
   BUILDS += opt opt_target
 endif
 
+# Unit test testing
+BUILDS += unit
+
 # The following variables are configured by Travis:
 #   DO_REGRESSION_TESTS: true if $(TRAVIS_PULL_REQUEST) is a PR number
 #   MOM_TARGET_SLUG: TRAVIS_REPO_SLUG
@@ -256,6 +259,7 @@ build/opt_target/Makefile: MOM_ENV=$(PATH_FMS) $(OPT_FCFLAGS) $(MOM_LDFLAGS)
 build/coupled/Makefile: MOM_ENV=$(PATH_FMS) $(SYMMETRIC_FCFLAGS) $(SYMMETRIC_LDFLAGS)
 build/nuopc/Makefile: MOM_ENV=$(PATH_FMS) $(SYMMETRIC_FCFLAGS) $(SYMMETRIC_LDFLAGS)
 build/mct/Makefile: MOM_ENV=$(PATH_FMS) $(SYMMETRIC_FCFLAGS) $(SYMMETRIC_LDFLAGS)
+build/unit/Makefile: MOM_ENV=$(PATH_FMS) $(REPRO_FCFLAGS) $(MOM_LDFLAGS)
 
 # Configure script flags
 build/symmetric/Makefile: MOM_ACFLAGS=
@@ -268,6 +272,7 @@ build/opt_target/Makefile: MOM_ACFLAGS=
 build/coupled/Makefile: MOM_ACFLAGS=--with-driver=FMS_cap
 build/nuopc/Makefile: MOM_ACFLAGS=--with-driver=nuopc_cap
 build/mct/Makefile: MOM_ACFLAGS=--with-driver=mct_cap
+build/unit/Makefile: MOM_ACFLAGS=--with-driver=unit_drivers
 
 # Fetch regression target source code
 build/target/Makefile: | $(TARGET_CODEBASE)

@@ -105,13 +105,13 @@ fi
 
 # Write the new makefile
 rm -f ${makefile}
-echo "#" ${makefile} "created by makemake" >> ${makefile}
+echo "#" ${makefile} "created by makedep" >> ${makefile}
 echo >> ${makefile}
 echo "all:" $lib ${!p2o[@]} >> ${makefile}
 echo >> ${makefile}
 
 echo "# SRC_DIRS is usually set in the parent Makefile but in case is it not we" >> ${makefile}
-echo "# record it here from when makemake was previously invoked." >> ${makefile}
+echo "# record it here from when makedep was previously invoked." >> ${makefile}
 echo "SRC_DIRS ?= ${SRC_DIRS}" >> ${makefile}
 echo >> ${makefile}
 
@@ -185,5 +185,5 @@ echo clean: >> ${makefile}
     echo -e '\trm -rf' ${!p2o[@]} $lib '*.o *.mod' >> ${makefile} # compile rule
 
 echo >> ${makefile}
-echo "remakemake: # re-invoke makemake" >> ${makefile}
+echo "remakedep: # re-invoke makedep" >> ${makefile}
 echo -e '\t' $0 -o ${makefile} '$(SRC_DIRS)' >> ${makefile}

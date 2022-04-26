@@ -60,7 +60,7 @@ TMPFILES = $(wildcard *.mod)
 
 .PHONY: depend
 depend:
-	../../../ac/makemake -o Makefile.dep $(SRC_DIRS)
+	../../../ac/makedep -o Makefile.dep $(SRC_DIRS)
 
 # Delete any files associated with configuration (including the Makefile).
 .PHONY: distclean

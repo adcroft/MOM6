@@ -54,7 +54,7 @@ for F in ${A}; do # F is the relative path to source file
     f=`basename $F` # file name stripped of path
     o=${f/.?90/}.o # object file name
     o2src["$o"]=$F
-    m=`egrep -i "^ *module " $F | grep -vi procedure | tr '[A-Z]' '[a-z]' | sed 's/.*module  *//' | tr -d '\r' | sed 's/$/.mod/' ` # name of module file(s)   #### FAILS IF NO MODULE, DOES IT WORK FOR 2+?
+    m=`egrep -i "^ *module " $F | sed 's/ *!.*//' | grep -vi procedure | tr '[A-Z]' '[a-z]' | sed 's/.*module  *//' | tr -d '\r' | sed 's/$/.mod/' ` # name of module file(s)   #### FAILS IF NO MODULE, DOES IT WORK FOR 2+?
     if [ ${#m} -ne 0 ]; then
         o2mod["$o"]=$m
     fi

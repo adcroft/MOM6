@@ -26,14 +26,7 @@ FMS_SOURCE = $(call SOURCE,fms/src)
 # Rules
 
 .PHONY: all
-all: bin/makedep lib/libFMS.a
-
-#---
-# makedep script
-
-bin/makedep: ../../ac/makedep
-	mkdir -p $(@D)
-	cp $^ $@
+all: lib/libFMS.a
 
 #---
 # FMS build
@@ -45,7 +38,7 @@ bin/makedep: ../../ac/makedep
 
 
 # TODO: track *.mod copy?
-lib/libFMS.a: fms/build/libFMS.a fms/build/Makefile
+lib/libFMS.a: fms/build/libFMS.a
 	mkdir -p {lib,include}
 	cp fms/build/libFMS.a lib/libFMS.a
 	cp fms/build/*.mod include
@@ -70,6 +63,12 @@ fms/src/configure: configure.fms.ac $(FMS_SOURCE) | fms/src
 fms/src:
 	git clone $(FMS_URL) $@
 	git -C $@ checkout $(FMS_COMMIT)
+
+
+# Fetch makedep from the MOM6 repository
+bin/makedep: ../../ac/makedep
+	mkdir -p $(@D)
+	cp $^ $@
 
 
 .PHONY: clean

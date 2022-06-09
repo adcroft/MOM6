@@ -163,15 +163,13 @@ FCFLAGS="$FCFLAGS $ALLOW_ARG_MISMATCH_FCFLAGS"
 # TODO: Properly configure this tool.  For now, we hard-set this to `ar`.
 AR=ar
 ARFLAGS=rv
-AC_SUBST(AR)
-AC_SUBST(ARFLAGS)
+AC_SUBST([AR])
+AC_SUBST([ARFLAGS])
 
-SRC_DIRS="../src"
-AC_CONFIG_COMMANDS([Makefile.dep],
-  [make depend])
+AC_CONFIG_COMMANDS([Makefile.dep], [make depend])
+
+AC_SUBST([CPPFLAGS])
 
 # Prepare output
-AC_SUBST(CPPFLAGS)
-AC_SUBST(SRC_DIRS)
-AC_CONFIG_FILES(Makefile)
+AC_CONFIG_FILES([Makefile])
 AC_OUTPUT

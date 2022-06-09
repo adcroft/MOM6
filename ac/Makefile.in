@@ -50,7 +50,6 @@ CPPDEFS = @DEFS@
 CPPFLAGS = @CPPFLAGS@
 FFLAGS = @FCFLAGS@
 LDFLAGS = @LDFLAGS@ @LIBS@
-
 SRC_DIRS = @SRC_DIRS@
 
 # Gather modulefiles
@@ -58,9 +57,19 @@ TMPFILES = $(wildcard *.mod)
 
 -include Makefile.dep
 
+
+# Generate Makefile from template
+Makefile: @srcdir@/ac/Makefile.in config.status
+	./config.status
+
+
+# Generate dependencies
 .PHONY: depend
-depend:
-	../../../ac/makedep -o Makefile.dep $(SRC_DIRS)
+depend: Makefile.dep
+
+Makefile.dep:
+	@srcdir@/ac/makedep -o Makefile.dep $(SRC_DIRS)
+
 
 # Delete any files associated with configuration (including the Makefile).
 .PHONY: distclean

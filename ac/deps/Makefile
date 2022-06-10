@@ -6,7 +6,6 @@ SHELL = bash
 # Disable implicit variables
 MAKEFLAGS += -R
 
-
 # FMS framework
 FMS_URL ?= https://github.com/NOAA-GFDL/FMS.git
 FMS_COMMIT ?= 2019.01.03
@@ -28,6 +27,7 @@ FMS_SOURCE = $(call SOURCE,fms/src)
 .PHONY: all
 all: lib/libFMS.a
 
+
 #---
 # FMS build
 
@@ -48,7 +48,7 @@ fms/build/libFMS.a: fms/build/Makefile
 	make -C fms/build libFMS.a
 
 
-fms/build/Makefile: Makefile.fms.in fms/src/configure bin/makedep
+fms/build/Makefile: Makefile.fms.in fms/src/configure
 	mkdir -p fms/build
 	cp Makefile.fms.in fms/src/Makefile.in
 	cd $(@D) && ../src/configure --srcdir=../src
@@ -60,20 +60,15 @@ fms/src/configure: configure.fms.ac $(FMS_SOURCE) | fms/src
 	cp -r m4 $(@D)
 	cd $(@D) && autoreconf -i
 
+
 fms/src:
 	git clone $(FMS_URL) $@
 	git -C $@ checkout $(FMS_COMMIT)
 
 
-# Fetch makedep from the MOM6 repository
-bin/makedep: ../../ac/makedep
-	mkdir -p $(@D)
-	cp $^ $@
-
-
 .PHONY: clean
 clean:
-	rm -rf fms/build lib include bin
+	rm -rf fms/build lib include
 
 .PHONY: distclean
 distclean: clean

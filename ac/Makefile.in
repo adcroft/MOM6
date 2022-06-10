@@ -6,6 +6,7 @@
 
 FC = @FC@
 LD = @FC@
+MAKEDEP = @MAKEDEP@
 
 DEFS = @DEFS@
 CPPFLAGS = @CPPFLAGS@
@@ -27,7 +28,7 @@ Makefile: @srcdir@/ac/Makefile.in config.status
 .PHONY: depend
 depend: Makefile.dep
 Makefile.dep:
-	@srcdir@/ac/makedep -o Makefile.dep $(SRC_DIRS)
+	$(MAKEDEP) -o Makefile.dep $(SRC_DIRS)
 
 
 # Delete any files associated with configuration (including the Makefile).

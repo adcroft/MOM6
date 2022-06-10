@@ -61,7 +61,7 @@ for F in ${A}; do # F is the relative path to source file
         u=`echo $u | sed s:$m::g`
     fi
     if [ ${#u} -ne 0 ]; then o2use["$o"]=$u; fi
-    H=$(/lib/cpp -E -MM $I $F | tr -d '\n' | sed 's:\\::g') # line of form a.o: a.F b.h c.h ...
+    H=$(cpp -E -MM $I $F | tr -d '\n' | sed 's:\\::g') # line of form a.o: a.F b.h c.h ...
     o2H["$o"]=$H
     h=`echo ${H} | cut -d\  -f3- ` # header files
     if [ ${#h} -ne 0 ]; then o2head["$o"]=$h; fi
@@ -91,7 +91,7 @@ for F in ${A}; do # F is the relative path to source file
     f=`basename $F` # file name stripped of path
     o=${f/.c/}.o # object file name
     o2c["$o"]=$F
-    H=$(/lib/cpp -E -MM $I $F | tr -d '\n' | sed 's:\\::g') # line of form a.o: a.F b.h c.h ...
+    H=$(cpp -E -MM $I $F | tr -d '\n' | sed 's:\\::g') # line of form a.o: a.F b.h c.h ...
     o2H["$o"]=$H
     h=`echo ${H} | cut -d\  -f3- ` # header files
     if [ ${#h} -ne 0 ]; then o2head["$o"]=$h; fi

@@ -223,6 +223,12 @@ AC_COMPILE_IFELSE(
   ]
 )
 
+
+# Verify that makedep is available
+AC_PATH_PROG([MAKEDEP], [makedep], [${srcdir}/ac/makedep])
+AC_SUBST([MAKEDEP])
+
+
 # Generate source list and configure dependency command
 AC_SUBST([SRC_DIRS],
     ["${srcdir}/src ${MODEL_FRAMEWORK} ${srcdir}/config_src/external ${DRIVER_DIR} ${MEM_LAYOUT}"]

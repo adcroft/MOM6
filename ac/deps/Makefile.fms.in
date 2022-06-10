@@ -8,6 +8,7 @@ CC = @CC@
 FC = @FC@
 LD = @FC@
 AR = @AR@
+MAKEDEP = @MAKEDEP@
 
 DEFS = @DEFS@
 CPPFLAGS = @CPPFLAGS@
@@ -21,4 +22,4 @@ ARFLAGS = @ARFLAGS@
 .PHONY: depend
 depend: Makefile.dep
 Makefile.dep:
-	@srcdir@/../../bin/makedep -o Makefile.dep -x libFMS.a @srcdir@
+	$(MAKEDEP) -o Makefile.dep -x libFMS.a @srcdir@

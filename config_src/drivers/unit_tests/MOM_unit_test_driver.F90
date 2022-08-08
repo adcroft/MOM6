@@ -1,4 +1,4 @@
-program MOM_unit_tests
+program MOM_unit_test_driver
 
 use MPI
 use MOM_domains, only : MOM_infra_init
@@ -62,4 +62,4 @@ if (rank == root) then
   close(io_unit, status='delete')
 endif
 
-end program MOM_unit_tests
+end program MOM_unit_test_driver

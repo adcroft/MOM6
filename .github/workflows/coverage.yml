@@ -20,7 +20,7 @@ jobs:
     - uses: ./.github/actions/testing-setup
 
     - name: Compile unit testing
-      run: make -j build/unit/MOM_unit_tests
+      run: make -j build.unit
 
     - name: Run unit tests
       run: make run.cov.unit

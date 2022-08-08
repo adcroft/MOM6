@@ -147,7 +147,7 @@ ifeq ($(DO_PROFILE), true)
 endif
 
 # Unit testing
-UNIT_EXECS ?= MOM_unit_tests
+UNIT_EXECS ?= MOM_unit_test_driver
 ifeq ($(DO_COVERAGE), true)
   BUILDS += cov/MOM6 $(foreach e, $(UNIT_EXECS), unit/$(e))
 endif
@@ -292,11 +292,12 @@ build/target_codebase/configure: $(TARGET_SOURCE)
 
 
 # Build executables
-$(foreach e,$(UNIT_EXECS),build/unit/$(e)): build/unit/Makefile $(MOM_SOURCE)
-	cd $(@D) && $(TIME) $(MAKE) -j
 build/%/MOM6: build/%/Makefile $(MOM_SOURCE)
 	cd $(@D) && $(TIME) $(MAKE) -j
-
+.PHONY: build.unit
+build.unit: $(foreach e,$(UNIT_EXECS),build/unit/$(e))
+build/unit/%: build/unit/Makefile $(MOM_SOURCE) ../config_src/drivers/unit_tests/%.F90
+	cd $(@D) && $(TIME) $(MAKE) -j $(@F)
 
 # Use autoconf to construct the Makefile for each target
 .PRECIOUS: build/%/Makefile
@@ -705,19 +706,20 @@ test.summary:
 
 # NOTE: Using file parser gcov report as a proxy for test completion
 .PHONY: run.cov.unit
-run.cov.unit: build/unit/MOM_file_parser_tests.F90.gcov
+run.cov.unit: $(foreach e,$(UNIT_EXECS),work/unit/$(e).std.out)
 
-work/unit/std.out: build/unit/MOM_unit_tests
+
+work/unit/%.std.out: build/unit/%
 	if [ $(REPORT_COVERAGE) ]; then \
 	  find build/unit -name *.gcda -exec rm -f '{}' \; ; \
 	fi
-	rm -rf $(@D)
 	mkdir -p $(@D)
 	cd $(@D) \
-	  && $(TIME) $(MPIRUN) -n 1 ../../$< 2> std.err > std.out \
+	  && $(TIME) $(MPIRUN) -n 1 ../../$< 2> std.err > $(@F) \
 	  || !( \
-	    cat std.out | tail -n 100 ; \
+	    cat $(@F) | tail -n 100 ; \
 	    cat std.err | tail -n 100 ; \
+	    rm $(@F) | tail -n 100 ; \
 	  )
 	cd $(@D) \
 	  && $(TIME) $(MPIRUN) -n 2 ../../$< 2> p2.std.err > p2.std.out \
@@ -728,13 +730,13 @@ work/unit/std.out: build/unit/MOM_unit_tests
 
 # NOTE: .gcov actually depends on .gcda, but .gcda is produced with std.out
 # TODO: Replace work/unit/std.out with *.gcda?
-build/unit/MOM_file_parser_tests.F90.gcov: work/unit/std.out
+build/unit/gcov.unit.out: $(foreach e,$(UNIT_EXECS),work/unit/$(e).std.out)
 	cd $(@D) \
 	  && gcov -b *.gcda > gcov.unit.out
 	find $(@D) -name "*.gcov" -exec sed -i -r 's/^( *[0-9]*)\*:/ \1:/g' {} \;
 
 .PHONY: report.cov.unit
-report.cov.unit: build/unit/MOM_file_parser_tests.F90.gcov codecov
+report.cov.unit: build/unit/gcov.unit.out codecov
 	./codecov -R build/unit -f "*.gcov" -Z -n "Unit tests" \
 	    > build/unit/codecov.out \
 	    2> build/unit/codecov.err \

@@ -4,6 +4,7 @@ module MOM_EOS_Wright
 ! This file is part of MOM6. See LICENSE.md for the license.
 
 use MOM_hor_index, only : hor_index_type
+use iso_fortran_env, only : stdout=>output_unit, stderr=>error_unit
 
 implicit none ; private
 
@@ -13,6 +14,7 @@ public calculate_compress_wright, calculate_density_wright, calculate_spec_vol_w
 public calculate_density_derivs_wright, calculate_specvol_derivs_wright
 public calculate_density_second_derivs_wright
 public int_density_dz_wright, int_spec_vol_dp_wright
+public EOS_Wright_unit_tests
 
 !> Compute the in situ density of sea water (in [kg m-3]), or its anomaly with respect to
 !! a reference density, from salinity (in psu), potential temperature (in deg C), and pressure [Pa],
@@ -115,7 +117,8 @@ subroutine calculate_density_array_wright(T, S, pressure, rho, start, npts, rho_
              ( (c0 + lam_TS) + al0*(b0 + p_TSp) )
   enddo ; else ; do j=start,start+npts-1
     al0 = (a0 + a1*T(j)) +a2*S(j)
-    p0 = (b0 + b4*S(j)) + T(j) * (b1 + T(j)*(b2 + b3*T(j)) + b5*S(j))
+    p0 = (b0 + b4*S(j)) + T(j) * (b1 + T(j)*((b2 + b3*T(j))) + b5*S(j))
+    p0 = (b0 + b4*S(j)) + T(j) * (b1 + T(j)*( b2 + b3*T(j))  + b5*S(j))
     lambda = (c0 +c4*S(j)) + T(j) * (c1 + T(j)*(c2 + c3*T(j)) + c5*S(j))
     rho(j) = (pressure(j) + p0) / (lambda + al0*(pressure(j) + p0))
   enddo ; endif
@@ -870,6 +873,150 @@ subroutine int_spec_vol_dp_wright(T, S, p_t, p_b, spv_ref, HI, dza, &
                            12.0*intp(3))
   enddo ; enddo ; endif
 end subroutine int_spec_vol_dp_wright
+
+!> Runs unit tests on Wrigth EOS functions.
+!!
+!! Should only be called from a single/root thread.
+!! Returns True if a test fails, otherwise False.
+!!
+!! These tests mostly comprise of comparison with test valuea. The original paper did
+!! not publish such values so they have been calculated independently and then since
+!! they were comparable to the MOM6 results, the later have been encoded.
+logical function EOS_Wright_unit_tests(verbose)
+  logical, intent(in) :: verbose !< If true, write results to stdout
+  ! Local variables
+  logical :: this, v
+  integer, parameter :: n = 18
+  real :: rs, S(n), T(n), p(n), rv(n), dp(n), dt, ds, dss, dst, dtt, dsp, dtp
+  real, parameter :: rho_test = 1027.5430359634624
+  real, parameter :: dp_test = 4.1531388921577296E-07
+
+  write(stdout,*) '==== MOM_EOS_Wright: EOS_Wright_unit_tests ================='
+
+  v = verbose
+  this = .false.
+
+  call calculate_density_scalar_wright(0., 0., 0., rs)
+  this = this .or. test_answer(v, 999.79788488420570, rs, 'rho(0,0,0)')
+
+  call calculate_density_scalar_wright(0., 0., 0., rs, 999.)
+  this = this .or. test_answer(v, 0.79788488420559855, rs, 'rho(0,0,0,999)')
+
+  call calculate_density_scalar_wright(0., 35., 0., rs)
+  this = this .or. test_answer(v, 1028.1028958868073, rs, 'rho(0,35,0)')
+
+  call calculate_density_scalar_wright(0., 35., 1.e7, rs)
+  this = this .or. test_answer(v, 1032.8171469291783, rs, 'rho(0,35,1e7)')
+
+  call calculate_density_scalar_wright(25., 35., 1.e7, rs)
+  this = this .or. test_answer(v, rho_test, rs, 'rho(25,35,1e7)')
+
+  T(:) = 25.; S(:) = 35.; p(:) = 1.e7 ; rv(:) = -1.
+  call calculate_density_array_wright(T, S, p, rv, 2, n-2)
+  this = this .or. test_vec_answer(v, rho_test, rv(2:n-1), 'rho(25,35,1e7) vector')
+  this = this .or. test_vec_answer(v, -1., rv(1:n:n-1), 'rho vector halo value')
+
+  dp(:) = -1. ! Re-using same input data for T, S, p
+  call calculate_compress_wright(T, S, p, rv, dp, 2, n-2)
+  ! Note that calculate_compress_wright() returns a different value of density
+  ! due to different order of arithmetic so we allow a last but error
+  this = this .or. test_vec_answer(v, rho_test, rv(2:n-1), 'rhoc(25,35,1e7) vector', &
+                               tol=epsilon(rs)*rv(2))
+  this = this .or. test_vec_answer(v, -1., rv(1:n:n-1), 'rhoc vector halo value')
+  this = this .or. test_vec_answer(v, dp_test, dp(2:n-1), 'drho_dp(25,35,1e7) vector')
+  this = this .or. test_vec_answer(v, -1., dp(1:n:n-1), 'drho_dp vector halo value')
+
+  call calculate_density_derivs_scalar_wright(25., 35., 1.e7, dt, ds)
+  this = this .or. test_answer(v, -0.31682883007512880, dt, 'drho_dT(25,35,1e7)')
+  this = this .or. test_answer(v, 0.75008684135737258, ds, 'drho_dS(25,35,1e7)')
+
+  call calculate_density_second_derivs_scalar_wright(25., 35., 1.e7, dss, dst, dtt, dsp, dtp)
+  this = this .or. test_answer(v,  4.2550043202693505E-04, dss, 'd2rho_dS2(25,35,1e7)')
+  this = this .or. test_answer(v, -1.1103137976834682E-03, dst, 'd2rho_dSdT(25,35,1e7)')
+  this = this .or. test_answer(v, -1.1402818751119731E-02, dtt, 'd2rho_dT2(25,35,1e7)')
+  this = this .or. test_answer(v, -5.6104025000435204E-10, dsp, 'd2rho_dSdP(25,35,1e7)')
+  this = this .or. test_answer(v, -1.1893735082701434E-09, dtp, 'd2rho_dTdP(25,35,1e7)')
+
+  call calculate_spec_vol_scalar_wright(0., 0., 0., rs)
+  this = this .or. test_answer(v, 1.0002021559745726e-3, rs, 'spv(0,0,0)')
+
+  call calculate_spec_vol_scalar_wright(0., 0., 0., rs, 1.e-3)
+  this = this .or. test_answer(v, 2.0215597457255416e-7, rs, 'spv(0,0,0,1e-3)')
+
+  call calculate_spec_vol_scalar_wright(0., 35., 0., rs, 1.e-3)
+  this = this .or. test_answer(v, -2.7334711339925483e-5, rs, 'spv(0,35,0,1e-3)')
+
+  call calculate_spec_vol_scalar_wright(0., 35., 1.e7, rs, 1.e-3)
+  this = this .or. test_answer(v, -3.1774401719367133e-5, rs, 'spv(0,35,1e7,1e-3)')
+
+  call calculate_spec_vol_scalar_wright(25., 35., 1.e7, rs, 1.e-3)
+  this = this .or. test_answer(v, -2.6804751722770392e-5, rs, 'spv(25,35,1e7,1e-3)')
+
+  T(:) = 25.; S(:) = 35.; p(:) = 1.e7 ; rv(:) = 0.
+  call calculate_spec_vol_array_wright(T, S, p, rv, 2, n-2)
+  this = this .or. test_answer(v, 1./rho_test, minval(rv(2:n-1)), 'spv(25,35,1e7) vector')
+  this = this .or. test_answer(v, 1./rho_test, maxval(rv(2:n-1)), 'spv(25,35,1e7) vector')
+  this = this .or. test_answer(v, 0., rv(1), 'spv vector halo value')
+  this = this .or. test_answer(v, 0., rv(n), 'spv vector halo value')
+
+  if (.not. this) write(stdout,*) 'Pass'
+  EOS_Wright_unit_tests = this
+
+end function EOS_Wright_unit_tests
+
+!> Returns true if u and u_true differ by more than tol. Returns false otherwise.
+logical function test_answer(verbose, u_true, u, label, tol)
+  logical,          intent(in) :: verbose !< If true, write results to stdout
+  real,             intent(in) :: u_true  !< Correct value in test
+  real,             intent(in) :: u       !< Value being tested
+  character(len=*), intent(in) :: label   !< Message
+  real, optional,   intent(in) :: tol     !< A tolerance
+  ! Local variables
+  real :: tolerance ! The tolerance for differences between u and u_true
+  real :: err
+
+  tolerance = 0.0 ; if (present(tol)) tolerance = abs(tol)
+  test_answer = .false.
+  err = u - u_true
+  test_answer = abs(err) > tolerance
+  if (test_answer .or. verbose) then
+    if (test_answer) then
+      if (tolerance>0.) then
+        write(stdout,'(1p2e24.16,a,1pe24.16,">",1pe22.16,1x,a)') u,u_true,' err=',err,tolerance,label//' < wrong'
+        write(stderr,'(1p2e24.16,a,1pe24.16,">",1pe22.16,1x,a)') u,u_true,' err=',err,tolerance,label//' < wrong'
+      else
+        write(stdout,'(1p2e24.16,a,1pe24.16,1x,a)') u,u_true,' err=',err,label//' < wrong'
+        write(stderr,'(1p2e24.16,a,1pe24.16,1x,a)') u,u_true,' err=',err,label//' < wrong'
+      endif
+    else
+      if (tolerance>0.) then
+        write(stdout,'(1p2e24.16,1pe24.16,"<",1pe22.16,1x,a)') u,u_true,err,tol,label
+      else
+        write(stdout,'(1p2e24.16,1x,a)') u,u_true,label
+      endif
+    endif
+  endif
+
+end function test_answer
+
+!> Returns true if u and u_true differ by more than tol. Returns false otherwise.
+logical function test_vec_answer(verbose, u_true, u, label, tol)
+  logical,          intent(in) :: verbose !< If true, write results to stdout
+  real,             intent(in) :: u_true  !< Correct value in test
+  real,             intent(in) :: u(:)    !< Value being tested
+  character(len=*), intent(in) :: label   !< Message
+  real, optional,   intent(in) :: tol     !< A tolerance
+  ! Local variables
+  real :: vmin, vmax
+
+  vmin = minval(u)
+  vmax = maxval(u)
+  test_vec_answer = test_answer(verbose, u_true, vmin, label, tol)
+  if (vmax>vmin .and. .not.test_vec_answer) then ! Only do the 2nd test is needed
+    test_vec_answer = test_answer(verbose, u_true, vmax, label, tol)
+  endif
+
+end function test_vec_answer
 
 !> \namespace mom_eos_wright
 !!

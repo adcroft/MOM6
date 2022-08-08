@@ -147,7 +147,7 @@ ifeq ($(DO_PROFILE), true)
 endif
 
 # Unit testing
-UNIT_EXECS ?= MOM_unit_test_driver
+UNIT_EXECS ?= MOM_unit_test_driver test_EOS_Wright
 ifeq ($(DO_COVERAGE), true)
   BUILDS += cov/MOM6 $(foreach e, $(UNIT_EXECS), unit/$(e))
 endif

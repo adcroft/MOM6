@@ -706,13 +706,11 @@ test.summary:
 
 # NOTE: Using file parser gcov report as a proxy for test completion
 .PHONY: run.cov.unit
-run.cov.unit: $(foreach e,$(UNIT_EXECS),work/unit/$(e).std.out)
+run.cov.unit: $(foreach e,$(UNIT_EXECS),work/unit.$(e)/std.out)
 
 
-work/unit/%.std.out: build/unit/%
-	if [ $(REPORT_COVERAGE) ]; then \
-	  find build/unit -name *.gcda -exec rm -f '{}' \; ; \
-	fi
+work/unit.%/std.out: build/unit/%
+	rm -rf $(@D)
 	mkdir -p $(@D)
 	cd $(@D) \
 	  && $(TIME) $(MPIRUN) -n 1 ../../$< 2> std.err > $(@F) \
@@ -728,9 +726,15 @@ work/unit/%.std.out: build/unit/%
 	    cat p2.std.err | tail -n 100 ; \
 	  )
 
+.PHONY: clean.gcda
+clean.gcda:
+	if [ $(REPORT_COVERAGE) ]; then \
+	  find build/unit -name *.gcda -exec rm -f '{}' \; ; \
+	fi
+
 # NOTE: .gcov actually depends on .gcda, but .gcda is produced with std.out
 # TODO: Replace work/unit/std.out with *.gcda?
-build/unit/gcov.unit.out: $(foreach e,$(UNIT_EXECS),work/unit/$(e).std.out)
+build/unit/gcov.unit.out: $(foreach e,$(UNIT_EXECS),work/unit.$(e)/std.out)
 	cd $(@D) \
 	  && gcov -b *.gcda > gcov.unit.out
 	find $(@D) -name "*.gcov" -exec sed -i -r 's/^( *[0-9]*)\*:/ \1:/g' {} \;

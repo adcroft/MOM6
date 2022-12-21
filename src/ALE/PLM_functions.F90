@@ -93,9 +93,9 @@ real elemental pure function PLM_slope_cw(h_l, h_c, h_r, h_neglect, u_l, u_c, u_
               + ( 2.*h_r + h_c ) / ( h_l + h_cn ) * sigma_l )
 
   ! Limit slope so that reconstructions are bounded by neighbors
-  u_min = min( u_l, u_c, u_r )
-  u_max = max( u_l, u_c, u_r )
   if ( (sigma_l * sigma_r) > 0.0 ) then
+    u_min = min( u_l, u_c, u_r )
+    u_max = max( u_l, u_c, u_r )
     ! This limits the slope so that the edge values are bounded by the
     ! two cell averages spanning the edge.
     PLM_slope_cw = sign( min( abs(sigma_c), 2.*min( u_c - u_min, u_max - u_c ) ), sigma_c )
@@ -104,16 +104,6 @@ real elemental pure function PLM_slope_cw(h_l, h_c, h_r, h_neglect, u_l, u_c, u_
     ! larger extreme values.
     PLM_slope_cw = 0.0
   endif
-
-  ! This block tests to see if roundoff causes edge values to be out of bounds
-  if (u_c - 0.5*abs(PLM_slope_cw) < u_min .or.  u_c + 0.5*abs(PLM_slope_cw) > u_max) then
-    PLM_slope_cw = PLM_slope_cw * ( 1. - epsilon(PLM_slope_cw) )
-  endif
-
-  ! An attempt to avoid inconsistency when the values become unrepresentable.
-  ! ### The following 1.E-140 is dimensionally inconsistent. A newer version of
-  ! PLM is progress that will avoid the need for such rounding.
-  if (abs(PLM_slope_cw) < 1.E-140) PLM_slope_cw = 0.
 
 end function PLM_slope_cw
 

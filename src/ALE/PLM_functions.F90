@@ -16,8 +16,21 @@ real, parameter :: hNeglect_dflt = 1.E-30 !< Default negligible cell thickness
 
 contains
 
-!> Returns a limited PLM slope following White and Adcroft, 2008. [units of u]
-!! Note that this is not the same as the Colella and Woodward method.
+!> Returns a limited PLM slope [units of u] expressed as a difference across the cell
+!! following White and Adcroft, 2008 (https://doi.org/10.1016/j.jcp.2008.04.026)
+!!
+!! Algotihm:
+!! - the initial estimate of the centered difference is a simple finite difference
+!!   involving left and right cell means;
+!! - the slope is then bounded so that the edge values of the reconstruction does
+!!   not exceed the neighbor cell means;
+!! - the slope is zeroed for cells with local extrema of cell means.
+!!
+!! \note This is not the same as the PLM scheme used within the PPM method of Colella
+!! and Woodward, 1984, https://doi.org/10.1016/0021-9991(84)90143-8.
+!!
+!! \note The denominator in the finite difference central estuimate has a
+!! potentially compiler dependent result due to lack of paranthesis.
 real elemental pure function PLM_slope_wa(h_l, h_c, h_r, h_neglect, u_l, u_c, u_r)
   real, intent(in) :: h_l !< Thickness of left cell [units of grid thickness]
   real, intent(in) :: h_c !< Thickness of center cell [units of grid thickness]
@@ -63,7 +76,14 @@ real elemental pure function PLM_slope_wa(h_l, h_c, h_r, h_neglect, u_l, u_c, u_
 
 end function PLM_slope_wa
 
-!> Returns a limited PLM slope following Colella and Woodward 1984.
+!> Returns a limited PLM slope [units of u] expressed as a difference across the cell
+!! following Colella and Woodward, 1984, https://doi.org/10.1016/0021-9991(84)90143-8.
+!!
+!! Algorithm:
+!! - a central difference is computed taking into account a variable mesh;
+!! - the slope is then bounded so that the edge values of the reconstruction does
+!!   not exceed the neighbor cell means;
+!! - the slope is zeroed for cells with local extrema of cell means.
 real elemental pure function PLM_slope_cw(h_l, h_c, h_r, h_neglect, u_l, u_c, u_r)
   real, intent(in) :: h_l !< Thickness of left cell [units of grid thickness]
   real, intent(in) :: h_c !< Thickness of center cell [units of grid thickness]
@@ -107,7 +127,18 @@ real elemental pure function PLM_slope_cw(h_l, h_c, h_r, h_neglect, u_l, u_c, u_
 
 end function PLM_slope_cw
 
-!> Returns a limited PLM slope following Colella and Woodward 1984.
+!> Returns a PLM slope further limited so that the consecutive edge values are
+!! monotonic [units of u]
+!!
+!! Algotihm:
+!! -# calculate the edge values of left and right neighbors and of the central cell
+!! -# if needed, reduce the central slope such that the left edge is bounded
+!! -# if needed, reduce the central slope such that the right edge is bounded
+!!
+!! By bounded the edge values of the central cell this way the global order of
+!! edge values is ensured to be monotonic (excepting roundoff).
+!!
+!! \note This function uses epsilon() to try to avoid later overshoots due to roundoff
 real elemental pure function PLM_monotonized_slope(u_l, u_c, u_r, s_l, s_c, s_r)
   real, intent(in) :: u_l !< Value of left cell [units of u]
   real, intent(in) :: u_c !< Value of center cell [units of u]
@@ -145,8 +176,19 @@ real elemental pure function PLM_monotonized_slope(u_l, u_c, u_r, s_l, s_c, s_r)
 
 end function PLM_monotonized_slope
 
-!> Returns a PLM slope using h2 extrapolation from a cell to the left.
+!> Returns a PLM slope [units of u] expressed as a difference across the cell
+!! using h2 extrapolation from a cell to the left.
 !! Use the negative to extrapolate from the cell to the right.
+!!
+!! Algotithm:
+!! -# Calculate the left edge value of the cell using linear interpolation
+!! -# Calculate the cell slope from the above left edge value and the cell mean
+!!
+!! This is essentiall linear extrapolation for the implied right edge value.
+!!
+!! \note This potentially can yield an implied left edge value that is not monotonic
+!! w.r.t. the left cell slope which could be steep such that the edge value of the
+!! left cell is between the mid-point and central cell mean.
 real elemental pure function PLM_extrapolate_slope(h_l, h_c, h_neglect, u_l, u_c)
   real, intent(in) :: h_l !< Thickness of left cell [units of grid thickness]
   real, intent(in) :: h_c !< Thickness of center cell [units of grid thickness]
@@ -171,8 +213,16 @@ end function PLM_extrapolate_slope
 
 !> Reconstruction by linear polynomials within each cell
 !!
+!! The PLM slopes used here follow the prescription of White and
+!! Adcroft, 2008, via ::plm_slope_wa().
+!!
 !! It is assumed that the size of the array 'u' is equal to the number of cells
 !! defining 'grid' and 'ppoly'. No consistency check is performed here.
+!!
+!! Algotihm:
+!! -# Use WA08 estimate of the PLM slope (finite difference central slope, limited)
+!! -# Bound the slopes such that implied edge values are monotonized
+!! -# Calculate edge values and polynomial coefficients (redundant information)
 subroutine PLM_reconstruction( N, h, u, edge_values, ppoly_coef, h_neglect )
   integer,              intent(in)    :: N !< Number of cells
   real, dimension(:),   intent(in)    :: h !< cell widths (size N)

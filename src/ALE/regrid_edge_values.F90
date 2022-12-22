@@ -17,6 +17,7 @@ public bound_edge_values, average_discontinuous_edge_values, check_discontinuous
 public edge_values_explicit_h2, edge_values_explicit_h4
 public edge_values_implicit_h4, edge_values_implicit_h6
 public edge_slopes_implicit_h3, edge_slopes_implicit_h5
+public edge_values_unit_tests
 
 ! The following parameters are used to avoid singular matrices for boundary
 ! extrapolation. The are needed only in the case where thicknesses vanish
@@ -31,12 +32,15 @@ real, parameter :: hMinFrac      = 1.e-5  !< A minimum fraction for min(h)/sum(h
 
 contains
 
-!> Bound edge values by neighboring cell averages
+!> Bound edge values by neighboring cell averages following White and Adcroft, 2008
 !!
 !! In this routine, we loop on all cells to bound their left and right
 !! edge values by the cell averages. That is, the left edge value must lie
 !! between the left cell average and the central cell average. A similar
 !! reasoning applies to the right edge values.
+!!
+!! If an incoming edge value is out of bounds, it is replaced by the WA08-PLM
+!! edge value.
 !!
 !! Both boundary edge values are set equal to the boundary cell averages.
 !! Any extrapolation scheme is applied after this routine has been called.
@@ -52,7 +56,7 @@ subroutine bound_edge_values( N, h, u, edge_val, h_neglect, answer_date )
 
   ! Local variables
   real    :: sigma_l, sigma_c, sigma_r    ! left, center and right van Leer slopes [A H-1] or [A]
-  real    :: slope_x_h     ! retained PLM slope times  half grid step [A]
+  real    :: slope_x_h     ! retained PLM slope times half grid step [A]
   real    :: hNeglect      ! A negligible thickness [H].
   logical :: use_2018_answers  ! If true use older, less accurate expressions.
   integer :: k, km1, kp1   ! Loop index and the values to either side.
@@ -71,6 +75,7 @@ subroutine bound_edge_values( N, h, u, edge_val, h_neglect, answer_date )
     ! boundary cells look like extrema.
     km1 = max(1,k-1) ; kp1 = min(k+1,N)
 
+    ! Calculate PLM (WA08) slopes to use if the edge values need to be updated
     slope_x_h = 0.0
     if (use_2018_answers) then
       sigma_l = 2.0 * ( u(k) - u(km1) ) / ( h(k) + hNeglect )
@@ -92,11 +97,12 @@ subroutine bound_edge_values( N, h, u, edge_val, h_neglect, answer_date )
         slope_x_h = sign( min(abs(sigma_l),abs(sigma_c),abs(sigma_r)), sigma_c )
     endif
 
-    ! Limit the edge values
+    ! Limit the left edge value if outside of the left and center cell mean values
     if ( (u(km1)-edge_val(k,1)) * (edge_val(k,1)-u(k)) < 0.0 ) then
       edge_val(k,1) = u(k) - sign( min( abs(slope_x_h), abs(edge_val(k,1)-u(k)) ), slope_x_h )
     endif
 
+    ! Limit the right edge value if outside of the right and center cell mean values
     if ( (u(kp1)-edge_val(k,2)) * (edge_val(k,2)-u(k)) < 0.0 ) then
       edge_val(k,2) = u(k) + sign( min( abs(slope_x_h), abs(edge_val(k,2)-u(k)) ), slope_x_h )
     endif
@@ -199,6 +205,40 @@ subroutine edge_values_explicit_h2( N, h, u, edge_val )
   enddo
 
 end subroutine edge_values_explicit_h2
+
+!> Compute K2 edge values (explicit second order accurate in index-space)
+!!
+!! Compute edge values based on second-order explicit estimates without grid metrics.
+!! These estimates are based on a straight line spanning two cells and evaluated
+!! at the location of the mid-point. An interpolant spanning cells
+!! k-1 and k is evaluated at edge k-1/2. The estimate for each edge is unique.
+!! This is fancy speak for the mid-point value.
+!!
+!! Boundary edge values are obtained by linear extrapolation.
+!!
+!! \note In contrast to edge_values_explicit_h2(), this function also extrapolates
+!! for the outer most edge values in the boundary cells.
+subroutine edge_values_explicit_k2( N, u, edge_val )
+  integer,              intent(in)    :: N !< Number of cells
+  real, dimension(N),   intent(in)    :: u !< cell average properties in arbitrary units [A]
+  real, dimension(N,2), intent(inout) :: edge_val !< Returned edge values [A]; the
+                                           !! second index is for the two edges of each cell.
+  ! Local variables
+  integer :: k ! loop index
+
+  ! Boundary edge values are extrapolated
+  edge_val(1,1) = 1.5 * u(1) - 0.5 * u(2)
+  edge_val(N,2) = 1.5 * u(N) - 0.5 * u(N-1)
+
+  do k = 2,N
+    ! Compute left edge value
+    edge_val(k,1) = 0.5 * (u(k-1) + u(k))
+
+    ! Left edge value of the current cell is equal to right edge value of left cell
+    edge_val(k-1,2) = edge_val(k,1)
+  enddo
+
+end subroutine edge_values_explicit_k2
 
 !> Compute h4 edge values (explicit fourth order accurate)
 !! in the same units as u.
@@ -356,6 +396,129 @@ subroutine edge_values_explicit_h4( N, h, u, edge_val, h_neglect, answer_date )
   edge_val(N-1,2) = edge_val(N,1)
 
 end subroutine edge_values_explicit_h4
+
+!> Compute u4 edge values (explicit fourth order accurate in model space)
+!! in the same units as u.
+!!
+!! Compute edge values based on fourth-order explicit estimates.
+!! These estimates are based on a cubic interpolant spanning four cells
+!! and evaluated at the location of the middle edge. An interpolant spanning
+!! cells k-2, k-1, k and k+1 is evaluated at edge k-1/2. The estimate for
+!! each edge is unique.
+!!
+!! The first two edge values are estimated by evaluating the first available
+!! cubic interpolant, i.e., the interpolant spanning cells 1, 2, 3 and 4.
+!! Similarly, the last two edge values are estimated by evaluating the last
+!! available interpolant.
+!!
+!! For this fourth-order scheme, at least four cells must exist.
+!!
+!! Boundary edge values are .... [TBD - AJA]
+subroutine edge_values_explicit_u4( N, u, edge_val )
+  integer,              intent(in)    :: N !< Number of cells
+  real, dimension(N),   intent(in)    :: u !< cell average properties in arbitrary units [A]
+  real, dimension(N,2), intent(inout) :: edge_val !< Returned edge values [A]; the second index
+                                           !! is for the two edges of each cell.
+  ! Local variables
+  real :: f1, f2, f3            ! auxiliary variables with various units
+  real :: et1, et2, et3         ! terms the expression for edge values [A H]
+  real :: I_h12                 ! The inverse of the sum of the two central thicknesses [H-1]
+  real :: I_h012, I_h123        ! Inverses of sums of three successive thicknesses [H-1]
+  real :: I_den_et2, I_den_et3  ! Inverses of denominators in edge value terms [H-2]
+  real, dimension(5)    :: x          ! Coordinate system with 0 at edges [H]
+  real, dimension(4)    :: dz               ! A temporary array of limited layer thicknesses [H]
+  real, dimension(4)    :: u_tmp            ! A temporary array of cell average properties [A]
+  real, parameter       :: C1_12 = 1.0 / 12.0
+  real                  :: dx               ! Difference of successive values of x [H]
+  real, dimension(4,4)  :: A                ! values near the boundaries
+  real, dimension(4)    :: B, C
+  real      :: hNeglect ! A negligible thickness in the same units as h.
+  integer               :: i, j, K
+  logical   :: use_2018_answers  ! If true use older, less accurate expressions.
+
+  ! Loop on interior cells
+  do K = 3,N-1
+
+    ! Avoid singularities when consecutive pairs of h vanish
+    if (use_2018_answers) then
+      f1 = 2. ! (h0+h1) * (h2+h3) / (h1+h2)
+      f2 = u(k-1) + u(k)
+      f3 = 2. / 3. ! 1.0 / (h0+h1+h2) + 1.0 / (h1+h2+h3)
+      et1 = f1 * f2 * f3
+      et2 = 2. / 6. * ( 3. * u(k-1) - u(k-2) ) ! ( h2 * (h2+h3) / ( (h0+h1+h2)*(h0+h1) ) ) * &
+                                               ! ((h0+2.0*h1) * u(i-1) - h1 * u(i-2))
+      et3 = 2. / 6. * ( 3. * u(k) - u(k+1) ) ! ( h1 * (h0+h1) / ( (h1+h2+h3)*(h2+h3) ) ) * &
+                                             ! ((2.0*h2+h3) * u(i) - h2 * u(i+1))
+      edge_val(i,1) = 0.25 * (et1 + et2 + et3) ! / ( h0 + h1 + h2 + h3)
+    else
+      I_h12 = 0.5 ! 1.0 / (h1+h2)
+      I_den_et2 = 1. / 6. ! 1.0 / ( ((h0+h1)+h2)*(h0+h1) )
+      I_h012 =  2. / 6. ! (h0+h1) * I_den_et2
+      I_den_et3 = 1. / 6. ! 1.0 / ( (h1+(h2+h3))*(h2+h3) )
+      I_h123 = 2. / 6. ! (h2+h3) * I_den_et3
+
+      et1 = ( 1.0 + (2./6. + 2. * 2./6.) ) * u(i-1) + &
+            ( 1.0 + (2./6. + 2. * 2./6.) ) * u(i)
+      et2 = ( 2./6. ) * (u(i-1)-u(i-2))
+      et3 = ( 2./6. ) * (u(i) - u(i+1))
+      edge_val(i,1) = 0.25 * ( et1 + (et2 + et3) )
+    endif
+    edge_val(k-1,2) = edge_val(k,1)
+
+  enddo ! end loop on interior cells
+
+  ! Determine first two edge values
+  if (use_2018_answers) then
+    x(1) = 0.0
+    do i = 1,4
+      x(i+1) = x(i) + 1.
+      do j = 1,4 ; A(i,j) = ( (x(i+1)**j) - (x(i)**j) ) / real(j) ; enddo
+      B(i) = u(i)
+    enddo
+
+    call solve_linear_system( A, B, C, 4 )
+
+    ! Set the edge values of the first cell
+    edge_val(1,1) = evaluation_polynomial( C, 4, x(1) )
+    edge_val(1,2) = evaluation_polynomial( C, 4, x(2) )
+  else  ! Use expressions with less sensitivity to roundoff
+    do i=1,4 ; dz(i) = 1. ; u_tmp(i) = u(i) ; enddo
+    call end_value_h4(dz, u_tmp, C)
+
+    ! Set the edge values of the first cell
+    edge_val(1,1) = C(1)
+    edge_val(1,2) = C(1) + dz(1)*(C(2) + dz(1)*(C(3) + dz(1)*C(4)))
+  endif
+  edge_val(2,1) = edge_val(1,2)
+
+  ! Determine two edge values of the last cell
+  if (use_2018_answers) then
+
+    x(1) = 0.0
+    do i = 1,4
+      x(i+1) = x(i) + 1.
+      do j = 1,4 ; A(i,j) = ( (x(i+1)**j) - (x(i)**j) ) / real(j) ; enddo
+      B(i) = u(N-4+i)
+    enddo
+
+    call solve_linear_system( A, B, C, 4 )
+
+    ! Set the last and second to last edge values
+    edge_val(N,2) = evaluation_polynomial( C, 4, x(5) )
+    edge_val(N,1) = evaluation_polynomial( C, 4, x(4) )
+  else
+    ! Use expressions with less sensitivity to roundoff, including using a coordinate
+    ! system that sets the origin at the last interface in the domain.
+    do i=1,4 ; dz(i) = 1. ; u_tmp(i) = u(N+1-i) ; enddo
+    call end_value_h4(dz, u_tmp, C)
+
+    ! Set the last and second to last edge values
+    edge_val(N,2) = C(1)
+    edge_val(N,1) = C(1) + dz(1)*(C(2) + dz(1)*(C(3) + dz(1)*C(4)))
+  endif
+  edge_val(N-1,2) = edge_val(N,1)
+
+end subroutine edge_values_explicit_u4
 
 !> Compute ih4 edge values (implicit fourth order accurate)
 !! in the same units as u.
@@ -1360,5 +1523,98 @@ end subroutine edge_values_implicit_h6
 !   endif
 !
 ! end subroutine test_line
+
+!> Returns True if any unit test of edge value functions fail, returns True otherwise.
+!!
+!! Should only be called from a single/root thread
+logical function edge_values_unit_tests(verbose, stdout, stderr)
+  logical, intent(in) :: verbose !< If true, write results to stdout
+  integer, intent(in) :: stdout  !< Fortran channel to write normal messages to
+  integer, intent(in) :: stderr  !< Fortran channel to write error messages to
+  ! Local variables
+  integer, parameter :: n0 = 4, n1 = 3, n2 = 6
+  real :: h0(n0), x0(n0+1), u0(n0)  ! Thicknesses [H], interface heights [H] and values [A] for profile 0
+  real :: h1(n1), x1(n1+1), u1(n1)  ! Thicknesses [H], interface heights [H] and values [A] for profile 1
+  real :: dx1(n1+1)                 ! Interface height changes for profile 1 [H]
+  real :: h2(n2), x2(n2+1), u2(n2)  ! Thicknesses [H], interface heights [H] and values [A] for profile 2
+  data u0 /9., 3., -3., -9./   ! Linear profile, 4 at surface to -4 at bottom [A]
+  data h0 /4*0.75/ ! 4 uniform layers with total depth of 3 [H]
+  data h1 /3*1./   ! 3 uniform layers with total depth of 3 [H]
+  data h2 /6*0.5/  ! 6 uniform layers with total depth of 3 [H]
+  real, allocatable, dimension(:,:) :: ppoly0_E     ! Edge values of polynomials [A]
+  integer :: answer_date  ! The vintage of the expressions to test
+  integer :: i
+  real, parameter :: hNeglect_dflt = 1.0e-30 ! A thickness [H ~> m or kg m-2] that can be
+                                      ! added to thicknesses in a denominator without
+                                      ! changing the numerical result, except where
+                                      ! a division by zero would otherwise occur.
+  real :: err                         ! Errors in the remapped thicknesses [H] or values [A]
+  real :: h_neglect, h_neglect_edge   ! Tiny thicknesses used in remapping [H]
+  logical :: thisTest, v, fail
+
+  v = verbose
+  answer_date = 20190101 ! 20181231
+  h_neglect = hNeglect_dflt
+  h_neglect_edge = hNeglect_dflt ; if (answer_date < 20190101) h_neglect_edge = 1.0e-10
+
+  write(stdout,*) '==== regrid_edge_values: edge_value_unit_tests ==========='
+  edge_values_unit_tests = .false. ! Normally return false
+
+  allocate(ppoly0_E(5,2))
+
+  ! Test H4 interpolation of straight data
+  call edge_values_explicit_h4( 5, (/1.,1.,1.,1.,1./), (/1.,3.,5.,7.,9./), ppoly0_E, &
+                                h_neglect=1e-10, answer_date=answer_date )
+  ! The next two tests currently fail due to roundoff, but pass when given a reasonable tolerance.
+  thisTest = test_answer(v, 5, ppoly0_E(:,1), (/0.,2.,4.,6.,8./), 'Line H4: left edges', tol=8.0e-15)
+  edge_values_unit_tests = edge_values_unit_tests .or. thisTest
+  thisTest = test_answer(v, 5, ppoly0_E(:,2), (/2.,4.,6.,8.,10./), 'Line H4: right edges', tol=1.0e-14)
+  edge_values_unit_tests = edge_values_unit_tests .or. thisTest
+
+  call edge_values_explicit_h4( 5, (/1.,1.,1.,1.,1./), (/1.,1.,7.,19.,37./), ppoly0_E, &
+                                h_neglect=1e-10, answer_date=answer_date )
+  thisTest = test_answer(v, 5, ppoly0_E(:,1), (/3.,0.,3.,12.,27./), 'Parabola H4: left edges')
+  edge_values_unit_tests = edge_values_unit_tests .or. thisTest
+  thisTest = test_answer(v, 5, ppoly0_E(:,2), (/0.,3.,12.,27.,48./), 'Parabola H4: right edges')
+  edge_values_unit_tests = edge_values_unit_tests .or. thisTest
+
+  deallocate(ppoly0_E)
+
+  if (.not. edge_values_unit_tests) write(stdout,*) 'Pass'
+
+  contains
+
+  !> Returns true if any cell of u and u_true are not identical. Returns false otherwise.
+  logical function test_answer(verbose, n, u, u_true, label, tol)
+    logical,            intent(in) :: verbose !< If true, write results to stdout
+    integer,            intent(in) :: n      !< Number of cells in u
+    real, dimension(n), intent(in) :: u      !< Values to test [A]
+    real, dimension(n), intent(in) :: u_true !< Values to test against (correct answer) [A]
+    character(len=*),   intent(in) :: label  !< Message
+    real,     optional, intent(in) :: tol    !< The tolerance for differences between u and u_true [A]
+    ! Local variables
+    real :: tolerance ! The tolerance for differences between u and u_true [A]
+    integer :: k
+
+    tolerance = 0.0 ; if (present(tol)) tolerance = tol
+    test_answer = .false.
+    do k = 1, n
+      if (abs(u(k) - u_true(k)) > tolerance) test_answer = .true.
+    enddo
+    if (test_answer .or. verbose) then
+      write(stdout,'(a4,2a24,1x,a)') 'k','Calculated value','Correct value',label
+      do k = 1, n
+        if (abs(u(k) - u_true(k)) > tolerance) then
+          write(stdout,'(i4,1p2e24.16,a,1pe24.16,a)') k,u(k),u_true(k),' err=',u(k)-u_true(k),' < wrong'
+          write(stderr,'(i4,1p2e24.16,a,1pe24.16,a)') k,u(k),u_true(k),' err=',u(k)-u_true(k),' < wrong'
+        else
+          write(stdout,'(i4,1p2e24.16)') k,u(k),u_true(k)
+        endif
+      enddo
+    endif
+  end function test_answer
+
+end function edge_values_unit_tests
+
 
 end module regrid_edge_values

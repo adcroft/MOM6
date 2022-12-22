@@ -4,9 +4,11 @@ module MOM_unit_tests
 ! This file is part of MOM6. See LICENSE.md for the license.
 
 use MOM_error_handler,              only : MOM_error, FATAL, is_root_pe
+use MOM_io,                         only : stdout, stderr
 
 use MOM_string_functions,           only : string_functions_unit_tests
 use MOM_remapping,                  only : remapping_unit_tests
+use regrid_edge_values,             only : edge_values_unit_tests
 use MOM_neutral_diffusion,          only : neutral_diffusion_unit_tests
 use MOM_random,                     only : random_unit_tests
 use MOM_lateral_boundary_diffusion, only : near_boundary_unit_tests
@@ -32,6 +34,9 @@ subroutine unit_tests(verbosity)
        "MOM_unit_tests: string_functions_unit_tests FAILED")
     if (remapping_unit_tests(verbose)) call MOM_error(FATAL, &
        "MOM_unit_tests: remapping_unit_tests FAILED")
+    if (edge_values_unit_tests(verbose, stdout, stderr)) call MOM_error(FATAL, &
+       "regrid_edge_values: edge_values_unit_tests FAILED")
+stop
     if (neutral_diffusion_unit_tests(verbose)) call MOM_error(FATAL, &
        "MOM_unit_tests: neutralDiffusionUnitTests FAILED")
     if (random_unit_tests(verbose)) call MOM_error(FATAL, &

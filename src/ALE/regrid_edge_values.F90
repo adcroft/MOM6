@@ -3,7 +3,7 @@ module regrid_edge_values
 
 ! This file is part of MOM6. See LICENSE.md for the license.
 
-use MOM_error_handler, only : MOM_error, FATAL
+!use MOM_error_handler, only : MOM_error, FATAL
 use regrid_solvers, only : solve_linear_system, linear_solver
 use regrid_solvers, only : solve_tridiagonal_system, solve_diag_dominant_tridiag
 use polynomial_functions, only : evaluation_polynomial
@@ -1330,34 +1330,35 @@ subroutine edge_values_implicit_h6( N, h, u, edge_val, h_neglect, answer_date )
 end subroutine edge_values_implicit_h6
 
 
-!> Test that A*C = R to within a tolerance, issuing a fatal error with an explanatory message if they do not.
-subroutine test_line(msg, N, A, C, R, mag, tol)
-  real,               intent(in) :: mag  !< The magnitude of leading order terms in this line
-  integer,            intent(in) :: N    !< The number of points in the system
-  real, dimension(4), intent(in) :: A    !< One of the two vectors being multiplied
-  real, dimension(4), intent(in) :: C    !< One of the two vectors being multiplied
-  real,               intent(in) :: R    !< The expected solution of the equation
-  character(len=*),   intent(in) :: msg  !< An identifying message for this test
-  real, optional,     intent(in) :: tol  !< The fractional tolerance for the two solutions
-
-  real :: sum, sum_mag
-  real :: tolerance
-  character(len=128) :: mesg2
-  integer :: i
-
-  tolerance = 1.0e-12 ; if (present(tol)) tolerance = tol
-
-  sum = 0.0 ; sum_mag = max(0.0,mag)
-  do i=1,N
-    sum = sum + A(i) * C(i)
-    sum_mag = sum_mag + abs(A(i) * C(i))
-  enddo
-
-  if (abs(sum - R) > tolerance * (sum_mag + abs(R))) then
-    write(mesg2, '(", Fractional error = ", es12.4,", sum = ", es12.4)') (sum - R) / (sum_mag + abs(R)), sum
-    call MOM_error(FATAL, "Failed line test: "//trim(msg)//trim(mesg2))
-  endif
-
-end subroutine test_line
+! This commented out since would only be called from some debugging which is also commented out
+! !> Test that A*C = R to within a tolerance, issuing a fatal error with an explanatory message if they do not.
+! subroutine test_line(msg, N, A, C, R, mag, tol)
+!   real,               intent(in) :: mag  !< The magnitude of leading order terms in this line
+!   integer,            intent(in) :: N    !< The number of points in the system
+!   real, dimension(4), intent(in) :: A    !< One of the two vectors being multiplied
+!   real, dimension(4), intent(in) :: C    !< One of the two vectors being multiplied
+!   real,               intent(in) :: R    !< The expected solution of the equation
+!   character(len=*),   intent(in) :: msg  !< An identifying message for this test
+!   real, optional,     intent(in) :: tol  !< The fractional tolerance for the two solutions
+!
+!   real :: sum, sum_mag
+!   real :: tolerance
+!   character(len=128) :: mesg2
+!   integer :: i
+!
+!   tolerance = 1.0e-12 ; if (present(tol)) tolerance = tol
+!
+!   sum = 0.0 ; sum_mag = max(0.0,mag)
+!   do i=1,N
+!     sum = sum + A(i) * C(i)
+!     sum_mag = sum_mag + abs(A(i) * C(i))
+!   enddo
+!
+!   if (abs(sum - R) > tolerance * (sum_mag + abs(R))) then
+!     write(mesg2, '(", Fractional error = ", es12.4,", sum = ", es12.4)') (sum - R) / (sum_mag + abs(R)), sum
+!     call MOM_error(FATAL, "Failed line test: "//trim(msg)//trim(mesg2))
+!   endif
+!
+! end subroutine test_line
 
 end module regrid_edge_values

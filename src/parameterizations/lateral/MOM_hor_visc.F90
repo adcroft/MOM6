@@ -367,6 +367,7 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
   logical :: apply_OBC = .false.
   logical :: use_MEKE_Ku
   logical :: use_MEKE_Au
+  logical :: BS_uses_vertical_structure ! True if backscatter uses the a vertical structure function
   integer :: is, ie, js, je, Isq, Ieq, Jsq, Jeq, nz
   integer :: i, j, k, n
   real :: inv_PI3, inv_PI2, inv_PI6 ! Powers of the inverse of pi [nondim]
@@ -418,12 +419,14 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
   use_MEKE_Au = allocated(MEKE%Au)
 
   rescale_Kh = .false.
+  BS_uses_vertical_structure = .false.
   if (VarMix%use_variable_mixing) then
     rescale_Kh = VarMix%Resoln_scaled_Kh
     if ((rescale_Kh .or. CS%res_scale_MEKE) &
         .and. (.not. allocated(VarMix%Res_fn_h) .or. .not. allocated(VarMix%Res_fn_q))) &
       call MOM_error(FATAL, "MOM_hor_visc: VarMix%Res_fn_h and VarMix%Res_fn_q "//&
                      "both need to be associated with Resoln_scaled_Kh or RES_SCALE_MEKE_VISC.")
+    if (VarMix%BS_EBT_power>0) BS_uses_vertical_structure = .true.
   elseif (CS%res_scale_MEKE) then
     call MOM_error(FATAL, "MOM_hor_visc: VarMix needs to be associated if "//&
                           "RES_SCALE_MEKE_VISC is True.")
@@ -951,13 +954,25 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
       if (use_MEKE_Ku) then
         ! *Add* the MEKE contribution (which might be negative)
         if (CS%res_scale_MEKE) then
-          do j=Jsq,Jeq+1 ; do i=Isq,Ieq+1
-            Kh(i,j) = Kh(i,j) + MEKE%Ku(i,j) * VarMix%Res_fn_h(i,j)
-          enddo ; enddo
+          if (BS_uses_vertical_structure) then
+            do j=Jsq,Jeq+1 ; do i=Isq,Ieq+1
+              Kh(i,j) = Kh(i,j) + MEKE%Ku(i,j) * VarMix%Res_fn_h(i,j) * VarMix%BS_struct(i,j,k)
+            enddo ; enddo
+          else
+            do j=Jsq,Jeq+1 ; do i=Isq,Ieq+1
+              Kh(i,j) = Kh(i,j) + MEKE%Ku(i,j) * VarMix%Res_fn_h(i,j)
+            enddo ; enddo
+          endif
         else
-          do j=Jsq,Jeq+1 ; do i=Isq,Ieq+1
-            Kh(i,j) = Kh(i,j) + MEKE%Ku(i,j)
-          enddo ; enddo
+          if (BS_uses_vertical_structure) then
+            do j=Jsq,Jeq+1 ; do i=Isq,Ieq+1
+              Kh(i,j) = Kh(i,j) + MEKE%Ku(i,j) * VarMix%BS_struct(i,j,k)
+            enddo ; enddo
+          else
+            do j=Jsq,Jeq+1 ; do i=Isq,Ieq+1
+              Kh(i,j) = Kh(i,j) + MEKE%Ku(i,j)
+            enddo ; enddo
+          endif
         endif
       endif
 
@@ -1268,8 +1283,16 @@ subroutine horizontal_viscosity(u, v, h, diffu, diffv, MEKE, VarMix, G, GV, US, 
 
         if (use_MEKE_Ku) then
           ! *Add* the MEKE contribution (might be negative)
-          Kh(I,J) = Kh(I,J) + 0.25*( (MEKE%Ku(i,j) + MEKE%Ku(i+1,j+1)) + &
+          if (BS_uses_vertical_structure) then
+            Kh(I,J) = Kh(I,J) + 0.25*((MEKE%Ku(i,j)     * VarMix%BS_struct(i,j,k) + &
+                                       MEKE%Ku(i+1,j+1) * VarMix%BS_struct(i+1,j+1,k)) + &
+                                      (MEKE%Ku(i+1,j)   * VarMix%BS_struct(i+1,j,k) + &
+                                       MEKE%Ku(i,j+1)   * VarMix%BS_struct(i,j+1,k)) &
+                                     ) * meke_res_fn
+          else
+            Kh(I,J) = Kh(I,J) + 0.25*( (MEKE%Ku(i,j) + MEKE%Ku(i+1,j+1)) + &
                            (MEKE%Ku(i+1,j) + MEKE%Ku(i,j+1)) ) * meke_res_fn
+          endif
         endif
 
         if (CS%anisotropic) &
@@ -1833,7 +1856,6 @@ subroutine hor_visc_init(Time, G, GV, US, param_file, diag, CS, ADp)
                  "the resolution function.", default=.false., &
                  do_not_log=.not.(CS%Laplacian.and.use_MEKE))
   if (.not.(CS%Laplacian.and.use_MEKE)) CS%res_scale_MEKE = .false.
-
   call get_param(param_file, mdl, "BOUND_KH", CS%bound_Kh, &
                  "If true, the Laplacian coefficient is locally limited "//&
                  "to be stable.", default=.true., do_not_log=.not.CS%Laplacian)

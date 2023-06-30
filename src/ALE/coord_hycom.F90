@@ -32,6 +32,12 @@ type, public :: hycom_CS ; private
   !> If true, an interface only moves if it improves the density fit
   logical :: only_improves = .false.
 
+  !> A distance from the bottom to exclude from the z* clipping [H ~> m or kg m-2]
+  real :: z_free_h_above_bottom = 0.
+
+  !> The maximum fraction of the water column that can be shielded from the z* clipping [nondim]
+  real :: max_z_clip_shield_fraction = 0.5
+
   !> Interpolation control structure
   type(interp_CS_type) :: interp_CS
 end type hycom_CS
@@ -74,11 +80,16 @@ subroutine end_coord_hycom(CS)
 end subroutine end_coord_hycom
 
 !> This subroutine can be used to set the parameters for the coord_hycom module
-subroutine set_hycom_params(CS, max_interface_depths, max_layer_thickness, only_improves, interp_CS)
+subroutine set_hycom_params(CS, max_interface_depths, max_layer_thickness, only_improves, interp_CS, &
+                            z_free_h_above_bottom, max_z_clip_shield_fraction)
   type(hycom_CS),                 pointer    :: CS !< Coordinate control structure
   real, dimension(:),   optional, intent(in) :: max_interface_depths !< Maximum depths of interfaces [H ~> m or kg m-2]
   real, dimension(:),   optional, intent(in) :: max_layer_thickness  !< Maximum thicknesses of layers [H ~> m or kg m-2]
   logical, optional, intent(in) :: only_improves !< If true, an interface only moves if it improves the density fit
+  real,                 optional, intent(in) :: z_free_h_above_bottom !< A distance from the bottom to exclude from
+                                                                      !! the z* clipping [H ~> m or kg m-2]
+  real,                 optional, intent(in) :: max_z_clip_shield_fraction !< The maximum fraction of the water column
+                                                !! that can be shielded from the z* clipping [nondim]
   type(interp_CS_type), optional, intent(in) :: interp_CS !< Controls for interpolation
 
   if (.not. associated(CS)) call MOM_error(FATAL, "set_hycom_params: CS not associated")
@@ -98,6 +109,10 @@ subroutine set_hycom_params(CS, max_interface_depths, max_layer_thickness, only_
   endif
 
   if (present(only_improves)) CS%only_improves = only_improves
+
+  if (present(z_free_h_above_bottom)) CS%z_free_h_above_bottom = z_free_h_above_bottom
+
+  if (present(max_z_clip_shield_fraction)) CS%max_z_clip_shield_fraction = max_z_clip_shield_fraction
 
   if (present(interp_CS)) CS%interp_CS = interp_CS
 end subroutine set_hycom_params
@@ -140,6 +155,7 @@ subroutine build_hycom1_column(CS, remapCS, eqn_of_state, nz, depth, h, T, S, p_
                      ! perhaps 1 or a factor in [H Z-1 ~> 1 or kg m-3]
   real :: stretching ! z* stretching, converts z* to z [nondim].
   real :: nominal_z ! Nominal depth of interface when using z* [H ~> m or kg m-2]
+  real :: bottom_envelope ! Position of an envelope above the bottom [H ~> m or kg m-2]
   logical :: maximum_depths_set ! If true, the maximum depths of interface have been set.
   logical :: maximum_h_set      ! If true, the maximum layer thicknesses have been set.
 
@@ -190,8 +206,12 @@ subroutine build_hycom1_column(CS, remapCS, eqn_of_state, nz, depth, h, T, S, p_
   ! as deep as a nominal target z* grid
   nominal_z = 0.
   stretching = z_col(nz+1) / depth ! Stretches z* to z
+  ! This defines an envelope above the bottom which we don't clip to z* coordinates.
+  bottom_envelope = z_col(nz+1) - stretching * &
+                    min( CS%z_free_h_above_bottom, CS%max_z_clip_shield_fraction * depth )
   do k = 2, CS%nk+1
     nominal_z = nominal_z + (z_scale * CS%coordinateResolution(k-1)) * stretching
+    nominal_z = min( nominal_z, bottom_envelope )
     z_col_new(k) = max( z_col_new(k), nominal_z )
     z_col_new(k) = min( z_col_new(k), z_col(nz+1) )
   enddo

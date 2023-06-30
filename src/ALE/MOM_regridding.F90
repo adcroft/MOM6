@@ -592,6 +592,14 @@ subroutine initialize_regridding(CS, GV, US, max_depth, param_file, mdl, coord_m
               "When regridding, an interface is only moved if this improves the fit to the target density.", &
               default=.false.)
     call set_hycom_params(CS%hycom_CS, only_improves=tmpLogical)
+    call get_param(param_file, mdl, "HYCOM1_Z_FREE_H_ABOVE_BOTTOM", tmpReal, &
+              "A distance from the bottom to exclude from the z* clipping.", &
+              units="m", default=0., scale=GV%m_to_H)
+    call set_hycom_params(CS%hycom_CS, z_free_h_above_bottom=tmpReal)
+    call get_param(param_file, mdl, "HYCOM1_MAX_Z_CLIP_SHIELD_FRACTION", tmpReal, &
+              "The maximum fraction of the column that can be shielded from the z* clipping.", &
+              units="nondim", default=0.5)
+    call set_hycom_params(CS%hycom_CS, max_z_clip_shield_fraction=tmpReal)
   endif
 
   CS%use_hybgen_unmix = .false.

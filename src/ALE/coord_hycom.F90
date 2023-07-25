@@ -119,7 +119,7 @@ end subroutine set_hycom_params
 
 !> Build a HyCOM coordinate column
 subroutine build_hycom1_column(CS, remapCS, eqn_of_state, nz, depth, h, T, S, p_col, &
-                               z_col, z_col_new, zScale, h_neglect, h_neglect_edge)
+                               z_col, z_col_new, hst_blnd_wght, zScale, h_neglect, h_neglect_edge)
   type(hycom_CS),        intent(in)    :: CS    !< Coordinate control structure
   type(remapping_CS),    intent(in)    :: remapCS !< Remapping parameters and options
   type(EOS_type),        intent(in)    :: eqn_of_state !< Equation of state structure
@@ -131,6 +131,9 @@ subroutine build_hycom1_column(CS, remapCS, eqn_of_state, nz, depth, h, T, S, p_
   real, dimension(nz),   intent(in)    :: p_col !< Layer pressure [R L2 T-2 ~> Pa]
   real, dimension(nz+1), intent(in)    :: z_col !< Interface positions relative to the surface [H ~> m or kg m-2]
   real, dimension(CS%nk+1), intent(inout) :: z_col_new !< Absolute positions of interfaces [H ~> m or kg m-2]
+  real,                  intent(in)    :: hst_blnd_wght !< The fraction to weight the old state when "history
+                                                !! blending". Usually 0, which recovers the coordinate used in
+                                                !! OM4. [nondim]
   real, optional,        intent(in)    :: zScale !< Scaling factor from the input coordinate thicknesses in [Z ~> m]
                                                 !! to desired units for zInterface, perhaps GV%Z_to_H in which
                                                 !! case this has units of [H Z-1 ~> nondim or kg m-3]
@@ -151,17 +154,25 @@ subroutine build_hycom1_column(CS, remapCS, eqn_of_state, nz, depth, h, T, S, p_
                                         ! interface target densities [R ~> kg m-3]
   real, dimension(CS%nk+1) :: RiA_new   ! New interface density anomaly w.r.t. the
                                         ! interface target densities [R ~> kg m-3]
+  real, dimension(CS%nk+1) :: zold_clp  ! Old interface positions clipped by z-region [H ~> m or kg m-2]
   real :: z_1, z_nz  ! mid point of 1st and last layers [H ~> m or kg m-2]
   real :: z_scale    ! A scaling factor from the input thicknesses to the target thicknesses,
                      ! perhaps 1 or a factor in [H Z-1 ~> 1 or kg m-3]
   real :: stretching ! z* stretching, converts z* to z [nondim].
-  real :: nominal_z ! Nominal depth of interface when using z* [H ~> m or kg m-2]
+  real :: nominal_z(CS%nk+1) ! Nominal depth of interfaces when using z* [H ~> m or kg m-2]
   real :: bottom_envelope ! Position of an envelope above the bottom [H ~> m or kg m-2]
   logical :: maximum_depths_set ! If true, the maximum depths of interface have been set.
   logical :: maximum_h_set      ! If true, the maximum layer thicknesses have been set.
+  logical :: do_history_blending ! If true, turns on history blending
 
   maximum_depths_set = allocated(CS%max_interface_depths)
   maximum_h_set = allocated(CS%max_layer_thickness)
+  ! History blending is triggered by hst_blnd_wght>0 but can only be applied if the number
+  ! of layers is the same (e.g. does not work for initialization)
+  ! Note: For the purposes of testing and code coverage, the >= below means the blending
+  ! code will get used even with the weight=0. The test is that the blending code should not
+  ! change answers with the weight=0. We should change >= back to > once the code is finalized.
+  do_history_blending = (hst_blnd_wght >= 0.) .and. (nz == CS%nk)
 
   z_scale = 1.0 ; if (present(zScale)) z_scale = zScale
 
@@ -205,17 +216,26 @@ subroutine build_hycom1_column(CS, remapCS, eqn_of_state, nz, depth, h, T, S, p_
 
   ! Sweep down the interfaces and make sure that the interface is at least
   ! as deep as a nominal target z* grid
-  nominal_z = 0.
+  nominal_z(1) = 0.
   stretching = z_col(nz+1) / depth ! Stretches z* to z
   ! This defines an envelope above the bottom which we don't clip to z* coordinates.
   bottom_envelope = z_col(nz+1) - stretching * &
                     min( CS%z_free_h_above_bottom, CS%max_z_clip_shield_fraction * depth )
   do k = 2, CS%nk+1
-    nominal_z = nominal_z + (z_scale * CS%coordinateResolution(k-1)) * stretching
-    nominal_z = min( nominal_z, bottom_envelope )
-    z_col_new(k) = max( z_col_new(k), nominal_z )
+    nominal_z(k) = nominal_z(k-1) + (z_scale * CS%coordinateResolution(k-1)) * stretching
+    nominal_z(k) = min( nominal_z(k), bottom_envelope )
+    z_col_new(k) = max( z_col_new(k), nominal_z(k) )
     z_col_new(k) = min( z_col_new(k), z_col(nz+1) )
   enddo
+  if (do_history_blending) then
+    ! Do the same z-clipping for the original grid
+    zold_clp(1) = z_col(1)
+    do k = 2, CS%nk+1
+      zold_clp(k) = max( z_col(k), nominal_z(k) )
+      zold_clp(k) = min( zold_clp(k), z_col(nz+1) ) ! This is only necessary because "nominal_z" might
+                                                    ! be deeper than the bottom. Clip "nominal_z" instead?
+    enddo
+  endif
 
   if (maximum_depths_set .and. maximum_h_set) then ; do k=2,CS%nk
     ! The loop bounds are 2 & nz so the top and bottom interfaces do not move.
@@ -227,6 +247,29 @@ subroutine build_hycom1_column(CS, remapCS, eqn_of_state, nz, depth, h, T, S, p_
   enddo ; elseif (maximum_h_set) then ; do k=2,CS%nk
     z_col_new(K) = min(z_col_new(K), z_col_new(K-1) + CS%max_layer_thickness(k-1))
   enddo ; endif
+
+  if (do_history_blending) then
+    ! History blending:
+    !
+    ! Blend the newly generated grid with the current (old) grid.
+    !
+    ! - zold_clp is the current (old) grid that has been clipped by the nominal z-grid.
+    ! - z_col_new is the "normal" result of the hycom1 grid generation (e.g. as used in OM4)
+    !   which is alos clipped by the nominal z-grid.
+    ! - Since both are clipped and both are monotonic (untangled) then a linear combination
+    !   will also be clipped and monotonic.
+    ! - Here, we blend the new and old grids in the form:
+    !     final = a * New + (1-a) * Old
+    ! - Setting a=1 (i.e. CS%hst_blnd_wght=1) mean the resulting grid is the original grid but
+    !   newly clipped. This limit is fully Lagrangian except within the z-region.
+    ! - A recommended value to set this parameter to is from the formula
+    !     a = T / ( dt + T )
+    !   where T is a time-scale and dt is the time-step. For T=0, a=0 which gives the
+    !   history no weight. For large T (slow), a->1.
+    do k = 2, CS%nk
+      z_col_new(k) = ( 1. - hst_blnd_wght ) * z_col_new(k) + hst_blnd_wght * zold_clp(k)
+    enddo
+  endif
 end subroutine build_hycom1_column
 
 !> Calculate interface density anomaly w.r.t. the target.

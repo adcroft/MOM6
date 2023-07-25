@@ -117,6 +117,11 @@ type, public :: regridding_CS ; private
   !! If false, integrate from the bottom upward, as does the rest of the model.
   logical :: integrate_downward_for_e = .true.
 
+  !> History weighting within hycom1 grid-generation [nondim]
+  !! - A value of 0 (default) ignores history.
+  !! - A value of 1 ignores the newly interpolated grid.
+  real :: hycom1_history_blending_weight = 0.
+
   !> The vintage of the order of arithmetic and expressions to use for remapping.
   !! Values below 20190101 recover the remapping answers from 2018.
   !! Higher values use more robust forms of the same remapping expressions.
@@ -600,6 +605,12 @@ subroutine initialize_regridding(CS, GV, US, max_depth, param_file, mdl, coord_m
               "The maximum fraction of the column that can be shielded from the z* clipping.", &
               units="nondim", default=0.5)
     call set_hycom_params(CS%hycom_CS, max_z_clip_shield_fraction=tmpReal)
+    call get_param(param_file, mdl, "HYCOM1_HISTORY_BLENDING_WEIGHT", CS%hycom1_history_blending_weight, &
+              "A weight to assign the old state when generating a hybrid grid. A value of 1 makes "// &
+              "the isopycnal region completely Lagrangian.", units="nondim", default=0.)
+    if (CS%hycom1_history_blending_weight>1. .or. CS%hycom1_history_blending_weight<0.) call MOM_error(FATAL, &
+      trim(mdl)//", initialize_regridding: "// &
+      "HYCOM1_HISTORY_BLENDING_WEIGHT is outside of the valid range 0 to 1.")
   endif
 
   CS%use_hybgen_unmix = .false.
@@ -1566,6 +1577,9 @@ subroutine build_grid_HyCOM1( G, GV, US, h, nom_depth_H, tv, h_new, dzInterface,
   real :: h_neglect, h_neglect_edge
   real :: z_top_col, totalThickness
   logical :: ice_shelf
+  real :: history_blending_weight ! The weight to give the old state
+
+  history_blending_weight = CS%hycom1_history_blending_weight
 
   if (CS%remap_answer_date >= 20190101) then
     h_neglect = GV%H_subroundoff ; h_neglect_edge = GV%H_subroundoff
@@ -1606,7 +1620,7 @@ subroutine build_grid_HyCOM1( G, GV, US, h, nom_depth_H, tv, h_new, dzInterface,
 
       call build_hycom1_column(CS%hycom_CS, remapCS, tv%eqn_of_state, GV%ke, nominalDepth, &
            h(i,j,:), tv%T(i,j,:), tv%S(i,j,:), p_col, &
-           z_col, z_col_new, zScale=zScale, &
+           z_col, z_col_new, history_blending_weight, zScale=zScale, &
            h_neglect=h_neglect, h_neglect_edge=h_neglect_edge)
 
       ! Calculate the final change in grid position after blending new and old grids

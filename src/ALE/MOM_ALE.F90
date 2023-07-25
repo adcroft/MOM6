@@ -12,7 +12,7 @@ module MOM_ALE
 
 use MOM_debugging,        only : check_column_integrals
 use MOM_diag_mediator,    only : register_diag_field, post_data, diag_ctrl
-use MOM_diag_mediator,    only : time_type, diag_update_remap_grids, query_averaging_enabled
+use MOM_diag_mediator,    only : diag_update_remap_grids, query_averaging_enabled
 use MOM_domains,          only : create_group_pass, do_group_pass, group_pass_type
 use MOM_error_handler,    only : MOM_error, FATAL, WARNING
 use MOM_error_handler,    only : callTree_showQuery
@@ -42,6 +42,8 @@ use MOM_remapping,        only : remappingSchemesDoc, remappingDefaultScheme
 use MOM_remapping,        only : interpolate_column, reintegrate_column
 use MOM_remapping,        only : remapping_CS, dzFromH1H2
 use MOM_string_functions, only : uppercase, extractWord, extract_integer
+use MOM_time_manager,     only : time_type, time_type_to_real, real_to_time
+use MOM_time_manager,     only : operator(-), operator(<), operator(>=)
 use MOM_tracer_registry,  only : tracer_registry_type, tracer_type, MOM_tracer_chkinv
 use MOM_unit_scaling,     only : unit_scale_type
 use MOM_variables,        only : ocean_grid_type, thermo_var_ptrs
@@ -90,6 +92,10 @@ type, public :: ALE_CS ; private
                             !! in [H ~> m or kg m-2].
 
   logical :: remap_after_initialization !< Indicates whether to regrid/remap after initializing the state.
+
+  real :: signal_interval = 0. !< Interval between signals [T ~> s]
+  logical :: alarm_state = .false. !< An internal alarm state to signal to regridding to do
+                            !! something special every "signal_interval". False means carry on as usual.
 
   integer :: answer_date    !< The vintage of the expressions and order of arithmetic to use for
                             !! remapping. Values below 20190101 result in the use of older, less
@@ -296,6 +302,10 @@ subroutine ALE_init( param_file, GV, US, max_depth, CS)
                  "regridding integrates downward, consistent with the remapping code.", &
                  default=.true., do_not_log=.true.)
   call set_regrid_params(CS%regridCS, integrate_downward_for_e=.not.local_logical)
+  call get_param(param_file, mdl, "REGRIDDING_SIGNAL_INTERVAL", CS%signal_interval, &
+                 "An interval between arbitray events to signal the regridding to change "//&
+                 "behavior. For example, used in HYCOM1 to signal Lagrangian events.", &
+                 units="s", default=0., scale=US%s_to_T)
 
   call get_param(param_file, mdl, "REMAP_VEL_MASK_BBL_THICK", CS%BBL_h_vel_mask, &
                  "A thickness of a bottom boundary layer below which velocities in thin layers "//&
@@ -323,7 +333,7 @@ end subroutine ALE_init
 
 !> Initialize diagnostics for the ALE module.
 subroutine ALE_register_diags(Time, G, GV, US, diag, CS)
-  type(time_type),target,     intent(in)  :: Time  !< Time structure
+  type(time_type), target,    intent(in)  :: Time  !< Time structure
   type(ocean_grid_type),      intent(in)  :: G     !< Grid structure
   type(unit_scale_type),      intent(in)  :: US    !< A dimensional unit scaling type
   type(verticalGrid_type),    intent(in)  :: GV    !< Ocean vertical grid structure
@@ -484,7 +494,7 @@ subroutine ALE_regrid( G, GV, US, h, h_new, dzRegrid, tv, CS, frac_shelf_h, PCM_
   ! Both are needed for the subsequent remapping of variables.
   dzRegrid(:,:,:) = 0.0
   call regridding_main( CS%remapCS, CS%regridCS, G, GV, US, h, tv, h_new, dzRegrid, &
-                        frac_shelf_h=frac_shelf_h, PCM_cell=PCM_cell)
+                        frac_shelf_h=frac_shelf_h, PCM_cell=PCM_cell, signal=CS%alarm_state)
 
   if (CS%id_dzRegrid>0) then ; if (query_averaging_enabled(CS%diag)) then
     call post_data(CS%id_dzRegrid, dzRegrid, CS%diag, alt_h=h_new)
@@ -1418,11 +1428,14 @@ logical function ALE_remap_init_conds( CS )
 end function ALE_remap_init_conds
 
 !> Updates the weights for time filtering the new grid generated in regridding
-subroutine ALE_update_regrid_weights( dt, CS )
-  real,         intent(in) :: dt !< Time-step used between ALE calls [T ~> s]
-  type(ALE_CS), pointer    :: CS !< ALE control structure
+subroutine ALE_update_regrid_weights( dt, CS, Time )
+  type(ALE_CS),              pointer    :: CS !< ALE control structure
+  real,                      intent(in) :: dt !< Time-step used between ALE calls [T ~> s]
+  type(time_type), optional, intent(in) :: Time !< Model time
   ! Local variables
   real :: w  ! An implicit weighting estimate [nondim]
+  type(time_type) :: Time_minus_dtdia !< Model time at last call to regridding
+  type(time_type) :: Time_boundary !< The most recent time that is an integer multiple of CS%signal_intervals
 
   if (associated(CS)) then
     w = 0.0
@@ -1430,6 +1443,13 @@ subroutine ALE_update_regrid_weights( dt, CS )
       w = CS%regrid_time_scale / (CS%regrid_time_scale + dt)
     endif
     call set_regrid_params(CS%regridCS, old_grid_weight=w)
+  endif
+
+  if (present(Time) .and. CS%signal_interval>0.) then
+    Time_boundary = real_to_time( int( time_type_to_real(Time) / CS%signal_interval ) * CS%signal_interval )
+    Time_minus_dtdia = Time - real_to_time(dt)
+    CS%alarm_state = .false.
+    if (Time_minus_dtdia < Time_boundary .and. Time >= Time_boundary) CS%alarm_state = .true.
   endif
 
 end subroutine ALE_update_regrid_weights

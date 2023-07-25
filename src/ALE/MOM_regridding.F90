@@ -15,6 +15,7 @@ use MOM_variables,     only : ocean_grid_type, thermo_var_ptrs
 use MOM_verticalGrid,  only : verticalGrid_type
 use MOM_EOS,           only : EOS_type, calculate_density
 use MOM_string_functions, only : uppercase, extractWord, extract_integer, extract_real
+use MOM_time_manager,  only : time_type
 
 use MOM_remapping, only : remapping_CS
 use regrid_consts, only : state_dependent, coordinateUnits
@@ -611,6 +612,8 @@ subroutine initialize_regridding(CS, GV, US, max_depth, param_file, mdl, coord_m
     if (CS%hycom1_history_blending_weight>1. .or. CS%hycom1_history_blending_weight<0.) call MOM_error(FATAL, &
       trim(mdl)//", initialize_regridding: "// &
       "HYCOM1_HISTORY_BLENDING_WEIGHT is outside of the valid range 0 to 1.")
+  else
+    CS%hycom1_history_blending_weight = 0.
   endif
 
   CS%use_hybgen_unmix = .false.
@@ -792,7 +795,7 @@ end subroutine end_regridding
 !------------------------------------------------------------------------------
 !> Dispatching regridding routine for orchestrating regridding & remapping
 subroutine regridding_main( remapCS, CS, G, GV, US, h, tv, h_new, dzInterface, &
-                            frac_shelf_h, PCM_cell)
+                            frac_shelf_h, PCM_cell, signal)
 !------------------------------------------------------------------------------
 ! This routine takes care of (1) building a new grid and (2) remapping between
 ! the old grid and the new grid. The creation of the new grid can be based
@@ -826,6 +829,7 @@ subroutine regridding_main( remapCS, CS, G, GV, US, h, tv, h_new, dzInterface, &
   real, dimension(SZI_(G),SZJ_(G)), optional, intent(in   ) :: frac_shelf_h !< Fractional ice shelf coverage [nomdim]
   logical, dimension(SZI_(G),SZJ_(G),SZK_(GV)), &
                                     optional, intent(out  ) :: PCM_cell !< Use PCM remapping in cells where true
+  logical,                          optional, intent(in)    :: signal !< True signals an event to do something different
 
   ! Local variables
   real :: nom_depth_H(SZI_(G),SZJ_(G))  !< The nominal ocean depth at each point in thickness units [H ~> m or kg m-2]
@@ -863,7 +867,7 @@ subroutine regridding_main( remapCS, CS, G, GV, US, h, tv, h_new, dzInterface, &
       call calc_h_new_by_dz(CS, G, GV, h, dzInterface, h_new)
     case ( REGRIDDING_HYCOM1 )
       call build_grid_HyCOM1( G, GV, G%US, h, nom_depth_H, tv, h_new, dzInterface, remapCS, CS, &
-                              frac_shelf_h, zScale=Z_to_H )
+                              frac_shelf_h, zScale=Z_to_H, Lagrangian_signal=signal )
     case ( REGRIDDING_HYBGEN )
       call hybgen_regrid(G, GV, G%US, h, nom_depth_H, tv, CS%hybgen_CS, dzInterface, PCM_cell)
       call calc_h_new_by_dz(CS, G, GV, h, dzInterface, h_new)
@@ -1546,7 +1550,8 @@ end subroutine build_rho_grid
 !! \remark { Based on Bleck, 2002: An ocean-ice general circulation model framed in
 !! hybrid isopycnic-Cartesian coordinates, Ocean Modelling 37, 55-88.
 !! http://dx.doi.org/10.1016/S1463-5003(01)00012-9 }
-subroutine build_grid_HyCOM1( G, GV, US, h, nom_depth_H, tv, h_new, dzInterface, remapCS, CS, frac_shelf_h, zScale )
+subroutine build_grid_HyCOM1( G, GV, US, h, nom_depth_H, tv, h_new, dzInterface, remapCS, CS, &
+                              frac_shelf_h, zScale, Lagrangian_signal )
   type(ocean_grid_type),                     intent(in)    :: G  !< Grid structure
   type(verticalGrid_type),                   intent(in)    :: GV !< Ocean vertical grid structure
   type(unit_scale_type),                     intent(in)    :: US !< A dimensional unit scaling type
@@ -1566,7 +1571,9 @@ subroutine build_grid_HyCOM1( G, GV, US, h, nom_depth_H, tv, h_new, dzInterface,
                                                                  !! resolution in Z to desired units for zInterface,
                                                                  !! usually Z_to_H in which case it is in
                                                                  !! units of [H Z-1 ~> nondim or kg m-3]
-
+  logical,                         optional, intent(in)    :: Lagrangian_signal !< If true, set the history
+                                                              !! blending weight to 0. Otherwise use the value
+                                                              !! of CS%hycom1_history_blending_weight.
   ! Local variables
   real, dimension(SZK_(GV)+1) :: z_col  ! Source interface positions relative to the surface [H ~> m or kg m-2]
   real, dimension(SZK_(GV))   :: p_col  ! Layer center pressure in the input column [R L2 T-2 ~> Pa]
@@ -1580,6 +1587,9 @@ subroutine build_grid_HyCOM1( G, GV, US, h, nom_depth_H, tv, h_new, dzInterface,
   real :: history_blending_weight ! The weight to give the old state
 
   history_blending_weight = CS%hycom1_history_blending_weight
+  if (present(Lagrangian_signal)) then
+    if (Lagrangian_signal) history_blending_weight = 0.
+  endif
 
   if (CS%remap_answer_date >= 20190101) then
     h_neglect = GV%H_subroundoff ; h_neglect_edge = GV%H_subroundoff

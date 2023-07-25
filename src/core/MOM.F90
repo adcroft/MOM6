@@ -1550,7 +1550,7 @@ subroutine step_MOM_thermo(CS, G, GV, US, u, v, h, tv, fluxes, dtdia, &
       call cpu_clock_begin(id_clock_ALE)
 
       call pre_ALE_diagnostics(G, GV, US, h, u, v, tv, CS%ALE_CSp)
-      call ALE_update_regrid_weights(dtdia, CS%ALE_CSp)
+      call ALE_update_regrid_weights(dtdia, CS%ALE_CSp, Time_end_thermo)
       ! Do any necessary adjustments ot the state prior to remapping.
       call pre_ALE_adjustments(G, GV, US, h, tv, CS%tracer_Reg, CS%ALE_CSp, u, v)
       ! Adjust the target grids for diagnostics, in case there have been thickness adjustments.

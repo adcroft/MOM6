@@ -3,11 +3,6 @@ module MOM_EOS_TEOS10
 
 ! This file is part of MOM6. See LICENSE.md for the license.
 
-!***********************************************************************
-!*  The subroutines in this file implement the equation of state for   *
-!*  sea water using the TEOS10 functions                               *
-!***********************************************************************
-
 use gsw_mod_toolbox, only : gsw_sp_from_sr, gsw_pt_from_ct
 use gsw_mod_toolbox, only : gsw_rho, gsw_specvol
 use gsw_mod_toolbox, only : gsw_rho_first_derivatives, gsw_specvol_first_derivatives
@@ -20,6 +15,7 @@ public calculate_compress_teos10, calculate_density_teos10, calculate_spec_vol_t
 public calculate_density_derivs_teos10, calculate_specvol_derivs_teos10
 public calculate_density_second_derivs_teos10, EoS_fit_range_teos10
 public gsw_sp_from_sr, gsw_pt_from_ct
+public TEOS10_density, TEOS10_spec_vol
 
 !> Compute the in situ density of sea water ([kg m-3]), or its anomaly with respect to
 !! a reference density, from absolute salinity (g/kg), conservative temperature (in deg C),
@@ -51,6 +47,25 @@ real, parameter :: Pa2db  = 1.e-4  !< The conversion factor from Pa to dbar [dba
 
 contains
 
+!> GSW in situ density [kg m-3]
+real elemental function TEOS10_density(T, S, pressure, rho_ref)
+  real,           intent(in)  :: T        !< Conservative temperature [degC].
+  real,           intent(in)  :: S        !< Absolute salinity [g kg-1].
+  real,           intent(in)  :: pressure !< pressure [Pa].
+  real, optional, intent(in)  :: rho_ref  !< A reference density [kg m-3].
+
+  !!! #### This code originally had this "masking" line -AJA
+! if (S < -1.0e-10) then ! Can we assume safely that this is a missing value?
+!   TEOS10_density = 1000.0
+! else
+!   TEOS10_density = gsw_rho(S, T, pressure * Pa2db)
+! endif
+
+  TEOS10_density = gsw_rho(S, T, pressure * Pa2db)
+  if (present(rho_ref)) TEOS10_density = TEOS10_density - rho_ref
+
+end function TEOS10_density
+
 !> This subroutine computes the in situ density of sea water (rho in [kg m-3])
 !! from absolute salinity (S [g kg-1]), conservative temperature (T [degC]),
 !! and pressure [Pa].  It uses the expression from the TEOS10 website.
@@ -61,18 +76,7 @@ subroutine calculate_density_scalar_teos10(T, S, pressure, rho, rho_ref)
   real,           intent(out) :: rho      !< In situ density [kg m-3].
   real, optional, intent(in)  :: rho_ref  !< A reference density [kg m-3].
 
-  ! Local variables
-  real, dimension(1) :: T0    ! A 1-d array with a copy of the conservative temperature [degC]
-  real, dimension(1) :: S0    ! A 1-d array with a copy of the absolute salinity [g kg-1]
-  real, dimension(1) :: pressure0 ! A 1-d array with a copy of the pressure [Pa]
-  real, dimension(1) :: rho0  ! A 1-d array with a copy of the density [kg m-3]
-
-  T0(1) = T
-  S0(1) = S
-  pressure0(1) = pressure
-
-  call calculate_density_array_teos10(T0, S0, pressure0, rho0, 1, 1, rho_ref)
-  rho = rho0(1)
+  rho = TEOS10_density(T, S, pressure, rho_ref)
 
 end subroutine calculate_density_scalar_teos10
 
@@ -90,25 +94,33 @@ subroutine calculate_density_array_teos10(T, S, pressure, rho, start, npts, rho_
   real,     optional, intent(in)  :: rho_ref  !< A reference density [kg m-3].
 
   ! Local variables
-  real :: zs  ! Absolute salinity [g kg-1]
-  real :: zt  ! Conservative temperature [degC]
-  real :: zp  ! Pressure converted to decibars [dbar]
-  integer :: j
+  integer :: js, je
 
-  do j=start,start+npts-1
-    !Conversions
-    zs = S(j) !gsw_sr_from_sp(S(j))       !Convert practical salinity to absolute salinity
-    zt = T(j) !gsw_ct_from_pt(S(j),T(j))  !Convert potential temp to conservative temp
-    zp = pressure(j)* Pa2db         !Convert pressure from Pascal to decibar
+  js = start
+  je = start+npts-1
 
-    if (S(j) < -1.0e-10) then !Can we assume safely that this is a missing value?
-      rho(j) = 1000.0
-    else
-      rho(j) = gsw_rho(zs,zt,zp)
-    endif
-    if (present(rho_ref)) rho(j) = rho(j) - rho_ref
-  enddo
+  rho(js:je) = TEOS10_density(T(js:je), S(js:je), pressure(js:je), rho_ref)
+
 end subroutine calculate_density_array_teos10
+
+!> GSW in situ specific volume [m3 kg-1]
+real elemental function TEOS10_spec_vol(T, S, pressure, spv_ref)
+  real,           intent(in)  :: T        !< Conservative temperature [degC].
+  real,           intent(in)  :: S        !< Absolute salinity [g kg-1].
+  real,           intent(in)  :: pressure !< pressure [Pa].
+  real, optional, intent(in)  :: spv_ref  !< A reference specific volume [m3 kg-1].
+
+  !!! #### This code originally had this "masking" line -AJA
+! if (S < -1.0e-10) then ! Can we assume safely that this is a missing value?
+!   TEOS10_spec_vol = 0.001
+! else
+!   TEOS10_spec_vol = gsw_rho(S, T, pressure * Pa2db)
+! endif
+
+  TEOS10_spec_vol = gsw_specvol(S, T, pressure * Pa2db)
+  if (present(spv_ref)) TEOS10_spec_vol = TEOS10_spec_vol - spv_ref
+
+end function TEOS10_spec_vol
 
 !> This subroutine computes the in situ specific volume of sea water (specvol in
 !! [m3 kg-1]) from absolute salinity (S [g kg-1]), conservative temperature (T [degC])
@@ -121,18 +133,9 @@ subroutine calculate_spec_vol_scalar_teos10(T, S, pressure, specvol, spv_ref)
   real,           intent(out) :: specvol  !< in situ specific volume [m3 kg-1].
   real, optional, intent(in)  :: spv_ref  !< A reference specific volume [m3 kg-1].
 
-  ! Local variables
-  real, dimension(1) :: T0    ! A 1-d array with a copy of the conservative temperature [degC]
-  real, dimension(1) :: S0    ! A 1-d array with a copy of the absolute salinity [g kg-1]
-  real, dimension(1) :: pressure0 ! A 1-d array with a copy of the pressure [Pa]
-  real, dimension(1) :: spv0  ! A 1-d array with a copy of the specific volume [m3 kg-1]
+  specvol = TEOS10_spec_vol(T, S, pressure, spv_ref)
 
-  T0(1) = T ; S0(1) = S ; pressure0(1) = pressure
-
-  call calculate_spec_vol_array_teos10(T0, S0, pressure0, spv0, 1, 1, spv_ref)
-  specvol = spv0(1)
 end subroutine calculate_spec_vol_scalar_teos10
-
 
 !> This subroutine computes the in situ specific volume of sea water (specvol in
 !! [m3 kg-1]) from absolute salinity (S [g kg-1]), conservative temperature (T [degC])
@@ -148,24 +151,12 @@ subroutine calculate_spec_vol_array_teos10(T, S, pressure, specvol, start, npts,
   real,     optional, intent(in)  :: spv_ref  !< A reference specific volume [m3 kg-1].
 
   ! Local variables
-  real :: zs  ! Absolute salinity [g kg-1]
-  real :: zt  ! Conservative temperature [degC]
-  real :: zp  ! Pressure converted to decibars [dbar]
-  integer :: j
+  integer :: js, je
 
-  do j=start,start+npts-1
-    !Conversions
-    zs = S(j) !gsw_sr_from_sp(S(j))       !Convert practical salinity to absolute salinity
-    zt = T(j) !gsw_ct_from_pt(S(j),T(j))  !Convert potential temp to conservative temp
-    zp = pressure(j)* Pa2db         !Convert pressure from Pascal to decibar
+  js = start
+  je = start+npts-1
 
-    if (S(j) < -1.0e-10) then
-      specvol(j) = 0.001 !Can we assume safely that this is a missing value?
-    else
-      specvol(j) = gsw_specvol(zs,zt,zp)
-    endif
-    if (present(spv_ref)) specvol(j) = specvol(j) - spv_ref
-  enddo
+  specvol(js:je) = TEOS10_spec_vol(T(js:je), S(js:je), pressure(js:je), spv_ref)
 
 end subroutine calculate_spec_vol_array_teos10
 
@@ -388,5 +379,12 @@ subroutine EoS_fit_range_teos10(T_min, T_max, S_min, S_max, p_min, p_max)
   if (present(p_max)) p_max = 1.0e8
 
 end subroutine EoS_fit_range_teos10
+
+!> \namespace mom_eos_teos10
+!!
+!! \section section_EOS_TEOS10 TEOS10 equation of state
+!!
+!! The TEOS10 equation of state is implemented via the GSW toolbox. We recommend using the
+!! Roquet et al. forms of this equation of state.
 
 end module MOM_EOS_TEOS10

@@ -11,6 +11,7 @@ public calculate_compress_Roquet_SpV, calculate_density_Roquet_SpV, calculate_sp
 public calculate_density_derivs_Roquet_SpV, calculate_specvol_derivs_Roquet_SpV
 public calculate_density_scalar_Roquet_SpV, calculate_density_array_Roquet_SpV
 public calculate_density_second_derivs_Roquet_SpV, EoS_fit_range_Roquet_SpV
+public Roquet_SpV_spec_vol
 
 !> Compute the in situ density of sea water [kg m-3], or its anomaly with respect to
 !! a reference density, from absolute salinity [g kg-1], conservative temperature [degC],
@@ -199,16 +200,7 @@ subroutine calculate_spec_vol_scalar_Roquet_SpV(T, S, pressure, specvol, spv_ref
   real,           intent(out) :: specvol  !< In situ specific volume [m3 kg-1]
   real, optional, intent(in)  :: spv_ref  !< A reference specific volume [m3 kg-1]
 
-  ! Local variables
-  real, dimension(1) :: T0    ! A 1-d array with a copy of the conservative temperature [degC]
-  real, dimension(1) :: S0    ! A 1-d array with a copy of the absolutes salinity [g kg-1]
-  real, dimension(1) :: pres0 ! A 1-d array with a copy of the pressure [Pa]
-  real, dimension(1) :: spv0  ! A 1-d array with a copy of the specific volume [m3 kg-1]
-
-  T0(1) = T ; S0(1) = S ; pres0(1) = pressure
-
-  call calculate_spec_vol_array_Roquet_SpV(T0, S0, pres0, spv0, 1, 1, spv_ref)
-  specvol = spv0(1)
+  specvol = Roquet_SpV_spec_vol(T, S, pressure, spv_ref)
 
 end subroutine calculate_spec_vol_scalar_Roquet_SpV
 
@@ -228,6 +220,28 @@ subroutine calculate_spec_vol_array_Roquet_SpV(T, S, pressure, specvol, start, n
   real,     optional, intent(in)    :: spv_ref  !< A reference specific volume [m3 kg-1]
 
   ! Local variables
+  integer :: js, je
+
+  js = start
+  je = start+npts-1
+
+  specvol = Roquet_SpV_spec_vol(T, S, pressure, spv_ref)
+
+end subroutine calculate_spec_vol_array_Roquet_SpV
+
+!> Roquet et al. in situ specific volume of sea water [m3 kg-1]
+!!
+!! Returns the in situ specific volume of sea water (specvol in [m3 kg-1]) from absolute salinity (S [g kg-1]),
+!! conservative temperature (T [degC]) and pressure [Pa].  It uses the specific volume polynomial
+!! fit from Roquet et al. (2015).
+!! If spv_ref is present, specvol is an anomaly from spv_ref.
+real elemental function Roquet_SpV_spec_vol(T, S, pressure, spv_ref)
+  real,           intent(in) :: T        !< Conservative temperature [degC]
+  real,           intent(in) :: S        !< Absolute salinity [g kg-1]
+  real,           intent(in) :: pressure !< pressure [Pa]
+  real, optional, intent(in) :: spv_ref  !< A reference specific volume [m3 kg-1]
+
+  ! Local variables
   real :: zp     ! Pressure [Pa]
   real :: zt     ! Conservative temperature [degC]
   real :: zs     ! The square root of absolute salinity with an offset normalized
@@ -244,46 +258,43 @@ subroutine calculate_spec_vol_array_Roquet_SpV(T, S, pressure, specvol, start, n
   real :: SV_TS3 ! A temperature and salinity dependent specific volume contribution that is
                  ! proportional to pressure**3 [m3 kg-1 Pa-3]
   real :: SV_0S0 ! Salinity dependent specific volume at the surface pressure and zero temperature [m3 kg-1]
-  integer :: j
 
   ! The following algorithm was published by Roquet et al. (2015), intended for use in non-Boussinesq ocean models.
-  do j=start,start+npts-1
-    ! Conversions to the units used here.
-    zt = T(j)
-    zs = SQRT( ABS( S(j) + rdeltaS ) * r1_S0 )  ! square root of normalized salinity plus an offset [nondim]
-    zp = pressure(j)
 
-    ! The next two lines should be used if it is necessary to convert potential temperature and
-    ! practical salinity to conservative temperature and absolute salinity.
-    ! zt = gsw_ct_from_pt(S(j),T(j)) ! Convert potential temp to conservative temp [degC]
-    ! zs = SQRT( ABS( gsw_sr_from_sp(S(j)) + rdeltaS ) * r1_S0 ) ! Convert S from practical to absolute salinity.
+  ! Conversions to the units used here.
+  zt = T
+  zs = SQRT( ABS( S + rdeltaS ) * r1_S0 )  ! square root of normalized salinity plus an offset [nondim]
+  zp = pressure
 
-    SV_TS3 = SPV003 + (zs*SPV103 + zt*SPV013)
-    SV_TS2 = SPV002 + (zs*(SPV102 +  zs*SPV202) &
-                     + zt*(SPV012 + (zs*SPV112 + zt*SPV022)) )
-    SV_TS1 = SPV001 + (zs*(SPV101 +  zs*(SPV201 +  zs*(SPV301 +  zs*SPV401))) &
-                     + zt*(SPV011 + (zs*(SPV111 +  zs*(SPV211 +  zs*SPV311)) &
-                                   + zt*(SPV021 + (zs*(SPV121 +  zs*SPV221) &
-                                                 + zt*(SPV031 + (zs*SPV131 + zt*SPV041)) )) )) )
-    SV_TS0 = zt*(SPV010 &
-               + (zs*(SPV110 +  zs*(SPV210 +  zs*(SPV310 +  zs*(SPV410 +  zs*SPV510)))) &
-                + zt*(SPV020 + (zs*(SPV120 +  zs*(SPV220 +  zs*(SPV320 +  zs*SPV420))) &
-                              + zt*(SPV030 + (zs*(SPV130 +  zs*(SPV230 +  zs*SPV330)) &
-                                            + zt*(SPV040 + (zs*(SPV140 +  zs*SPV240) &
-                                                          + zt*(SPV050 + (zs*SPV150 + zt*SPV060)) )) )) )) ) )
+  ! The next two lines should be used if it is necessary to convert potential temperature and
+  ! practical salinity to conservative temperature and absolute salinity.
+  ! zt = gsw_ct_from_pt(S,T) ! Convert potential temp to conservative temp [degC]
+  ! zs = SQRT( ABS( gsw_sr_from_sp(S) + rdeltaS ) * r1_S0 ) ! Convert S from practical to absolute salinity.
 
-    SV_0S0 = SPV000 + zs*(SPV100 + zs*(SPV200 + zs*(SPV300 + zs*(SPV400 + zs*(SPV500 + zs*SPV600)))))
+  SV_TS3 = SPV003 + (zs*SPV103 + zt*SPV013)
+  SV_TS2 = SPV002 + (zs*(SPV102 +  zs*SPV202) &
+                   + zt*(SPV012 + (zs*SPV112 + zt*SPV022)) )
+  SV_TS1 = SPV001 + (zs*(SPV101 +  zs*(SPV201 +  zs*(SPV301 +  zs*SPV401))) &
+                   + zt*(SPV011 + (zs*(SPV111 +  zs*(SPV211 +  zs*SPV311)) &
+                                 + zt*(SPV021 + (zs*(SPV121 +  zs*SPV221) &
+                                               + zt*(SPV031 + (zs*SPV131 + zt*SPV041)) )) )) )
+  SV_TS0 = zt*(SPV010 &
+             + (zs*(SPV110 +  zs*(SPV210 +  zs*(SPV310 +  zs*(SPV410 +  zs*SPV510)))) &
+              + zt*(SPV020 + (zs*(SPV120 +  zs*(SPV220 +  zs*(SPV320 +  zs*SPV420))) &
+                            + zt*(SPV030 + (zs*(SPV130 +  zs*(SPV230 +  zs*SPV330)) &
+                                          + zt*(SPV040 + (zs*(SPV140 +  zs*SPV240) &
+                                                        + zt*(SPV050 + (zs*SPV150 + zt*SPV060)) )) )) )) ) )
 
-    SV_00p = zp*(V00 + zp*(V01 + zp*(V02 + zp*(V03 + zp*(V04 + zp*V05)))))
+  SV_0S0 = SPV000 + zs*(SPV100 + zs*(SPV200 + zs*(SPV300 + zs*(SPV400 + zs*(SPV500 + zs*SPV600)))))
 
-    if (present(spv_ref)) SV_0S0 = SV_0S0 - spv_ref
+  SV_00p = zp*(V00 + zp*(V01 + zp*(V02 + zp*(V03 + zp*(V04 + zp*V05)))))
 
-    SV_TS  = (SV_TS0 + SV_0S0) + zp*(SV_TS1 + zp*(SV_TS2 +  zp*SV_TS3))
-    specvol(j) = SV_TS + SV_00p  ! In situ specific volume [m3 kg-1]
-  enddo
+  if (present(spv_ref)) SV_0S0 = SV_0S0 - spv_ref
 
-end subroutine calculate_spec_vol_array_Roquet_SpV
+  SV_TS  = (SV_TS0 + SV_0S0) + zp*(SV_TS1 + zp*(SV_TS2 +  zp*SV_TS3))
+  Roquet_SpV_spec_vol = SV_TS + SV_00p  ! In situ specific volume [m3 kg-1]
 
+end function Roquet_SpV_spec_vol
 
 !> Compute the in situ density of sea water at a point (rho in [kg m-3]) from absolute
 !! salinity (S [g kg-1]), conservative temperature (T [degC]) and pressure [Pa], using the
@@ -295,22 +306,7 @@ subroutine calculate_density_scalar_Roquet_SpV(T, S, pressure, rho, rho_ref)
   real,           intent(out) :: rho      !< In situ density [kg m-3]
   real, optional, intent(in)  :: rho_ref  !< A reference density [kg m-3]
 
-  real, dimension(1) :: T0    ! A 1-d array with a copy of the conservative temperature [degC]
-  real, dimension(1) :: S0    ! A 1-d array with a copy of the absolute salinity [g kg-1]
-  real, dimension(1) :: pres0 ! A 1-d array with a copy of the pressure [Pa]
-  real, dimension(1) :: spv   ! A 1-d array with the specific volume [m3 kg-1]
-
-  T0(1) = T
-  S0(1) = S
-  pres0(1) = pressure
-
-  if (present(rho_ref)) then
-    call calculate_spec_vol_array_Roquet_SpV(T0, S0, pres0, spv, 1, 1, spv_ref=1.0/rho_ref)
-    rho = -rho_ref**2*spv(1) / (rho_ref*spv(1) + 1.0)  ! In situ density [kg m-3]
-  else
-    call calculate_spec_vol_array_Roquet_SpV(T0, S0, pres0, spv, 1, 1)
-    rho = 1.0 / spv(1)
-  endif
+  rho = Roquet_SpV_density(T, S, pressure, rho_ref)
 
 end subroutine calculate_density_scalar_Roquet_SpV
 
@@ -327,22 +323,38 @@ subroutine calculate_density_array_Roquet_SpV(T, S, pressure, rho, start, npts, 
   real,     optional, intent(in)  :: rho_ref  !< A reference density [kg m-3]
 
   ! Local variables
-  real, dimension(size(T)) :: spv   ! The specific volume [m3 kg-1]
-  integer :: j
+  integer :: js, je
 
-  if (present(rho_ref)) then
-    call calculate_spec_vol_array_Roquet_SpV(T, S, pressure, spv, start, npts, spv_ref=1.0/rho_ref)
-    do j=start,start+npts-1
-      rho(j) = -rho_ref**2*spv(j) / (rho_ref*spv(j) + 1.0)  ! In situ density [kg m-3]
-    enddo
-  else
-    call calculate_spec_vol_array_Roquet_SpV(T, S, pressure, spv, start, npts)
-    do j=start,start+npts-1
-      rho(j) = 1.0 / spv(j)  ! In situ density [kg m-3]
-    enddo
-  endif
+  js = start
+  je = start+npts-1
+
+  rho(js:je) = Roquet_SpV_density(T(js:je), S(js:je), pressure(js:je), rho_ref)
 
 end subroutine calculate_density_array_Roquet_SpV
+
+!> Roquet in situ density [kg m-3]
+!!
+!! Compute an array of in situ densities of sea water (rho in [kg m-3]) from absolute
+!! salinity (S [g kg-1]), conservative temperature (T [degC]) and pressure [Pa],
+!! using the specific volume polynomial fit from Roquet et al. (2015).
+real elemental function Roquet_SpV_density(T, S, pressure, rho_ref)
+  real,           intent(in) :: T        !< Conservative temperature [degC]
+  real,           intent(in) :: S        !< Absolute salinity [g kg-1]
+  real,           intent(in) :: pressure !< Pressure [Pa]
+  real, optional, intent(in) :: rho_ref  !< A reference density [kg m-3]
+
+  ! Local variables
+  real :: spv ! The specific volume [m3 kg-1]
+
+  if (present(rho_ref)) then
+    spv = Roquet_SpV_spec_vol(T, S, pressure, spv_ref=1.0/rho_ref)
+    Roquet_SpV_density = -rho_ref**2*spv / (rho_ref*spv + 1.0)  ! In situ density [kg m-3]
+  else
+    spv = Roquet_SpV_spec_vol(T, S, pressure)
+    Roquet_SpV_density = 1.0 / spv  ! In situ density [kg m-3]
+  endif
+
+end function Roquet_SpV_density
 
 !> Return the partial derivatives of specific volume with temperature and salinity for 1-d array
 !! inputs and outputs, using the specific volume polynomial fit from Roquet et al. (2015).

@@ -1,34 +1,41 @@
-!> The equation of state using the Jackett and McDougall fits to the UNESCO EOS
+!_mkiThe equation of state using the Jackett and McDougall fits to the UNESCO EOS
 module MOM_EOS_UNESCO
 
 ! This file is part of MOM6. See LICENSE.md for the license.
 
 implicit none ; private
 
-public calculate_compress_UNESCO, calculate_density_UNESCO, calculate_spec_vol_UNESCO
+public calculate_compress_UNESCO
+!, calculate_density_UNESCO, calculate_spec_vol_UNESCO
+public density_elem_UNESCO, density_fn_UNESCO
+public spec_vol_elem_UNESCO, spec_vol_fn_UNESCO
+public calculate_density_scalar_UNESCO, calculate_spec_vol_scalar_UNESCO
+public calculate_density_array_UNESCO, calculate_spec_vol_array_UNESCO
 public calculate_density_derivs_UNESCO, calculate_specvol_derivs_UNESCO
-public calculate_density_scalar_UNESCO, calculate_density_array_UNESCO
-public calculate_density_second_derivs_UNESCO, EoS_fit_range_UNESCO
+!public calculate_density_second_derivs_UNESCO, EoS_fit_range_UNESCO
+public calculate_density_second_derivs_array_UNESCO
+public calculate_density_second_derivs_scalar_UNESCO
+public EoS_fit_range_UNESCO
 
 !> Compute the in situ density of sea water (in [kg m-3]), or its anomaly with respect to
 !! a reference density, from salinity [PSU], potential temperature [degC] and pressure [Pa],
 !! using the UNESCO (1981) equation of state, as refit by Jackett and McDougall (1995).
-interface calculate_density_UNESCO
-  module procedure calculate_density_scalar_UNESCO, calculate_density_array_UNESCO
-end interface calculate_density_UNESCO
+!interface calculate_density_UNESCO
+!  module procedure calculate_density_scalar_UNESCO, calculate_density_array_UNESCO
+!end interface calculate_density_UNESCO
 
 !> Compute the in situ specific volume of sea water (in [m3 kg-1]), or an anomaly with respect
 !! to a reference specific volume, from salinity [PSU], potential temperature [degC], and
 !! pressure [Pa], using the UNESCO (1981) equation of state, as refit by Jackett and McDougall (1995).
-interface calculate_spec_vol_UNESCO
-  module procedure calculate_spec_vol_scalar_UNESCO, calculate_spec_vol_array_UNESCO
-end interface calculate_spec_vol_UNESCO
+!interface calculate_spec_vol_UNESCO
+!  module procedure calculate_spec_vol_scalar_UNESCO, calculate_spec_vol_array_UNESCO
+!end interface calculate_spec_vol_UNESCO
 
 !> Compute the second derivatives of density with various combinations of temperature, salinity and
 !! pressure, using the UNESCO (1981) equation of state, as refit by Jackett and McDougall (1995).
-interface calculate_density_second_derivs_UNESCO
-  module procedure calculate_density_second_derivs_scalar_UNESCO, calculate_density_second_derivs_array_UNESCO
-end interface calculate_density_second_derivs_UNESCO
+!interface calculate_density_second_derivs_UNESCO
+!  module procedure calculate_density_second_derivs_scalar_UNESCO, calculate_density_second_derivs_array_UNESCO
+!end interface calculate_density_second_derivs_UNESCO
 
 
 !>@{ Parameters in the UNESCO equation of state, as published in appendix A3 of Gill, 1982.
@@ -86,6 +93,60 @@ real, parameter :: S122 = 6.207323e-10 ! A coefficient in the secant bulk modulu
 
 contains
 
+!> In situ density as fit by Jackett and McDougall, 1995 [kg m-3]
+!!
+!! This is an elemental function that can be applied to any combination of
+!! scalar and array inputs.
+real elemental function density_elem_UNESCO(T, S, pressure, rho_ref)
+  real,           intent(in) :: T        !< Potential temperature relative to the surface [degC]
+  real,           intent(in) :: S        !< Salinity [PSU]
+  real,           intent(in) :: pressure !< Pressure [Pa]
+  real, optional, intent(in) :: rho_ref  !< A reference density [kg m-3]
+
+  ! Local variables
+  real :: t1   ! A copy of the temperature at a point [degC]
+  real :: s1   ! A copy of the salinity at a point [PSU]
+  real :: p1   ! Pressure converted to bars [bar]
+  real :: s12  ! The square root of salinity [PSU1/2]
+  real :: rho0 ! Density at 1 bar pressure [kg m-3]
+  real :: sig0 ! The anomaly of rho0 from R00 [kg m-3]
+  real :: ks   ! The secant bulk modulus [bar]
+
+  p1 = pressure*1.0e-5 ; t1 = T
+  s1 = max(S, 0.0) ; s12 = sqrt(s1)
+
+  ! Compute rho(s,theta,p=0) - (same as rho(s,t_insitu,p=0) ).
+  sig0 = ( t1*(R01 + t1*(R02 + t1*(R03 + t1*(R04 + t1*R05)))) + &
+           s1*((R10 + t1*(R11 + t1*(R12 + t1*(R13 + t1*R14)))) + &
+               (s12*(R60 + t1*(R61 + t1*R62)) + s1*R20)) )
+  rho0 = R00 + sig0
+
+  ! Compute rho(s,theta,p), first calculating the secant bulk modulus.
+  ks = (S000 + ( t1*(S010 + t1*(S020 + t1*(S030 + t1*S040))) + &
+                 s1*((S100 + t1*(S110 + t1*(S120 + t1*S130))) + s12*(S600 + t1*(S610 + t1*S620))) )) + &
+       p1*( (S001 + ( t1*(S011 + t1*(S021 + t1*S031)) + &
+                      s1*((S101 + t1*(S111 + t1*S121)) + s12*S601) )) + &
+            p1*(S002 + ( t1*(S012 + t1*S022) + s1*(S102 + t1*(S112 + t1*S122)) )) )
+
+  if (present(rho_ref)) then
+    density_elem_UNESCO = ((R00 - rho_ref)*ks + (sig0*ks + p1*rho_ref)) / (ks - p1)
+  else
+    density_elem_UNESCO = rho0*ks / (ks - p1)
+  endif
+
+end function density_elem_UNESCO
+
+!> In situ density as fit by Jackett and McDougall, 1995 [kg m-3]
+real function density_fn_UNESCO(T, S, pressure, rho_ref)
+  real,           intent(in) :: T        !< Potential temperature relative to the surface [degC]
+  real,           intent(in) :: S        !< Salinity [PSU]
+  real,           intent(in) :: pressure !< Pressure [Pa]
+  real, optional, intent(in) :: rho_ref  !< A reference density [kg m-3]
+
+  density_fn_UNESCO =  density_elem_UNESCO(T, S, pressure, rho_ref)
+
+end function density_fn_UNESCO
+
 !> This subroutine computes the in situ density of sea water (rho in [kg m-3])
 !! from salinity (S [PSU]), potential temperature (T [degC]), and pressure [Pa],
 !! using the UNESCO (1981) equation of state, as refit by Jackett and McDougall (1995).
@@ -97,18 +158,7 @@ subroutine calculate_density_scalar_UNESCO(T, S, pressure, rho, rho_ref)
   real,           intent(out) :: rho      !< In situ density [kg m-3]
   real, optional, intent(in)  :: rho_ref  !< A reference density [kg m-3]
 
-  ! Local variables
-  real, dimension(1) :: T0    ! A 1-d array with a copy of the potential temperature [degC]
-  real, dimension(1) :: S0    ! A 1-d array with a copy of the salinity [PSU]
-  real, dimension(1) :: pressure0 ! A 1-d array with a copy of the pressure [Pa]
-  real, dimension(1) :: rho0  ! A 1-d array with a copy of the in situ density [kg m-3]
-
-  T0(1) = T
-  S0(1) = S
-  pressure0(1) = pressure
-
-  call calculate_density_array_UNESCO(T0, S0, pressure0, rho0, 1, 1, rho_ref)
-  rho = rho0(1)
+  rho = density_elem_UNESCO(T, S, pressure, rho_ref)
 
 end subroutine calculate_density_scalar_UNESCO
 
@@ -126,41 +176,66 @@ subroutine calculate_density_array_UNESCO(T, S, pressure, rho, start, npts, rho_
   real,     optional, intent(in)  :: rho_ref  !< A reference density [kg m-3]
 
   ! Local variables
+  integer :: js, je
+
+  js = start
+  je = start+npts-1
+
+  rho(js:je) = density_elem_UNESCO(T(js:je), S(js:je), pressure(js:je), rho_ref)
+
+end subroutine calculate_density_array_UNESCO
+
+!> In situ specific volume as fit by Jackett and McDougall, 1995 [m3 kg-1]
+!!
+!! This is an elemental function that can be applied to any combination of
+!! scalar and array inputs.
+real elemental function spec_vol_elem_UNESCO(T, S, pressure, spv_ref)
+  real,           intent(in) :: T        !< Potential temperature relative to the surface [degC]
+  real,           intent(in) :: S        !< Salinity [PSU]
+  real,           intent(in) :: pressure !< Pressure [Pa]
+  real, optional, intent(in) :: spv_ref  !< A reference specific volume [m3 kg-1]
+
+  ! Local variables
   real :: t1   ! A copy of the temperature at a point [degC]
   real :: s1   ! A copy of the salinity at a point [PSU]
   real :: p1   ! Pressure converted to bars [bar]
-  real :: s12  ! The square root of salinity [PSU1/2]
+  real :: s12  ! The square root of salinity [PSU1/2]l553
   real :: rho0 ! Density at 1 bar pressure [kg m-3]
-  real :: sig0 ! The anomaly of rho0 from R00 [kg m-3]
   real :: ks   ! The secant bulk modulus [bar]
-  integer :: j
 
-  do j=start,start+npts-1
-    p1 = pressure(j)*1.0e-5 ; t1 = T(j)
-    s1 = max(S(j), 0.0) ; s12 = sqrt(s1)
+  p1 = pressure*1.0e-5 ; t1 = T
+  s1 = max(S, 0.0) ; s12 = sqrt(s1)
 
-!  Compute rho(s,theta,p=0) - (same as rho(s,t_insitu,p=0) ).
+  ! Compute rho(s,theta,p=0), which is the same as rho(s,t_insitu,p=0).
+  rho0 = R00 + ( t1*(R01 + t1*(R02 + t1*(R03 + t1*(R04 + t1*R05)))) + &
+                 s1*((R10 + t1*(R11 + t1*(R12 + t1*(R13 + t1*R14)))) + &
+                     (s12*(R60 + t1*(R61 + t1*R62)) + s1*R20)) )
 
-    sig0 = ( t1*(R01 + t1*(R02 + t1*(R03 + t1*(R04 + t1*R05)))) + &
-             s1*((R10 + t1*(R11 + t1*(R12 + t1*(R13 + t1*R14)))) + &
-                 (s12*(R60 + t1*(R61 + t1*R62)) + s1*R20)) )
-    rho0 = R00 + sig0
+  ! Compute rho(s,theta,p), first calculating the secant bulk modulus.
+  ks = (S000 + ( t1*(S010 + t1*(S020 + t1*(S030 + t1*S040))) + &
+                 s1*((S100 + t1*(S110 + t1*(S120 + t1*S130))) + s12*(S600 + t1*(S610 + t1*S620))) )) + &
+       p1*( (S001 + ( t1*(S011 + t1*(S021 + t1*S031)) + &
+                      s1*((S101 + t1*(S111 + t1*S121)) + s12*S601) )) + &
+            p1*(S002 + ( t1*(S012 + t1*S022) + s1*(S102 + t1*(S112 + t1*S122)) )) )
 
-!  Compute rho(s,theta,p), first calculating the secant bulk modulus.
+  if (present(spv_ref)) then
+    spec_vol_elem_UNESCO = (ks*(1.0 - (rho0*spv_ref)) - p1) / (rho0*ks)
+  else
+    spec_vol_elem_UNESCO = (ks - p1) / (rho0*ks)
+  endif
 
-    ks = (S000 + ( t1*(S010 + t1*(S020 + t1*(S030 + t1*S040))) + &
-                   s1*((S100 + t1*(S110 + t1*(S120 + t1*S130))) + s12*(S600 + t1*(S610 + t1*S620))) )) + &
-         p1*( (S001 + ( t1*(S011 + t1*(S021 + t1*S031)) + &
-                        s1*((S101 + t1*(S111 + t1*S121)) + s12*S601) )) + &
-              p1*(S002 + ( t1*(S012 + t1*S022) + s1*(S102 + t1*(S112 + t1*S122)) )) )
+end function spec_vol_elem_UNESCO
 
-    if (present(rho_ref)) then
-      rho(j) = ((R00 - rho_ref)*ks + (sig0*ks + p1*rho_ref)) / (ks - p1)
-    else
-      rho(j) = rho0*ks / (ks - p1)
-    endif
-  enddo
-end subroutine calculate_density_array_UNESCO
+!> In situ specific volume as fit by Jackett and McDougall, 1995 [m3 kg-1]
+real function spec_vol_fn_UNESCO(T, S, pressure, spv_ref)
+  real,           intent(in) :: T        !< Potential temperature relative to the surface [degC]
+  real,           intent(in) :: S        !< Salinity [PSU]
+  real,           intent(in) :: pressure !< Pressure [Pa]
+  real, optional, intent(in) :: spv_ref  !< A reference specific volume [m3 kg-1]
+
+  spec_vol_fn_UNESCO = spec_vol_elem_UNESCO(T, S, pressure, spv_ref)
+
+end function spec_vol_fn_UNESCO
 
 !> This subroutine computes the in situ specific volume of sea water (specvol in [m3 kg-1])
 !! from salinity (S [PSU]), potential temperature (T [degC]) and pressure [Pa],
@@ -173,16 +248,8 @@ subroutine calculate_spec_vol_scalar_UNESCO(T, S, pressure, specvol, spv_ref)
   real,           intent(out) :: specvol  !< In situ specific volume [m3 kg-1]
   real, optional, intent(in)  :: spv_ref  !< A reference specific volume [m3 kg-1]
 
-  ! Local variables
-  real, dimension(1) :: T0    ! A 1-d array with a copy of the potential temperature [degC]
-  real, dimension(1) :: S0    ! A 1-d array with a copy of the salinity [PSU]
-  real, dimension(1) :: pressure0 ! A 1-d array with a copy of the pressure [Pa]
-  real, dimension(1) :: spv0  ! A 1-d array with a copy of the specific volume [m3 kg-1]
+  specvol = spec_vol_elem_UNESCO(T, S, pressure, spv_ref)
 
-  T0(1) = T ; S0(1) = S ; pressure0(1) = pressure
-
-  call calculate_spec_vol_array_UNESCO(T0, S0, pressure0, spv0, 1, 1, spv_ref)
-  specvol = spv0(1)
 end subroutine calculate_spec_vol_scalar_UNESCO
 
 !> This subroutine computes the in situ specific volume of sea water (specvol in [m3 kg-1])
@@ -199,41 +266,14 @@ subroutine calculate_spec_vol_array_UNESCO(T, S, pressure, specvol, start, npts,
   real,     optional, intent(in)  :: spv_ref  !< A reference specific volume [m3 kg-1]
 
   ! Local variables
-  real :: t1   ! A copy of the temperature at a point [degC]
-  real :: s1   ! A copy of the salinity at a point [PSU]
-  real :: p1   ! Pressure converted to bars [bar]
-  real :: s12  ! The square root of salinity [PSU1/2]l553
-  real :: rho0 ! Density at 1 bar pressure [kg m-3]
-  real :: ks   ! The secant bulk modulus [bar]
-  integer :: j
+  integer :: js, je
 
-  do j=start,start+npts-1
+  js = start
+  je = start+npts-1
 
-    p1 = pressure(j)*1.0e-5 ; t1 = T(j)
-    s1 = max(S(j), 0.0) ; s12 = sqrt(s1)
+  specvol(js:je) = spec_vol_elem_UNESCO(T(js:je), S(js:je), pressure(js:je), spv_ref)
 
-    ! Compute rho(s,theta,p=0), which is the same as rho(s,t_insitu,p=0).
-
-    rho0 = R00 + ( t1*(R01 + t1*(R02 + t1*(R03 + t1*(R04 + t1*R05)))) + &
-                   s1*((R10 + t1*(R11 + t1*(R12 + t1*(R13 + t1*R14)))) + &
-                       (s12*(R60 + t1*(R61 + t1*R62)) + s1*R20)) )
-
-    ! Compute rho(s,theta,p), first calculating the secant bulk modulus.
-
-    ks = (S000 + ( t1*(S010 + t1*(S020 + t1*(S030 + t1*S040))) + &
-                   s1*((S100 + t1*(S110 + t1*(S120 + t1*S130))) + s12*(S600 + t1*(S610 + t1*S620))) )) + &
-         p1*( (S001 + ( t1*(S011 + t1*(S021 + t1*S031)) + &
-                        s1*((S101 + t1*(S111 + t1*S121)) + s12*S601) )) + &
-              p1*(S002 + ( t1*(S012 + t1*S022) + s1*(S102 + t1*(S112 + t1*S122)) )) )
-
-    if (present(spv_ref)) then
-      specvol(j) = (ks*(1.0 - (rho0*spv_ref)) - p1) / (rho0*ks)
-    else
-      specvol(j) = (ks - p1) / (rho0*ks)
-    endif
-  enddo
 end subroutine calculate_spec_vol_array_UNESCO
-
 
 !> Calculate the partial derivatives of density with potential temperature and salinity
 !! using the UNESCO (1981) equation of state, as refit by Jackett and McDougall (1995).

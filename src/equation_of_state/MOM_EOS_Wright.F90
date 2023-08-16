@@ -12,6 +12,7 @@ public calculate_density_derivs_wright, calculate_specvol_derivs_wright
 public calculate_density_second_derivs_wright, calc_density_second_derivs_wright_buggy
 public EoS_fit_range_Wright, avg_spec_vol_Wright
 public int_density_dz_wright, int_spec_vol_dp_wright
+public wright_density, wright_spec_vol
 
 !> Compute the in situ density of sea water (in [kg m-3]), or its anomaly with respect to
 !! a reference density, from salinity in practical salinity units ([PSU]), potential
@@ -85,18 +86,7 @@ subroutine calculate_density_scalar_wright(T, S, pressure, rho, rho_ref)
   real,           intent(out) :: rho      !< In situ density [kg m-3].
   real, optional, intent(in)  :: rho_ref  !< A reference density [kg m-3].
 
-  ! Local variables
-  real, dimension(1) :: T0    ! A 1-d array with a copy of the potential temperature [degC]
-  real, dimension(1) :: S0    ! A 1-d array with a copy of the salinity [PSU]
-  real, dimension(1) :: pressure0 ! A 1-d array with a copy of the pressure [Pa]
-  real, dimension(1) :: rho0  ! A 1-d array with a copy of the density [kg m-3]
-
-  T0(1) = T
-  S0(1) = S
-  pressure0(1) = pressure
-
-  call calculate_density_array_wright(T0, S0, pressure0, rho0, 1, 1, rho_ref)
-  rho = rho0(1)
+  rho = wright_density(T, S, pressure, rho_ref)
 
 end subroutine calculate_density_scalar_wright
 
@@ -115,6 +105,27 @@ subroutine calculate_density_array_wright(T, S, pressure, rho, start, npts, rho_
   real,     optional, intent(in)    :: rho_ref  !< A reference density [kg m-3].
 
   ! Local variables
+  integer :: js, je
+
+  js = start
+  je = start+npts-1
+
+  rho(js:je) = wright_density(T(js:je), S(js:je), pressure(js:je), rho_ref)
+
+end subroutine calculate_density_array_wright
+
+!> The Wright in situ density of sea water [kg m-3]
+!!
+!! Returns the in situ density of sea water (rho in [kg m-3]) from salinity (S [PSU]),
+!! potential temperature (T [degC]) and pressure [Pa].  It uses the expression from
+!! Wright, 1997, J. Atmos. Ocean. Tech., 14, 735-740 with the reduced range fit coefficients.
+real elemental function wright_density(T, S, pressure, rho_ref)
+  real,           intent(in) :: T        !< potential temperature relative to the surface [degC].
+  real,           intent(in) :: S        !< salinity [PSU].
+  real,           intent(in) :: pressure !< pressure [Pa].
+  real, optional, intent(in) :: rho_ref  !< A reference density [kg m-3].
+
+  ! Local variables
   real :: al0     ! The specific volume at 0 lambda in the Wright EOS [m3 kg-1]
   real :: p0      ! The pressure offset in the Wright EOS [Pa]
   real :: lambda  ! The sound speed squared at 0 alpha in the Wright EOS [m2 s-2]
@@ -122,27 +133,26 @@ subroutine calculate_density_array_wright(T, S, pressure, rho, start, npts, rho_
   real :: p_TSp   ! A combination of the pressure and the temperature and salinity contributions to p0 [Pa]
   real :: lam_TS  ! The contributions of temperature and salinity to lambda [m2 s-2]
   real :: pa_000  ! A corrected offset to the pressure, including contributions from rho_ref [Pa]
-  integer :: j
 
-  if (present(rho_ref)) pa_000 = (b0*(1.0 - a0*rho_ref) - rho_ref*c0)
-  if (present(rho_ref)) then ; do j=start,start+npts-1
-    al_TS = a1*T(j) +a2*S(j)
+  if (present(rho_ref)) then
+    pa_000 = (b0*(1.0 - a0*rho_ref) - rho_ref*c0)
+    al_TS = a1*T +a2*S
     al0 = a0 + al_TS
-    p_TSp = pressure(j) + (b4*S(j) + T(j) * (b1 + (T(j)*(b2 + b3*T(j)) + b5*S(j))))
-    lam_TS = c4*S(j) + T(j) * (c1 + (T(j)*(c2 + c3*T(j)) + c5*S(j)))
+    p_TSp = pressure + (b4*S + T * (b1 + (T*(b2 + b3*T) + b5*S)))
+    lam_TS = c4*S + T * (c1 + (T*(c2 + c3*T) + c5*S))
 
     ! The following two expressions are mathematically equivalent.
-    ! rho(j) = (b0 + p0_TSp) / ((c0 + lam_TS) + al0*(b0 + p0_TSp)) - rho_ref
-    rho(j) = (pa_000 + (p_TSp - rho_ref*(p_TSp*al0 + (b0*al_TS + lam_TS)))) / &
+    ! wright_density = (b0 + p0_TSp) / ((c0 + lam_TS) + al0*(b0 + p0_TSp)) - rho_ref
+    wright_density = (pa_000 + (p_TSp - rho_ref*(p_TSp*al0 + (b0*al_TS + lam_TS)))) / &
              ( (c0 + lam_TS) + al0*(b0 + p_TSp) )
-  enddo ; else ; do j=start,start+npts-1
-    al0 = (a0 + a1*T(j)) +a2*S(j)
-    p0 = (b0 + b4*S(j)) + T(j) * (b1 + T(j)*(b2 + b3*T(j)) + b5*S(j))
-    lambda = (c0 +c4*S(j)) + T(j) * (c1 + T(j)*(c2 + c3*T(j)) + c5*S(j))
-    rho(j) = (pressure(j) + p0) / (lambda + al0*(pressure(j) + p0))
-  enddo ; endif
+  else
+    al0 = (a0 + a1*T) +a2*S
+    p0 = (b0 + b4*S) + T * (b1 + T*(b2 + b3*T) + b5*S)
+    lambda = (c0 +c4*S) + T * (c1 + T*(c2 + c3*T) + c5*S)
+    wright_density = (pressure + p0) / (lambda + al0*(pressure + p0))
+  endif
 
-end subroutine calculate_density_array_wright
+end function wright_density
 
 !> Computes the Wright in situ specific volume of sea water for scalar inputs and outputs.
 !!
@@ -157,16 +167,8 @@ subroutine calculate_spec_vol_scalar_wright(T, S, pressure, specvol, spv_ref)
   real,           intent(out) :: specvol  !< in situ specific volume [m3 kg-1].
   real, optional, intent(in)  :: spv_ref  !< A reference specific volume [m3 kg-1].
 
-  ! Local variables
-  real, dimension(1) :: T0    ! A 1-d array with a copy of the potential temperature [degC]
-  real, dimension(1) :: S0    ! A 1-d array with a copy of the salinity [PSU]
-  real, dimension(1) :: pressure0 ! A 1-d array with a copy of the pressure [Pa]
-  real, dimension(1) :: spv0  ! A 1-d array with a copy of the specific volume [m3 kg-1]
+  specvol = wright_spec_vol(T, S, pressure, spv_ref)
 
-  T0(1) = T ; S0(1) = S ; pressure0(1) = pressure
-
-  call calculate_spec_vol_array_wright(T0, S0, pressure0, spv0, 1, 1, spv_ref)
-  specvol = spv0(1)
 end subroutine calculate_spec_vol_scalar_wright
 
 !> Computes the Wright in situ specific volume of sea water for 1-d array inputs and outputs.
@@ -186,23 +188,43 @@ subroutine calculate_spec_vol_array_wright(T, S, pressure, specvol, start, npts,
   real,     optional, intent(in)    :: spv_ref  !< A reference specific volume [m3 kg-1].
 
   ! Local variables
+  integer :: js,je
+
+  js = start
+  je = start+npts-1
+
+  specvol(js:je) = wright_spec_vol(T(js:je), S(js:je), pressure(js:je), spv_ref)
+
+end subroutine calculate_spec_vol_array_wright
+
+!> The Wright in situ specific volume of sea water [m3 kg-1]
+!!
+!! Returns the in situ specific volume of sea water (specvol in [m3 kg-1]) from salinity (S [PSU]),
+!! potential temperature (T [degC]) and pressure [Pa].  It uses the expression from
+!! Wright, 1997, J. Atmos. Ocean. Tech., 14, 735-740 with the reduced range fit coefficients.
+!! If spv_ref is present, specvol is an anomaly from spv_ref.
+real elemental function wright_spec_vol(T, S, pressure, spv_ref)
+  real,           intent(in) :: T        !< potential temperature relative to the surface [degC].
+  real,           intent(in) :: S        !< salinity [PSU].
+  real,           intent(in) :: pressure !< pressure [Pa].
+  real, optional, intent(in) :: spv_ref  !< A reference specific volume [m3 kg-1].
+
+  ! Local variables
   real :: al0     ! The specific volume at 0 lambda in the Wright EOS [m3 kg-1]
   real :: p0      ! The pressure offset in the Wright EOS [Pa]
   real :: lambda  ! The sound speed squared at 0 alpha in the Wright EOS [m2 s-2]
-  integer :: j
 
-  do j=start,start+npts-1
-    al0 = (a0 + a1*T(j)) +a2*S(j)
-    p0 = (b0 + b4*S(j)) + T(j) * (b1 + T(j)*((b2 + b3*T(j))) + b5*S(j))
-    lambda = (c0 +c4*S(j)) + T(j) * (c1 + T(j)*((c2 + c3*T(j))) + c5*S(j))
+  al0 = (a0 + a1*T) +a2*S
+  p0 = (b0 + b4*S) + T * (b1 + T*((b2 + b3*T)) + b5*S)
+  lambda = (c0 +c4*S) + T * (c1 + T*((c2 + c3*T)) + c5*S)
 
-    if (present(spv_ref)) then
-      specvol(j) = (lambda + (al0 - spv_ref)*(pressure(j) + p0)) / (pressure(j) + p0)
-    else
-      specvol(j) = (lambda + al0*(pressure(j) + p0)) / (pressure(j) + p0)
-    endif
-  enddo
-end subroutine calculate_spec_vol_array_wright
+  if (present(spv_ref)) then
+    wright_spec_vol = (lambda + (al0 - spv_ref)*(pressure + p0)) / (pressure + p0)
+  else
+    wright_spec_vol = (lambda + al0*(pressure + p0)) / (pressure + p0)
+  endif
+
+end function wright_spec_vol
 
 !> Return the thermal/haline expansion coefficients for 1-d array inputs and outputs
 subroutine calculate_density_derivs_array_wright(T, S, pressure, drho_dT, drho_dS, start, npts)

@@ -10,6 +10,7 @@ implicit none ; private
 public calculate_compress_Jackett06, calculate_density_Jackett06, calculate_spec_vol_Jackett06
 public calculate_density_derivs_Jackett06, calculate_specvol_derivs_Jackett06
 public calculate_density_second_derivs_Jackett06, EoS_fit_range_Jackett06
+public Jackett_density, Jackett_spec_vol
 
 !> Compute the in situ density of sea water (in [kg m-3]), or its anomaly with respect to
 !! a reference density, from salinity in practical salinity units ([PSU]), potential
@@ -75,19 +76,16 @@ real, parameter :: &
 
 contains
 
-!> Computes the in situ density of sea water for 1-d array inputs and outputs.
+!> In situ density of sea water using Jackett et al., 2006 [kg m-3]
 !!
 !! Returns the in situ density of sea water (rho in [kg m-3]) from salinity (S [PSU]),
 !! potential temperature (T [degC]), and pressure [Pa].  It uses the expression from
 !! Jackett et al., 2006, J. Atmos. Ocean. Tech., 32, 1709-1728.
-subroutine calculate_density_array_Jackett(T, S, pres, rho, start, npts, rho_ref)
-  real, dimension(:), intent(in)    :: T        !< Potential temperature relative to the surface [degC].
-  real, dimension(:), intent(in)    :: S        !< Salinity [PSU].
-  real, dimension(:), intent(in)    :: pres     !< Pressure [Pa].
-  real, dimension(:), intent(inout) :: rho      !< In situ density [kg m-3].
-  integer,            intent(in)    :: start    !< The starting point in the arrays.
-  integer,            intent(in)    :: npts     !< The number of values to calculate.
-  real,     optional, intent(in)    :: rho_ref  !< A reference density [kg m-3].
+real elemental function Jackett_density(T, S, pres, rho_ref)
+  real,           intent(in) :: T       !< Potential temperature relative to the surface [degC].
+  real,           intent(in) :: S       !< Salinity [PSU].
+  real,           intent(in) :: pres    !< Pressure [Pa].
+  real, optional, intent(in) :: rho_ref !< A reference density [kg m-3].
 
   ! Local variables
   real :: num_STP ! State dependent part of the numerator of the rational expresion
@@ -99,27 +97,88 @@ subroutine calculate_density_array_Jackett(T, S, pres, rho, start, npts, rho_ref
   real :: T2      ! Temperature squared [degC2]
   real :: S1_2    ! Limited square root of salinity [PSU1/2]
   real :: rho0    ! The surface density of fresh water at 0 degC, perhaps less the refernce density [kg m-3]
-  integer :: j
 
-  do j=start,start+npts-1
-    S1_2 = sqrt(max(0.0,s(j)))
-    T2 = T(j)*T(j)
+  S1_2 = sqrt(max(0.0,s))
+  T2 = T*T
 
-    num_STP = (T(j)*(RN010 + T(j)*(RN020 + T(j)*RN030)) + &
-               S(j)*(RN100 + (T(j)*RN110 + S(j)*RN200)) ) + &
-              pres(j)*(RN001 + ((T2*RN021 + S(j)*RN101) + pres(j)*(RN002 + T2*RN022)))
-    den = 1.0 + ((T(j)*(RD010 + T(j)*(RD020 + T(j)*(RD030 + T(j)* RD040))) + &
-                  S(j)*(RD100 + (T(j)*(RD110 + T2*RD130) + S1_2*(RD600 + T2*RD620))) ) + &
-                 pres(j)*(RD001 + pres(j)*T(j)*(T2*RD032 + pres(j)*RD013)) )
-    I_den = 1.0 / den
+  num_STP = (T*(RN010 + T*(RN020 + T*RN030)) + &
+             S*(RN100 + (T*RN110 + S*RN200)) ) + &
+            pres*(RN001 + ((T2*RN021 + S*RN101) + pres*(RN002 + T2*RN022)))
+  den = 1.0 + ((T*(RD010 + T*(RD020 + T*(RD030 + T* RD040))) + &
+                S*(RD100 + (T*(RD110 + T2*RD130) + S1_2*(RD600 + T2*RD620))) ) + &
+               pres*(RD001 + pres*T*(T2*RD032 + pres*RD013)) )
+  I_den = 1.0 / den
 
-    rho0 = RN000
-    if (present(rho_ref)) rho0 = RN000 - rho_ref*den
+  rho0 = RN000
+  if (present(rho_ref)) rho0 = RN000 - rho_ref*den
 
-    rho(j) = (rho0 + num_STP)*I_den
-  enddo
+  Jackett_density = (rho0 + num_STP)*I_den
+
+end function Jackett_density
+
+!> Computes the in situ density of sea water for 1-d array inputs and outputs.
+!!
+!! Returns the in situ density of sea water (rho in [kg m-3]) from salinity (S [PSU]),
+!! potential temperature (T [degC]), and pressure [Pa].  It uses the expression from
+!! Jackett et al., 2006, J. Atmos. Ocean. Tech., 32, 1709-1728.
+subroutine calculate_density_array_Jackett(T, S, pres, rho, start, npts, rho_ref)
+  real, dimension(:), intent(in)    :: T       !< Potential temperature relative to the surface [degC].
+  real, dimension(:), intent(in)    :: S       !< Salinity [PSU].
+  real, dimension(:), intent(in)    :: pres    !< Pressure [Pa].
+  real, dimension(:), intent(inout) :: rho     !< In situ density [kg m-3].
+  integer,            intent(in)    :: start   !< The starting point in the arrays.
+  integer,            intent(in)    :: npts    !< The number of values to calculate.
+  real,     optional, intent(in)    :: rho_ref !< A reference density [kg m-3].
+
+  ! Local variables
+  integer :: js, je
+
+  js = start
+  je = start+npts-1
+
+  rho(js:je) = Jackett_density(T(js:je), S(js:je), pres(js:je), rho_ref)
 
 end subroutine calculate_density_array_Jackett
+
+!> In situ specific volume of sea water using Jackett et al., 2006 [m3 kg-1]
+!!
+!! Returns the in situ specific volume of sea water (specvol in [m3 kg-1]) from salinity (S [PSU]),
+!! potential temperature (T [degC]) and pressure [Pa].  It uses the expression from
+!! Jackett et al., 2006, J. Atmos. Ocean. Tech., 32, 1709-1728.
+!! If spv_ref is present, specvol is an anomaly from spv_ref.
+real elemental function Jackett_spec_vol(T, S, pres, spv_ref)
+  real,           intent(in) :: T       !< potential temperature relative to the surface [degC].
+  real,           intent(in) :: S       !< salinity [PSU].
+  real,           intent(in) :: pres    !< pressure [Pa].
+  real, optional, intent(in) :: spv_ref !< A reference specific volume [m3 kg-1].
+
+  ! Local variables
+  real :: num_STP ! State dependent part of the numerator of the rational expresion
+                  ! for density (not specific volume) [kg m-3]
+  real :: den_STP ! State dependent part of the denominator of the rational expresion
+                  ! for density (not specific volume) [nondim]
+  real :: I_num   ! The inverse of the numerator of the rational expresion for density [nondim]
+  real :: T2      ! Temperature squared [degC2]
+  real :: S1_2    ! Limited square root of salinity [PSU1/2]
+
+  S1_2 = sqrt(max(0.0,s))
+  T2 = T*T
+
+  num_STP = (T*(RN010 + T*(RN020 + T*RN030)) + &
+             S*(RN100 + (T*RN110 + S*RN200)) ) + &
+            pres*(RN001 + ((T2*RN021 + S*RN101) + pres*(RN002 + T2*RN022)))
+  den_STP = (T*(RD010 + T*(RD020 + T*(RD030 + T* RD040))) + &
+             S*(RD100 + (T*(RD110 + T2*RD130) + S1_2*(RD600 + T2*RD620))) ) + &
+            pres*(RD001 + pres*T*(T2*RD032 + pres*RD013))
+  I_num = 1.0 / (RN000 + num_STP)
+  if (present(spv_ref)) then
+    ! This form is slightly more complicated, but it cancels the leading terms better.
+    Jackett_spec_vol = ((1.0 - spv_ref*RN000) + (den_STP - spv_ref*num_STP)) * I_num
+  else
+    Jackett_spec_vol = (1.0 + den_STP) * I_num
+  endif
+
+end function Jackett_spec_vol
 
 !> Computes the Jackett et al. in situ specific volume of sea water for 1-d array inputs and outputs.
 !!
@@ -138,33 +197,12 @@ subroutine calculate_spec_vol_array_Jackett(T, S, pres, specvol, start, npts, sp
   real,     optional, intent(in)    :: spv_ref  !< A reference specific volume [m3 kg-1].
 
   ! Local variables
-  real :: num_STP ! State dependent part of the numerator of the rational expresion
-                  ! for density (not specific volume) [kg m-3]
-  real :: den_STP ! State dependent part of the denominator of the rational expresion
-                  ! for density (not specific volume) [nondim]
-  real :: I_num   ! The inverse of the numerator of the rational expresion for density [nondim]
-  real :: T2      ! Temperature squared [degC2]
-  real :: S1_2    ! Limited square root of salinity [PSU1/2]
-  integer :: j
+  integer :: js, je
 
-  do j=start,start+npts-1
-    S1_2 = sqrt(max(0.0,s(j)))
-    T2 = T(j)*T(j)
+  js = start
+  je = start+npts-1
 
-    num_STP = (T(j)*(RN010 + T(j)*(RN020 + T(j)*RN030)) + &
-               S(j)*(RN100 + (T(j)*RN110 + S(j)*RN200)) ) + &
-              pres(j)*(RN001 + ((T2*RN021 + S(j)*RN101) + pres(j)*(RN002 + T2*RN022)))
-    den_STP = (T(j)*(RD010 + T(j)*(RD020 + T(j)*(RD030 + T(j)* RD040))) + &
-               S(j)*(RD100 + (T(j)*(RD110 + T2*RD130) + S1_2*(RD600 + T2*RD620))) ) + &
-              pres(j)*(RD001 + pres(j)*T(j)*(T2*RD032 + pres(j)*RD013))
-    I_num = 1.0 / (RN000 + num_STP)
-    if (present(spv_ref)) then
-      ! This form is slightly more complicated, but it cancels the leading terms better.
-      specvol(j) = ((1.0 - spv_ref*RN000) + (den_STP - spv_ref*num_STP)) * I_num
-    else
-      specvol(j) = (1.0 + den_STP) * I_num
-    endif
-  enddo
+  specvol(js:je) = Jackett_spec_vol(T(js:je), S(js:je), pres(js:je), spv_ref)
 
 end subroutine calculate_spec_vol_array_Jackett
 
@@ -440,15 +478,7 @@ subroutine calculate_density_scalar_Jackett(T, S, pressure, rho, rho_ref)
   real,           intent(out) :: rho      !< In situ density [kg m-3].
   real, optional, intent(in)  :: rho_ref  !< A reference density [kg m-3].
 
-  ! Local variables
-  real, dimension(1) :: T0    ! A 1-d array with a copy of the potential temperature [degC]
-  real, dimension(1) :: S0    ! A 1-d array with a copy of the salinity [PSU]
-  real, dimension(1) :: pressure0 ! A 1-d array with a copy of the pressure [Pa]
-  real, dimension(1) :: rho0  ! A 1-d array with a copy of the density [kg m-3]
-
-  T0(1) = T ; S0(1) = S ; pressure0(1) = pressure
-  call calculate_density_array_Jackett(T0, S0, pressure0, rho0, 1, 1, rho_ref)
-  rho = rho0(1)
+  rho = Jackett_density(T, S, pressure, rho_ref)
 
 end subroutine calculate_density_scalar_Jackett
 
@@ -465,15 +495,8 @@ subroutine calculate_spec_vol_scalar_Jackett(T, S, pressure, specvol, spv_ref)
   real,           intent(out) :: specvol  !< in situ specific volume [m3 kg-1].
   real, optional, intent(in)  :: spv_ref  !< A reference specific volume [m3 kg-1].
 
-  ! Local variables
-  real, dimension(1) :: T0    ! A 1-d array with a copy of the potential temperature [degC]
-  real, dimension(1) :: S0    ! A 1-d array with a copy of the salinity [PSU]
-  real, dimension(1) :: pressure0 ! A 1-d array with a copy of the pressure [Pa]
-  real, dimension(1) :: spv0  ! A 1-d array with a copy of the specific volume [m3 kg-1]
+  specvol = Jackett_spec_vol(T, S, pressure, spv_ref)
 
-  T0(1) = T ; S0(1) = S ; pressure0(1) = pressure
-  call calculate_spec_vol_array_Jackett(T0, S0, pressure0, spv0, 1, 1, spv_ref)
-  specvol = spv0(1)
 end subroutine calculate_spec_vol_scalar_Jackett
 
 !> Return the thermal/haline expansion coefficients for scalar inputs and outputs

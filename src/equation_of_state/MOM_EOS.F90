@@ -31,10 +31,15 @@ use MOM_EOS_Jackett06, only : calculate_density_Jackett06, calculate_spec_vol_Ja
 use MOM_EOS_Jackett06, only : calculate_density_derivs_Jackett06, calculate_specvol_derivs_Jackett06
 use MOM_EOS_Jackett06, only : calculate_compress_Jackett06, calculate_density_second_derivs_Jackett06
 use MOM_EOS_Jackett06, only : EoS_fit_range_Jackett06
-use MOM_EOS_UNESCO, only : calculate_density_unesco, calculate_spec_vol_unesco
+!use MOM_EOS_UNESCO, only : calculate_density_unesco, calculate_spec_vol_unesco
+use MOM_EOS_UNESCO, only : calculate_density_array_UNESCO, calculate_spec_vol_array_UNESCO
 use MOM_EOS_UNESCO, only : calculate_density_derivs_unesco, calculate_specvol_derivs_UNESCO
-use MOM_EOS_UNESCO, only : calculate_density_second_derivs_UNESCO, calculate_compress_unesco
+!use MOM_EOS_UNESCO, only : calculate_density_second_derivs_UNESCO, calculate_compress_unesco
+use MOM_EOS_UNESCO, only : calculate_compress_unesco
+use MOM_EOS_UNESCO, only : calculate_density_second_derivs_scalar_UNESCO
+use MOM_EOS_UNESCO, only : calculate_density_second_derivs_array_UNESCO
 use MOM_EOS_UNESCO, only : EoS_fit_range_UNESCO
+use MOM_EOS_UNESCO, only : density_fn_UNESCO, spec_vol_fn_UNESCO
 use MOM_EOS_Roquet_rho, only : calculate_density_Roquet_rho
 use MOM_EOS_Roquet_rho, only : calculate_density_derivs_Roquet_rho
 use MOM_EOS_Roquet_rho, only : calculate_density_second_derivs_Roquet_rho, calculate_compress_Roquet_rho
@@ -54,7 +59,7 @@ use MOM_TFreeze,    only : calculate_TFreeze_teos10, calculate_TFreeze_TEOS_poly
 use MOM_error_handler, only : MOM_error, FATAL, WARNING, MOM_mesg
 use MOM_file_parser, only : get_param, log_version, param_file_type
 use MOM_hor_index,   only : hor_index_type
-use MOM_io,          only : stdout
+use MOM_io,          only : stdout, stderr
 use MOM_string_functions, only : uppercase
 use MOM_unit_scaling, only : unit_scale_type
 
@@ -78,7 +83,6 @@ public calculate_spec_vol
 public calculate_specific_vol_derivs
 public calculate_TFreeze
 public convert_temp_salt_for_TEOS10
-public extract_member_EOS
 public cons_temp_to_pot_temp
 public abs_saln_to_prac_saln
 public gsw_sp_from_sr
@@ -168,8 +172,36 @@ type, public :: EOS_type ; private
   real :: ppt_to_S = 1.    !< A constant that translates parts per thousand to the units of salinity [S ppt-1 ~> 1]
   real :: S_to_ppt = 1.    !< A constant that translates the units of salinity to parts per thousand [ppt S-1 ~> 1]
 
-!  logical :: test_EOS = .true. ! If true, test the equation of state
+  procedure(fn_tsp_r), pointer, nopass :: rho_fn => NULL()
+  procedure(fn_tsp_r), pointer, nopass :: spv_fn => NULL()
+  procedure(sr_tsp_1o_r), pointer, nopass :: rho_1d => NULL()
+  procedure(sr_tsp_1o_r), pointer, nopass :: spv_1d => NULL()
+  procedure(sr_tsp_5o_2i), pointer, nopass :: sec_drv_1d => NULL()
+
 end type EOS_type
+
+abstract interface
+  real function fn_tsp_r(T, S, p, rho_ref)
+    real, intent(in) :: T,S,p
+    real, optional, intent(in) :: rho_ref
+  end function fn_tsp_r
+  subroutine sr_tsp_1o_r(T, S, p, rho, start, npts, rho_ref)
+    real, intent(in) :: T(:),S(:),p(:)
+    integer, intent(in) :: start, npts
+    real, intent(out) :: rho(:)
+    real, optional, intent(in) :: rho_ref
+  end subroutine sr_tsp_1o_r
+  subroutine sr_tsp_2o_2i(T, S, P, dr_dt, dr_ds, start, npts)
+    real, intent(in) :: T(:),S(:),p(:)
+    real, intent(inout) :: dr_dt(:),dr_ds(:)
+    integer, intent(in) :: start, npts
+  end subroutine sr_tsp_2o_2i
+  subroutine sr_tsp_5o_2i(T, S, P, dr_dss, dr_dst, dr_dtt, dr_dsp, dr_dtp, start, npts)
+    real, intent(in) :: T(:),S(:),p(:)
+    real, intent(inout) :: dr_dss(:),dr_dst(:),dr_dtt(:),dr_dsp(:),dr_dtp(:)
+    integer, intent(in) :: start, npts
+  end subroutine sr_tsp_5o_2i
+end interface
 
 ! The named integers that might be stored in eqn_of_state_type%form_of_EOS.
 integer, parameter, public :: EOS_LINEAR = 1 !< A named integer specifying an equation of state
@@ -228,13 +260,22 @@ subroutine calculate_density_scalar(T, S, pressure, rho, EOS, rho_ref, scale)
   real :: rho_mks(1) ! An mks version of the density to be returned [kg m-3]
   real :: rho_scale  ! A factor to convert density from kg m-3 to the desired units [R m3 kg-1 ~> 1]
 
-  pres(1) = EOS%RL2_T2_to_Pa * pressure
-  Ta(1) = EOS%C_to_degC * T ; Sa(1) = EOS%S_to_ppt * S
-  if (present(rho_ref)) then
-    call calculate_density_array(Ta, Sa, pres, rho_mks, 1, 1, EOS, EOS%R_to_kg_m3*rho_ref)
-  else
-    call calculate_density_array(Ta, Sa, pres, rho_mks, 1, 1, EOS)
-  endif
+  select case (EOS%form_of_EOS)
+    case (EOS_UNESCO)
+      if (present(rho_ref)) then
+        rho_mks = EOS%rho_fn(T, S, pressure, EOS%R_to_kg_m3*rho_ref)
+      else
+        rho_mks = EOS%rho_fn(T, S, pressure)
+      endif
+    case default
+      pres(1) = EOS%RL2_T2_to_Pa * pressure
+      Ta(1) = EOS%C_to_degC * T ; Sa(1) = EOS%S_to_ppt * S
+      if (present(rho_ref)) then
+        call calculate_density_array(Ta, Sa, pres, rho_mks, 1, 1, EOS, EOS%R_to_kg_m3*rho_ref)
+      else
+        call calculate_density_array(Ta, Sa, pres, rho_mks, 1, 1, EOS)
+      endif
+  end select
 
   ! Rescale the output density to the desired units.
   rho_scale = EOS%kg_m3_to_R
@@ -299,7 +340,8 @@ subroutine calculate_density_array(T, S, pressure, rho, start, npts, EOS, rho_re
       call calculate_density_linear(T, S, pressure, rho, start, npts, &
                                     EOS%Rho_T0_S0, EOS%dRho_dT, EOS%dRho_dS, rho_ref)
     case (EOS_UNESCO)
-      call calculate_density_UNESCO(T, S, pressure, rho, start, npts, rho_ref)
+     !call calculate_density_array_UNESCO(T, S, pressure, rho, start, npts, rho_ref)
+      call EOS%rho_1d(T, S, pressure, rho, start, npts, rho_ref)
     case (EOS_WRIGHT)
       call calculate_density_wright(T, S, pressure, rho, start, npts, rho_ref)
     case (EOS_WRIGHT_FULL)
@@ -446,7 +488,7 @@ subroutine calculate_spec_vol_array(T, S, pressure, specvol, start, npts, EOS, s
       call calculate_spec_vol_linear(T, S, pressure, specvol, start, npts, &
                EOS%rho_T0_S0, EOS%drho_dT, EOS%drho_dS, spv_ref)
     case (EOS_UNESCO)
-      call calculate_spec_vol_UNESCO(T, S, pressure, specvol, start, npts, spv_ref)
+      call calculate_spec_vol_array_UNESCO(T, S, pressure, specvol, start, npts, spv_ref)
     case (EOS_WRIGHT)
       call calculate_spec_vol_wright(T, S, pressure, specvol, start, npts, spv_ref)
     case (EOS_WRIGHT_FULL)
@@ -944,8 +986,10 @@ subroutine calculate_density_second_derivs_1d(T, S, pressure, drho_dS_dS, drho_d
         call calculate_density_second_derivs_wright_red(T, S, pressure, drho_dS_dS, drho_dS_dT, &
                                                     drho_dT_dT, drho_dS_dP, drho_dT_dP, is, npts)
       case (EOS_UNESCO)
-        call calculate_density_second_derivs_UNESCO(T, S, pressure, drho_dS_dS, drho_dS_dT, &
-                                                    drho_dT_dT, drho_dS_dP, drho_dT_dP, is, npts)
+       !call calculate_density_second_derivs_array_UNESCO(T, S, pressure, drho_dS_dS, drho_dS_dT, &
+       !                                            drho_dT_dT, drho_dS_dP, drho_dT_dP, is, npts)
+        call EOS%sec_drv_1d(T, S, pressure, & 
+                            drho_dS_dS, drho_dS_dT, drho_dT_dT, drho_dS_dP, drho_dT_dP, is, npts)
       case (EOS_ROQUET_RHO)
         call calculate_density_second_derivs_Roquet_rho(T, S, pressure, drho_dS_dS, drho_dS_dT, &
                                                     drho_dT_dT, drho_dS_dP, drho_dT_dP, is, npts)
@@ -986,7 +1030,7 @@ subroutine calculate_density_second_derivs_1d(T, S, pressure, drho_dS_dS, drho_d
         call calculate_density_second_derivs_wright_red(Ta, Sa, pres, drho_dS_dS, drho_dS_dT, &
                                                     drho_dT_dT, drho_dS_dP, drho_dT_dP, is, npts)
       case (EOS_UNESCO)
-        call calculate_density_second_derivs_UNESCO(Ta, Sa, pres, drho_dS_dS, drho_dS_dT, &
+        call calculate_density_second_derivs_array_UNESCO(Ta, Sa, pres, drho_dS_dS, drho_dS_dT, &
                                                     drho_dT_dT, drho_dS_dP, drho_dT_dP, is, npts)
       case (EOS_ROQUET_RHO)
         call calculate_density_second_derivs_Roquet_rho(Ta, Sa, pres, drho_dS_dS, drho_dS_dT, &
@@ -1082,7 +1126,7 @@ subroutine calculate_density_second_derivs_scalar(T, S, pressure, drho_dS_dS, dr
       call calculate_density_second_derivs_wright_red(Ta, Sa, pres, drho_dS_dS, drho_dS_dT, &
                                                   drho_dT_dT, drho_dS_dP, drho_dT_dP)
     case (EOS_UNESCO)
-      call calculate_density_second_derivs_UNESCO(Ta, Sa, pres, drho_dS_dS, drho_dS_dT, &
+      call calculate_density_second_derivs_scalar_UNESCO(Ta, Sa, pres, drho_dS_dS, drho_dS_dT, &
                                                   drho_dT_dT, drho_dS_dP, drho_dT_dP)
     case (EOS_ROQUET_RHO)
       call calculate_density_second_derivs_Roquet_rho(Ta, Sa, pres, drho_dS_dS, drho_dS_dT, &
@@ -1705,7 +1749,8 @@ subroutine EOS_init(param_file, EOS, US)
     case (EOS_LINEAR_STRING)
       EOS%form_of_EOS = EOS_LINEAR
     case (EOS_UNESCO_STRING)
-      EOS%form_of_EOS = EOS_UNESCO
+     !EOS%form_of_EOS = EOS_UNESCO
+      call EOS_manual_init(EOS, form_of_EOS=EOS_UNESCO)
     case (EOS_JACKETT_STRING)
       EOS%form_of_EOS = EOS_UNESCO
     case (EOS_WRIGHT_STRING)
@@ -1841,7 +1886,17 @@ subroutine EOS_manual_init(EOS, form_of_EOS, form_of_TFreeze, EOS_quadrature, Co
   real   , optional, intent(in) :: dTFr_dp   !< The derivative of freezing point with pressure
                                              !! in [degC Pa-1]
 
-  if (present(form_of_EOS    ))  EOS%form_of_EOS     = form_of_EOS
+  if (present(form_of_EOS    )) then
+    EOS%form_of_EOS     = form_of_EOS
+    select case (EOS%form_of_EOS)
+      case (EOS_UNESCO)
+        EOS%rho_fn => density_fn_UNESCO
+        EOS%spv_fn => spec_vol_fn_UNESCO
+        EOS%rho_1d => calculate_density_array_UNESCO
+        EOS%spv_1d => calculate_spec_vol_array_UNESCO
+        EOS%sec_drv_1d => calculate_density_second_derivs_array_UNESCO
+    end select
+  endif
   if (present(form_of_TFreeze))  EOS%form_of_TFreeze = form_of_TFreeze
   if (present(EOS_quadrature ))  EOS%EOS_quadrature  = EOS_quadrature
   if (present(Compressible   ))  EOS%Compressible    = Compressible
@@ -2090,40 +2145,6 @@ logical function EOS_quadrature(EOS)
 
 end function EOS_quadrature
 
-!> Extractor routine for the EOS type if the members need to be accessed outside this module
-subroutine extract_member_EOS(EOS, form_of_EOS, form_of_TFreeze, EOS_quadrature, Compressible, &
-                              Rho_T0_S0, drho_dT, dRho_dS, TFr_S0_P0, dTFr_dS, dTFr_dp)
-  type(EOS_type),    intent(in)  :: EOS       !< Equation of state structure
-  integer, optional, intent(out) :: form_of_EOS !< A coded integer indicating the equation of state to use.
-  integer, optional, intent(out) :: form_of_TFreeze !< A coded integer indicating the expression for
-                                              !! the potential temperature of the freezing point.
-  logical, optional, intent(out) :: EOS_quadrature !< If true, always use the generic (quadrature)
-                                              !! code for the integrals of density.
-  logical, optional, intent(out) :: Compressible !< If true, in situ density is a function of pressure.
-  real   , optional, intent(out) :: Rho_T0_S0 !< Density at T=0 degC and S=0 ppt [kg m-3]
-  real   , optional, intent(out) :: drho_dT   !< Partial derivative of density with temperature
-                                              !! in [kg m-3 degC-1]
-  real   , optional, intent(out) :: dRho_dS   !< Partial derivative of density with salinity
-                                              !! in [kg m-3 ppt-1]
-  real   , optional, intent(out) :: TFr_S0_P0 !< The freezing potential temperature at S=0, P=0 [degC]
-  real   , optional, intent(out) :: dTFr_dS   !< The derivative of freezing point with salinity
-                                              !! [degC PSU-1]
-  real   , optional, intent(out) :: dTFr_dp   !< The derivative of freezing point with pressure
-                                              !! [degC Pa-1]
-
-  if (present(form_of_EOS    ))  form_of_EOS     = EOS%form_of_EOS
-  if (present(form_of_TFreeze))  form_of_TFreeze = EOS%form_of_TFreeze
-  if (present(EOS_quadrature ))  EOS_quadrature  = EOS%EOS_quadrature
-  if (present(Compressible   ))  Compressible    = EOS%Compressible
-  if (present(Rho_T0_S0      ))  Rho_T0_S0       = EOS%Rho_T0_S0
-  if (present(drho_dT        ))  drho_dT         = EOS%drho_dT
-  if (present(dRho_dS        ))  dRho_dS         = EOS%dRho_dS
-  if (present(TFr_S0_P0      ))  TFr_S0_P0       = EOS%TFr_S0_P0
-  if (present(dTFr_dS        ))  dTFr_dS         = EOS%dTFr_dS
-  if (present(dTFr_dp        ))  dTFr_dp         = EOS%dTFr_dp
-
-end subroutine extract_member_EOS
-
 !> Runs unit tests for consistency on the equations of state.
 !! This should only be called from a single/root thread.
 !! It returns True if any test fails, otherwise it returns False.
@@ -2249,7 +2270,7 @@ logical function EOS_unit_tests(verbose)
   if (verbose .and. fail) call MOM_error(WARNING, "TEOS_POLY TFr has failed some self-consistency tests.")
   EOS_unit_tests = EOS_unit_tests .or. fail
 
-  if (verbose .and. .not.EOS_unit_tests) call MOM_mesg("All EOS consistency tests have passed.")
+  if (verbose .and. .not.EOS_unit_tests) write(stdout,*) "All EOS consistency tests have passed."
 
 end function EOS_unit_tests
 
@@ -2377,9 +2398,9 @@ subroutine write_check_msg(var_name, val, val_chk, val_tol, test_OK)
   write(mesg, '(ES24.16," vs. ",ES24.16,", diff=",ES12.4,", tol=",ES12.4)') &
         val, val_chk, val-val_chk, val_tol
   if (test_OK) then
-    call MOM_mesg(trim(var_name)//" agrees with its check value :"//trim(mesg))
+    write(stdout,*) trim(var_name)//" agrees with its check value :"//trim(mesg)
   else
-    call MOM_error(WARNING, trim(var_name)//" disagrees with its check value :"//trim(mesg))
+    write(stderr,*) trim(var_name)//" disagrees with its check value :"//trim(mesg)
   endif
 end subroutine write_check_msg
 
@@ -2577,9 +2598,9 @@ logical function test_EOS_consistency(T_test, S_test, p_test, EOS, verbose, &
           rho_ref+rho(0,0,0,1), 1.0/(spv_ref + spv(0,0,0,1)), &
           (rho_ref+rho(0,0,0,1)) * (spv_ref + spv(0,0,0,1)) - 1.0
       if (test_OK) then
-        call MOM_mesg("The values of "//trim(EOS_name)//" rho and 1/spv agree.  "//trim(mesg))
+        write(stdout,*) "The values of "//trim(EOS_name)//" rho and 1/spv agree.  "//trim(mesg)
       else
-        call MOM_error(WARNING, "The values of "//trim(EOS_name)//" rho and 1/spv disagree.  "//trim(mesg))
+        write(stderr,*) "The values of "//trim(EOS_name)//" rho and 1/spv disagree.  "//trim(mesg)
       endif
     endif
   endif
@@ -2591,8 +2612,8 @@ logical function test_EOS_consistency(T_test, S_test, p_test, EOS, verbose, &
   if (verbose .and. .not.test_OK) then
     write(mesg, '(ES24.16," vs. ",ES24.16," with tolerance ",ES12.4)') &
           rho_ref+rho(0,0,0,1), rho_nooff, tol*rho_nooff
-    call MOM_error(WARNING, "For "//trim(EOS_name)//&
-                   " rho with and without a reference value disagree: "//trim(mesg))
+    write(stderr,*) "For "//trim(EOS_name)//&
+                   " rho with and without a reference value disagree: "//trim(mesg)
   endif
 
   ! Check that the specific volumes are consistent when the reference value is extracted
@@ -2602,8 +2623,8 @@ logical function test_EOS_consistency(T_test, S_test, p_test, EOS, verbose, &
   if (verbose .and. .not.test_OK) then
     write(mesg, '(ES24.16," vs. ",ES24.16," with tolerance ",ES12.4)') &
           spv_ref + spv(0,0,0,1), spv_nooff, tol*spv_nooff
-    call MOM_error(WARNING, "For "//trim(EOS_name)//&
-                   " spv with and without a reference value disagree: "//trim(mesg))
+    write(stderr,*) "For "//trim(EOS_name)//&
+                   " spv with and without a reference value disagree: "//trim(mesg)
   endif
 
   ! Account for the factors of terms in the numerator and denominator when estimating roundoff
@@ -2650,9 +2671,9 @@ logical function test_EOS_consistency(T_test, S_test, p_test, EOS, verbose, &
         2.0*(SpV_avg_a(1) - SpV_avg_q(1)) / (abs(SpV_avg_a(1)) + abs(SpV_avg_q(1)) + tiny(SpV_avg_a(1))), &
         tol_here
       if (verbose .and. .not.test_OK) then
-        call MOM_error(WARNING, "The values of "//trim(EOS_name)//" SpV_avg disagree. "//trim(mesg))
+        write(stderr,*) "The values of "//trim(EOS_name)//" SpV_avg disagree. "//trim(mesg)
       elseif (verbose) then
-        call MOM_mesg("The values of "//trim(EOS_name)//" SpV_avg agree: "//trim(mesg))
+        write(stdout,*) "The values of "//trim(EOS_name)//" SpV_avg agree: "//trim(mesg)
       endif
     endif
     OK = OK .and. test_OK
@@ -2737,9 +2758,9 @@ logical function test_EOS_consistency(T_test, S_test, p_test, EOS, verbose, &
     !       2.0*(val - val_fd(2)) / (abs(val) + abs(val_fd(2)) + tiny(val)), &
     !       (1.2*abs(val_fd(2) - val)/2**order + abs(tol))
     if (verbose .and. .not.check_FD) then
-      call MOM_error(WARNING, "The values of "//trim(field_name)//" disagree. "//trim(mesg))
+      write(stderr,*) "The values of "//trim(field_name)//" disagree. "//trim(mesg)
     elseif (verbose) then
-      call MOM_mesg("The values of "//trim(field_name)//" agree: "//trim(mesg))
+      write(stdout,*) "The values of "//trim(field_name)//" agree: "//trim(mesg)
     endif
   end function check_FD
 

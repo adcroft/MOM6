@@ -54,7 +54,7 @@ use MOM_TFreeze,    only : calculate_TFreeze_teos10, calculate_TFreeze_TEOS_poly
 use MOM_error_handler, only : MOM_error, FATAL, WARNING, MOM_mesg
 use MOM_file_parser, only : get_param, log_version, param_file_type
 use MOM_hor_index,   only : hor_index_type
-use MOM_io,          only : stdout
+use MOM_io,          only : stdout, stderr
 use MOM_string_functions, only : uppercase
 use MOM_unit_scaling, only : unit_scale_type
 
@@ -182,17 +182,17 @@ integer, parameter, public :: EOS_ROQUET_RHO = 7 !< A named integer specifying a
 integer, parameter, public :: EOS_ROQUET_SPV = 8 !< A named integer specifying an equation of state
 integer, parameter, public :: EOS_JACKETT06 = 9 !< A named integer specifying an equation of state
 
-character*(12), parameter :: EOS_LINEAR_STRING = "LINEAR" !< A string for specifying the equation of state
-character*(12), parameter :: EOS_UNESCO_STRING = "UNESCO" !< A string for specifying the equation of state
-character*(12), parameter :: EOS_JACKETT_STRING = "JACKETT_MCD" !< A string for specifying the equation of state
-character*(12), parameter :: EOS_WRIGHT_STRING = "WRIGHT" !< A string for specifying the equation of state
-character*(16), parameter :: EOS_WRIGHT_RED_STRING = "WRIGHT_REDUCED" !< A string for specifying the equation of state
-character*(12), parameter :: EOS_WRIGHT_FULL_STRING = "WRIGHT_FULL" !< A string for specifying the equation of state
-character*(12), parameter :: EOS_TEOS10_STRING = "TEOS10" !< A string for specifying the equation of state
-character*(12), parameter :: EOS_NEMO_STRING   = "NEMO"   !< A string for specifying the equation of state
-character*(12), parameter :: EOS_ROQUET_RHO_STRING = "ROQUET_RHO"   !< A string for specifying the equation of state
-character*(12), parameter :: EOS_ROQUET_SPV_STRING = "ROQUET_SPV"   !< A string for specifying the equation of state
-character*(12), parameter :: EOS_JACKETT06_STRING = "JACKETT_06" !< A string for specifying the equation of state
+character*(12), parameter, public :: EOS_LINEAR_STRING = "LINEAR" !< A string for specifying the eq of state
+character*(12), parameter, public :: EOS_UNESCO_STRING = "UNESCO" !< A string for specifying the eq of state
+character*(12), parameter, public :: EOS_JACKETT_STRING = "JACKETT_MCD" !< A string for specifying the eq of state
+character*(12), parameter, public :: EOS_WRIGHT_STRING = "WRIGHT" !< A string for specifying the eq of state
+character*(16), parameter, public :: EOS_WRIGHT_RED_STRING = "WRIGHT_REDUCED" !< A string for specifying the eq of state
+character*(12), parameter, public :: EOS_WRIGHT_FULL_STRING = "WRIGHT_FULL" !< A string for specifying the eq of state
+character*(12), parameter, public :: EOS_TEOS10_STRING = "TEOS10" !< A string for specifying the eq of state
+character*(12), parameter, public :: EOS_NEMO_STRING   = "NEMO"   !< A string for specifying the eq of state
+character*(12), parameter, public :: EOS_ROQUET_RHO_STRING = "ROQUET_RHO"   !< A string for specifying the eq of state
+character*(12), parameter, public :: EOS_ROQUET_SPV_STRING = "ROQUET_SPV"   !< A string for specifying the eq of state
+character*(12), parameter, public :: EOS_JACKETT06_STRING = "JACKETT_06" !< A string for specifying the eq of state
 character*(12), parameter :: EOS_DEFAULT = EOS_WRIGHT_STRING !< The default equation of state
 
 integer, parameter :: TFREEZE_LINEAR = 1  !< A named integer specifying a freezing point expression
@@ -2139,56 +2139,56 @@ logical function EOS_unit_tests(verbose)
   call EOS_manual_init(EOS_tmp, form_of_EOS=EOS_TEOS10)
   fail = test_TS_conversion_consistency(T_cons=9.989811727177308, S_abs=35.16504, &
                                         T_pot=10.0, S_prac=35.0, EOS=EOS_tmp, verbose=verbose)
-  if (verbose .and. fail) call MOM_error(WARNING, "Some EOS variable conversions tests have failed.")
+  if (verbose .and. fail) write(stderr,*) "Some EOS variable conversions tests have failed."
   EOS_unit_tests = EOS_unit_tests .or. fail
 
   call EOS_manual_init(EOS_tmp, form_of_EOS=EOS_UNESCO)
   fail = test_EOS_consistency(25.0, 35.0, 1.0e7, EOS_tmp, verbose, "UNESCO", &
                               rho_check=1027.54345796120*EOS_tmp%kg_m3_to_R)
-  if (verbose .and. fail) call MOM_error(WARNING, "UNESCO EOS has failed some self-consistency tests.")
+  if (verbose .and. fail) write(stderr,*) "UNESCO EOS has failed some self-consistency tests."
   EOS_unit_tests = EOS_unit_tests .or. fail
 
   call EOS_manual_init(EOS_tmp, form_of_EOS=EOS_WRIGHT_FULL)
   fail = test_EOS_consistency(25.0, 35.0, 1.0e7, EOS_tmp, verbose, "WRIGHT_FULL", &
                               rho_check=1027.55177447616*EOS_tmp%kg_m3_to_R, avg_Sv_check=.true.)
-  if (verbose .and. fail) call MOM_error(WARNING, "WRIGHT_FULL EOS has failed some self-consistency tests.")
+  if (verbose .and. fail) write(stderr,*) "WRIGHT_FULL EOS has failed some self-consistency tests."
   EOS_unit_tests = EOS_unit_tests .or. fail
 
   call EOS_manual_init(EOS_tmp, form_of_EOS=EOS_WRIGHT_REDUCED)
   fail = test_EOS_consistency(25.0, 35.0, 1.0e7, EOS_tmp, verbose, "WRIGHT_REDUCED", &
                               rho_check=1027.54303596346*EOS_tmp%kg_m3_to_R, avg_Sv_check=.true.)
-  if (verbose .and. fail) call MOM_error(WARNING, "WRIGHT_REDUCED EOS has failed some self-consistency tests.")
+  if (verbose .and. fail) write(stderr,*) "WRIGHT_REDUCED EOS has failed some self-consistency tests."
   EOS_unit_tests = EOS_unit_tests .or. fail
 
   ! This test is deliberately outside of the fit range for WRIGHT_REDUCED, and it results in the expected warnings.
   ! call EOS_manual_init(EOS_tmp, form_of_EOS=EOS_WRIGHT_REDUCED)
   ! fail = test_EOS_consistency(25.0, 15.0, 1.0e7, EOS_tmp, verbose, "WRIGHT_REDUCED", &
   !                             rho_check=1012.625699301455*EOS_tmp%kg_m3_to_R)
-  ! if (verbose .and. fail) call MOM_error(WARNING, "WRIGHT_REDUCED EOS has failed some self-consistency tests.")
+  ! if (verbose .and. fail) write(stderr,*) "WRIGHT_REDUCED EOS has failed some self-consistency tests.")
   ! EOS_unit_tests = EOS_unit_tests .or. fail
 
   call EOS_manual_init(EOS_tmp, form_of_EOS=EOS_WRIGHT)
   fail = test_EOS_consistency(25.0, 35.0, 1.0e7, EOS_tmp, verbose, "WRIGHT", &
                               rho_check=1027.54303596346*EOS_tmp%kg_m3_to_R, avg_Sv_check=.true.)
-  if (verbose .and. fail) call MOM_error(WARNING, "WRIGHT EOS has failed some self-consistency tests.")
+  if (verbose .and. fail) write(stderr,*) "WRIGHT EOS has failed some self-consistency tests."
   EOS_unit_tests = EOS_unit_tests .or. fail
 
   call EOS_manual_init(EOS_tmp, form_of_EOS=EOS_ROQUET_RHO)
   fail = test_EOS_consistency(25.0, 35.0, 1.0e7, EOS_tmp, verbose, "ROQUET_RHO", &
                               rho_check=1027.42385663668*EOS_tmp%kg_m3_to_R)
-  if (verbose .and. fail) call MOM_error(WARNING, "ROQUET_RHO EOS has failed some self-consistency tests.")
+  if (verbose .and. fail) write(stderr,*) "ROQUET_RHO EOS has failed some self-consistency tests."
   EOS_unit_tests = EOS_unit_tests .or. fail
 
   call EOS_manual_init(EOS_tmp, form_of_EOS=EOS_ROQUET_SPV)
   fail = test_EOS_consistency(25.0, 35.0, 1.0e7, EOS_tmp, verbose, "ROQUET_SPV", &
                               rho_check=1027.42387475199*EOS_tmp%kg_m3_to_R)
-  if (verbose .and. fail) call MOM_error(WARNING, "ROQUET_SPV EOS has failed some self-consistency tests.")
+  if (verbose .and. fail) write(stderr,*) "ROQUET_SPV EOS has failed some self-consistency tests."
   EOS_unit_tests = EOS_unit_tests .or. fail
 
   call EOS_manual_init(EOS_tmp, form_of_EOS=EOS_JACKETT06)
   fail = test_EOS_consistency(25.0, 35.0, 1.0e7, EOS_tmp, verbose, "JACKETT06", &
                               rho_check=1027.539690758425*EOS_tmp%kg_m3_to_R)
-  if (verbose .and. fail) call MOM_error(WARNING, "JACKETT06 EOS has failed some self-consistency tests.")
+  if (verbose .and. fail) write(stderr,*) "JACKETT06 EOS has failed some self-consistency tests."
   EOS_unit_tests = EOS_unit_tests .or. fail
 
   ! The TEOS10 equation of state is not passing the self consistency tests for dho_dS_dp due
@@ -2199,14 +2199,14 @@ logical function EOS_unit_tests(verbose)
   call EOS_manual_init(EOS_tmp, form_of_EOS=EOS_TEOS10)
   fail = test_EOS_consistency(25.0, 35.0, 1.0e7, EOS_tmp, verbose, "TEOS10", skip_2nd=.true., &
                               rho_check=1027.42355961492*EOS_tmp%kg_m3_to_R)
-  if (verbose .and. fail) call MOM_error(WARNING, "TEOS10 EOS has failed some self-consistency tests.")
+  if (verbose .and. fail) write(stderr,*) "TEOS10 EOS has failed some self-consistency tests."
   EOS_unit_tests = EOS_unit_tests .or. fail
 
   call EOS_manual_init(EOS_tmp, form_of_EOS=EOS_ROQUET_RHO)
   fail = test_EOS_consistency(10.0, 30.0, 1.0e7, EOS_tmp, verbose, "ROQUET_RHO", &
                               rho_check=1027.45140117152*EOS_tmp%kg_m3_to_R)
   ! The corresponding check value published by Roquet et al. (2015) is 1027.45140 [kg m-3].
-  if (verbose .and. fail) call MOM_error(WARNING, "Roquet_rho EOS has failed some self-consistency tests.")
+  if (verbose .and. fail) write(stderr,*) "Roquet_rho EOS has failed some self-consistency tests."
   EOS_unit_tests = EOS_unit_tests .or. fail
 
   call EOS_manual_init(EOS_tmp, form_of_EOS=EOS_ROQUET_SPV)
@@ -2214,13 +2214,13 @@ logical function EOS_unit_tests(verbose)
                               spv_check=9.73282046614623e-04*EOS_tmp%R_to_kg_m3)
   ! The corresponding check value here published by Roquet et al. (2015) is 9.732819628e-04 [m3 kg-1],
   ! but the order of arithmetic there was not completely specified with parentheses.
-  if (verbose .and. fail) call MOM_error(WARNING, "ROQUET_SPV EOS has failed some self-consistency tests.")
+  if (verbose .and. fail) write(stderr,*) "ROQUET_SPV EOS has failed some self-consistency tests."
   EOS_unit_tests = EOS_unit_tests .or. fail
 
   call EOS_manual_init(EOS_tmp, form_of_EOS=EOS_LINEAR, Rho_T0_S0=1000.0, drho_dT=-0.2, dRho_dS=0.8)
   fail = test_EOS_consistency(25.0, 35.0, 1.0e7, EOS_tmp, verbose, "LINEAR", &
                               rho_check=1023.0*EOS_tmp%kg_m3_to_R, avg_Sv_check=.true.)
-  if (verbose .and. fail) call MOM_error(WARNING, "LINEAR EOS has failed some self-consistency tests.")
+  if (verbose .and. fail) write(stderr,*) "LINEAR EOS has failed some self-consistency tests."
   EOS_unit_tests = EOS_unit_tests .or. fail
 
   ! Test the freezing point calculations
@@ -2228,28 +2228,32 @@ logical function EOS_unit_tests(verbose)
   call EOS_manual_init(EOS_tmp, form_of_TFreeze=TFREEZE_LINEAR, TFr_S0_P0=0.0, dTFr_dS=-0.054, &
                        dTFr_dP=-7.6e-8)
   fail = test_TFr_consistency(35.0, 1.0e7, EOS_tmp, verbose, "LINEAR", TFr_check=-2.65*EOS_tmp%degC_to_C)
-  if (verbose .and. fail) call MOM_error(WARNING, "LINEAR TFr has failed some self-consistency tests.")
+  if (verbose .and. fail) write(stderr,*) "LINEAR TFr has failed some self-consistency tests."
   EOS_unit_tests = EOS_unit_tests .or. fail
 
   call EOS_manual_init(EOS_tmp, form_of_TFreeze=TFREEZE_MILLERO)
   fail = test_TFr_consistency(35.0, 1.0e7, EOS_tmp, verbose, "MILLERO_78", &
                               TFr_check=-2.69730134114106*EOS_tmp%degC_to_C)
-  if (verbose .and. fail) call MOM_error(WARNING, "MILLERO_78 TFr has failed some self-consistency tests.")
+  if (verbose .and. fail) write(stderr,*) "MILLERO_78 TFr has failed some self-consistency tests."
   EOS_unit_tests = EOS_unit_tests .or. fail
 
   call EOS_manual_init(EOS_tmp, form_of_TFreeze=TFREEZE_TEOS10)
   fail = test_TFr_consistency(35.0, 1.0e7, EOS_tmp, verbose, "TEOS10", &
                               TFr_check=-2.69099996992861*EOS_tmp%degC_to_C)
-  if (verbose .and. fail) call MOM_error(WARNING, "TEOS10 TFr has failed some self-consistency tests.")
+  if (verbose .and. fail) write(stderr,*) "TEOS10 TFr has failed some self-consistency tests."
   EOS_unit_tests = EOS_unit_tests .or. fail
 
   call EOS_manual_init(EOS_tmp, form_of_TFreeze=TFREEZE_TEOSPOLY)
   fail = test_TFr_consistency(35.0, 1.0e7, EOS_tmp, verbose, "TEOS_POLY", &
                               TFr_check=-2.691165259327735*EOS_tmp%degC_to_C)
-  if (verbose .and. fail) call MOM_error(WARNING, "TEOS_POLY TFr has failed some self-consistency tests.")
+  if (verbose .and. fail) write(stderr,*) "TEOS_POLY TFr has failed some self-consistency tests."
   EOS_unit_tests = EOS_unit_tests .or. fail
 
-  if (verbose .and. .not.EOS_unit_tests) call MOM_mesg("All EOS consistency tests have passed.")
+  if (verbose .and. .not.EOS_unit_tests) write(stdout,*) "All EOS consistency tests have passed."
+  if (EOS_unit_tests) then
+    write(stdout,*) "One or more EOS tests have failed!"
+    write(stderr,*) "One or more EOS tests have failed!"
+  endif
 
 end function EOS_unit_tests
 
@@ -2377,9 +2381,10 @@ subroutine write_check_msg(var_name, val, val_chk, val_tol, test_OK)
   write(mesg, '(ES24.16," vs. ",ES24.16,", diff=",ES12.4,", tol=",ES12.4)') &
         val, val_chk, val-val_chk, val_tol
   if (test_OK) then
-    call MOM_mesg(trim(var_name)//" agrees with its check value :"//trim(mesg))
+    write(stdout,*) trim(var_name)//" agrees with its check value :"//trim(mesg)
   else
-    call MOM_error(WARNING, trim(var_name)//" disagrees with its check value :"//trim(mesg))
+    write(stdout,*) trim(var_name)//" disagrees with its check value :"//trim(mesg)
+    write(stderr,*) trim(var_name)//" disagrees with its check value :"//trim(mesg)
   endif
 end subroutine write_check_msg
 
@@ -2577,9 +2582,10 @@ logical function test_EOS_consistency(T_test, S_test, p_test, EOS, verbose, &
           rho_ref+rho(0,0,0,1), 1.0/(spv_ref + spv(0,0,0,1)), &
           (rho_ref+rho(0,0,0,1)) * (spv_ref + spv(0,0,0,1)) - 1.0
       if (test_OK) then
-        call MOM_mesg("The values of "//trim(EOS_name)//" rho and 1/spv agree.  "//trim(mesg))
+        write(stdout,*) "The values of "//trim(EOS_name)//" rho and 1/spv agree.  "//trim(mesg)
       else
-        call MOM_error(WARNING, "The values of "//trim(EOS_name)//" rho and 1/spv disagree.  "//trim(mesg))
+        write(stdout,*) "The values of "//trim(EOS_name)//" rho and 1/spv disagree.  "//trim(mesg)
+        write(stderr,*) "The values of "//trim(EOS_name)//" rho and 1/spv disagree.  "//trim(mesg)
       endif
     endif
   endif
@@ -2591,8 +2597,10 @@ logical function test_EOS_consistency(T_test, S_test, p_test, EOS, verbose, &
   if (verbose .and. .not.test_OK) then
     write(mesg, '(ES24.16," vs. ",ES24.16," with tolerance ",ES12.4)') &
           rho_ref+rho(0,0,0,1), rho_nooff, tol*rho_nooff
-    call MOM_error(WARNING, "For "//trim(EOS_name)//&
-                   " rho with and without a reference value disagree: "//trim(mesg))
+    write(stdout,*) "For "//trim(EOS_name)//&
+                   " rho with and without a reference value disagree: "//trim(mesg)
+    write(stderr,*) "For "//trim(EOS_name)//&
+                   " rho with and without a reference value disagree: "//trim(mesg)
   endif
 
   ! Check that the specific volumes are consistent when the reference value is extracted
@@ -2602,8 +2610,10 @@ logical function test_EOS_consistency(T_test, S_test, p_test, EOS, verbose, &
   if (verbose .and. .not.test_OK) then
     write(mesg, '(ES24.16," vs. ",ES24.16," with tolerance ",ES12.4)') &
           spv_ref + spv(0,0,0,1), spv_nooff, tol*spv_nooff
-    call MOM_error(WARNING, "For "//trim(EOS_name)//&
-                   " spv with and without a reference value disagree: "//trim(mesg))
+    write(stdout,*) "For "//trim(EOS_name)//&
+                   " spv with and without a reference value disagree: "//trim(mesg)
+    write(stderr,*) "For "//trim(EOS_name)//&
+                   " spv with and without a reference value disagree: "//trim(mesg)
   endif
 
   ! Account for the factors of terms in the numerator and denominator when estimating roundoff
@@ -2650,9 +2660,10 @@ logical function test_EOS_consistency(T_test, S_test, p_test, EOS, verbose, &
         2.0*(SpV_avg_a(1) - SpV_avg_q(1)) / (abs(SpV_avg_a(1)) + abs(SpV_avg_q(1)) + tiny(SpV_avg_a(1))), &
         tol_here
       if (verbose .and. .not.test_OK) then
-        call MOM_error(WARNING, "The values of "//trim(EOS_name)//" SpV_avg disagree. "//trim(mesg))
+        write(stdout,*) "The values of "//trim(EOS_name)//" SpV_avg disagree. "//trim(mesg)
+        write(stderr,*) "The values of "//trim(EOS_name)//" SpV_avg disagree. "//trim(mesg)
       elseif (verbose) then
-        call MOM_mesg("The values of "//trim(EOS_name)//" SpV_avg agree: "//trim(mesg))
+        write(stdout,*) "The values of "//trim(EOS_name)//" SpV_avg agree: "//trim(mesg)
       endif
     endif
     OK = OK .and. test_OK
@@ -2737,9 +2748,10 @@ logical function test_EOS_consistency(T_test, S_test, p_test, EOS, verbose, &
     !       2.0*(val - val_fd(2)) / (abs(val) + abs(val_fd(2)) + tiny(val)), &
     !       (1.2*abs(val_fd(2) - val)/2**order + abs(tol))
     if (verbose .and. .not.check_FD) then
-      call MOM_error(WARNING, "The values of "//trim(field_name)//" disagree. "//trim(mesg))
+      write(stdout,*) "The values of "//trim(field_name)//" disagree. "//trim(mesg)
+      write(stderr,*) "The values of "//trim(field_name)//" disagree. "//trim(mesg)
     elseif (verbose) then
-      call MOM_mesg("The values of "//trim(field_name)//" agree: "//trim(mesg))
+      write(stdout,*) "The values of "//trim(field_name)//" agree: "//trim(mesg)
     endif
   end function check_FD
 

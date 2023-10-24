@@ -74,16 +74,21 @@ tstd(:,:) = tstd(:,:) - tmean(:,:)**2 ! Variance
 tstd(:,:) = sqrt( tstd(:,:) * real(nsamp) / real(nsamp-1) ) ! Standard deviation
 
 ! Display results in YAML
-write(*,'(a,":")') 'timings'
+write(*,'(a)') "{"
 do i = 1, n_eos
   do j = 1, n_fns
-    write(*,'(2x,"- name: ",a)') "'MOM_EOS_" // trim(EOS_str(i)) // " " // trim(fn_labels(j))
-    write(*,'(4x,"min: ",1pe11.4)') tmin(i,j)
-    write(*,'(4x,"mean:",1pe11.4)') tmean(i,j)
-    write(*,'(4x,"std: ",1pe11.4)') tstd(i,j)
-    write(*,'(4x,"max: ",1pe11.4)') tmax(i,j)
+    write(*,"(2x,5a)") '"MOM_EOS_', trim(EOS_str(i)), ' ', trim(fn_labels(j)), '": {'
+    write(*,"(4x,a,1pe11.4,',')") '"min": ',tmin(i,j)
+    write(*,"(4x,a,1pe11.4,',')") '"mean":',tmean(i,j)
+    write(*,"(4x,a,1pe11.4,',')") '"std": ',tstd(i,j)
+    if (i*j.ne.n_eos*n_fns) then
+      write(*,"(4x,a,1pe11.4,'},')") '"max": ',tmax(i,j)
+    else
+      write(*,"(4x,a,1pe11.4,'}')") '"max": ',tmax(i,j)
+    endif
   enddo
 enddo
+write(*,'(a)') "}"
 
 contains
 

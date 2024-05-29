@@ -18,6 +18,10 @@ use PPM_functions, only : PPM_monotonicity
 use PQM_functions, only : PQM_reconstruction, PQM_boundary_extrapolation_v1
 use MOM_hybgen_remap, only : hybgen_plm_coefs, hybgen_ppm_coefs, hybgen_weno_coefs
 
+use Recon1d_PCM, only : PCM
+use Recon1d_PLM_WAL, only : PLM_WAL
+use Recon1d_PLM_WAX, only : PLM_WAX
+
 implicit none ; private
 
 !> Container for remapping parameters
@@ -1624,6 +1628,9 @@ logical function remapping_unit_tests(verbose)
   type(testing) :: test ! Unit testing convenience functions
   integer :: om4
   character(len=4) :: om4_tag
+  type(PCM) :: PCM
+  type(PLM_WAL) :: PLM_WAL
+  type(PLM_WAX) :: PLM_WAX
 
   call test%set( verbose=verbose ) ! Sets the verbosity flag in test
 
@@ -2256,6 +2263,11 @@ logical function remapping_unit_tests(verbose)
   call test_reintegrate(test, 'D: 3 layer (vanished) to 3 (vanished)', &
                      3, (/0.,0.,0./), (/0.,0.,0./), &
                      3, (/0.,0.,0./), (/0.,0.,0./) )
+
+  if (verbose) write(test%stdout,*) '- - - - - - - - - - Recon1d PCM tests  - - - - - - - - -'
+  call test%test( PCM%unit_tests(verbose, test%stdout, test%stderr), 'PCM unit test')
+  call test%test( PLM_WAL%unit_tests(verbose, test%stdout, test%stderr), 'PLM_WAL unit test')
+  call test%test( PLM_WAX%unit_tests(verbose, test%stdout, test%stderr), 'PLM_WAX unit test')
 
   remapping_unit_tests = test%summarize('remapping_unit_tests')
 

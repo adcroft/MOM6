@@ -36,7 +36,8 @@ contains
 subroutine init(this, n, h_neglect)
   class(PCM), intent(out) :: this !< This reconstruction
   integer,    intent(in)  :: n    !< Number of cells in this column
-  real, optional, intent(in)  :: h_neglect !< A negligibly small width used in cell reconstructionsa [H]
+  real, optional, intent(in)  :: h_neglect !< A negligibly small width used in cell reconstructionsa [H].
+                                           !! Not used by PCM.
 
   this%n = n
 

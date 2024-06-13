@@ -19,6 +19,7 @@ use PQM_functions, only : PQM_reconstruction, PQM_boundary_extrapolation_v1
 use MOM_hybgen_remap, only : hybgen_plm_coefs, hybgen_ppm_coefs, hybgen_weno_coefs
 
 use Recon1d_PCM, only : PCM
+use Recon1d_PLM_CW, only : PLM_CW
 use Recon1d_PLM_WAL, only : PLM_WAL
 use Recon1d_PLM_WAX, only : PLM_WAX
 
@@ -1629,6 +1630,7 @@ logical function remapping_unit_tests(verbose)
   integer :: om4
   character(len=4) :: om4_tag
   type(PCM) :: PCM
+  type(PLM_CW) :: PLM_CW
   type(PLM_WAL) :: PLM_WAL
   type(PLM_WAX) :: PLM_WAX
 
@@ -2268,6 +2270,7 @@ logical function remapping_unit_tests(verbose)
   call test%test( PCM%unit_tests(verbose, test%stdout, test%stderr), 'PCM unit test')
   call test%test( PLM_WAL%unit_tests(verbose, test%stdout, test%stderr), 'PLM_WAL unit test')
   call test%test( PLM_WAX%unit_tests(verbose, test%stdout, test%stderr), 'PLM_WAX unit test')
+  call test%test( PLM_CW%unit_tests(verbose, test%stdout, test%stderr), 'PLM_CW unit test')
 
   remapping_unit_tests = test%summarize('remapping_unit_tests')
 

@@ -17,33 +17,23 @@ public PLM_WAX
 type, extends (PLM_WAL) :: PLM_WAX
 
 contains
-  !> Implementation of the PLM initialization
-! procedure :: init => init
-  !> Implementation of the PLM reconstruction with boundary extrapolation
+  !> Implementation of the PLM_WAX reconstruction with boundary extrapolation
   procedure :: reconstruct => reconstruct
-  !> Duplicate interface to PLM reconstruction
-! procedure :: reconstruct_ => reconstruct
-  !> Implementation of function returning the PLM edge values
-! procedure :: lr_edge => lr_edge
-  !> Implementation of the PLM average over an interval [A]
-! procedure :: average => average
-  !> Implementation of finding the PLM position of a value
-! procedure :: inv_f => inv_f
-  !> Implementation of unit tests for the PLM reconstruction
+  !> Implementation of unit tests for the PLM_WAX reconstruction
   procedure :: unit_tests => unit_tests
 
 end type PLM_WAX
 
 contains
 
-!> Calculate a 1D PLM reconstructions based on h(:) and u(:)
+!> Calculate a 1D PLM reconstruction based on h(:) and u(:)
 subroutine reconstruct(this, h, u)
   class(PLM_WAX), intent(inout) :: this !< This reconstruction
   real,           intent(in)    :: h(*) !< Grid spacing (thickness) [typically H]
   real,           intent(in)    :: u(*) !< Cell mean values [A]
   ! Local variables
   integer :: n
-  real :: slope
+  real :: slope ! Difference of u across cell [A]
 
   ! Use parent (PLM_WAL) reconstruction
   call this%reconstruct_(h, u)
@@ -144,7 +134,7 @@ logical function unit_tests(this, verbose, stdout, stderr)
 
 end function unit_tests
 
-!> \namespace recon1d_pcm_wax
+!> \namespace recon1d_plm_wax
 !!
 
 end module Recon1d_PLM_WAX

@@ -47,12 +47,13 @@ subroutine init(this, n, h_neglect)
   real, optional, intent(in)  :: h_neglect !< A negligibly small width used in cell reconstructionsa [H]
 
   this%n = n
-  this%h_neglect = 0.
-  if (present(h_neglect)) this%h_neglect = h_neglect
 
   allocate( this%u_mean(n) )
   allocate( this%ul(n) )
   allocate( this%ur(n) )
+
+  this%h_neglect = tiny( this%u_mean(1) )
+  if (present(h_neglect)) this%h_neglect = h_neglect
 
   this%degree = 2
   allocate( this%poly_coef(n,2) )
@@ -67,9 +68,9 @@ subroutine reconstruct(this, h, u)
   ! Local variables
   real :: slp(this%n) ! The PLM slopes (difference across cell) [A]
   real :: mslp(this%n) ! The monotonized PLM slopes [A]
-  integer :: k, n
   real :: e_r, edge ! Edge values [A]
-  real          :: almost_one  ! A value that is slightly smaller than 1 [nondim]
+  real :: almost_one  ! A value that is slightly smaller than 1 [nondim]
+  integer :: k, n
 
   n = this%n
 
@@ -211,9 +212,9 @@ end function PLM_monotonized_slope
 !> Returns the left/right edge values in cell k of a 1D PLM reconstruction
 subroutine lr_edge(this, k, u_left, u_right)
   class(PLM_WAL), intent(in)  :: this    !< This reconstruction
-  integer,    intent(in)  :: k       !< Cell number
-  real,       intent(out) :: u_left  !< Left edge value [A]
-  real,       intent(out) :: u_right !< Right edge value [A]
+  integer,        intent(in)  :: k       !< Cell number
+  real,           intent(out) :: u_left  !< Left edge value [A]
+  real,           intent(out) :: u_right !< Right edge value [A]
 
   u_left = this%ul(k)
   u_right = this%ur(k)
@@ -307,7 +308,7 @@ logical function unit_tests(this, verbose, stdout, stderr)
 
 end function unit_tests
 
-!> \namespace recon1d_pcm_wal
+!> \namespace recon1d_plm_wal
 !!
 
 end module Recon1d_PLM_WAL

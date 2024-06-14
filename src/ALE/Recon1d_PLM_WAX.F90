@@ -4,12 +4,12 @@ module Recon1d_PLM_WAX
 
 ! This file is part of MOM6. See LICENSE.md for the license.
 
-use Recon1d_type, only : Recon1d, testing
-use Recon1d_PLM_WAL, only : PLM_WAL
+!use Recon1d_type, only : Recon1d, testing
+use Recon1d_PLM_WAL, only : PLM_WAL, testing
 
 implicit none ; private
 
-public PLM_WAX
+public PLM_WAX, testing
 
 !> The White and Adcroft PLM implementation of Recon1d with extrapolation in first/last cells
 !!

@@ -4,17 +4,14 @@ module Recon1d_PLM_WAL
 
 ! This file is part of MOM6. See LICENSE.md for the license.
 
-use Recon1d_type, only : Recon1d, testing
+use Recon1d_PLM_CW, only : PLM_CW, testing
 
 implicit none ; private
 
-public PLM_WAL
+public PLM_WAL, testing
 
 !> The White and Adcroft limited PLM implementation of Recon1d
-type, extends (Recon1d) :: PLM_WAL
-
-  real, allocatable :: ul(:) !< Left edge value [A]
-  real, allocatable :: ur(:) !< Right edge value [A]
+type, extends (PLM_CW) :: PLM_WAL
 
   ! Legacy representation
   integer :: degree !< Degree of polynomial used in legacy representation
@@ -27,12 +24,8 @@ contains
   procedure :: reconstruct => reconstruct
   !> Duplicate interface to PLM reconstruction
   procedure :: reconstruct_ => reconstruct
-  !> Implementation of function returning the PLM edge values
-  procedure :: lr_edge => lr_edge
   !> Implementation of the PLM average over an interval [A]
   procedure :: average => average
-  !> Implementation of finding the PLM position of a value
-  procedure :: inv_f => inv_f
   !> Implementation of unit tests for the PLM reconstruction
   procedure :: unit_tests => unit_tests
 
@@ -208,40 +201,6 @@ real elemental pure function PLM_monotonized_slope(u_l, u_c, u_r, s_l, s_c, s_r)
   PLM_monotonized_slope = sign( slp, s_c )
 
 end function PLM_monotonized_slope
-
-!> Returns the left/right edge values in cell k of a 1D PLM reconstruction
-subroutine lr_edge(this, k, u_left, u_right)
-  class(PLM_WAL), intent(in)  :: this    !< This reconstruction
-  integer,        intent(in)  :: k       !< Cell number
-  real,           intent(out) :: u_left  !< Left edge value [A]
-  real,           intent(out) :: u_right !< Right edge value [A]
-
-  u_left = this%ul(k)
-  u_right = this%ur(k)
-
-end subroutine lr_edge
-
-!> Position at which 1D PLM reconstruction has a value f in cell k [0..1]
-real function inv_f(this, k, f)
-  class(PLM_WAL), intent(in) :: this !< This reconstruction
-  integer,        intent(in) :: k    !< Cell number
-  real,           intent(in) :: f    !< Value of reconstruction to solve for [A]
-
-! inv_f = 0.5 ! Avoid compiler warngings
-
-  if ( f < this%ul(k) ) then
-    inv_f = 0.
-  elseif ( f > this%ur(k) ) then
-    inv_f = 1.
-  elseif ( this%ur(k) - this%ul(k) == 0. ) then
-    inv_f = 0.5 ! Same as for PCM
-  else ! ul < f < ur
-    ! Note that if ur=ul (i.e. ur-ul=00 then we would meet one of the previous
-    ! conditions so avoid division by zero
-    inv_f = ( f - this%ul(k) ) / ( this%ur(k) - this%ul(k) )
-  endif
-
-end function inv_f
 
 !> Average between xa and xb for cell k of a 1D PLM reconstruction [A]
 real function average(this, k, xa, xb)

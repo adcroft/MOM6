@@ -8,7 +8,7 @@ use Recon1d_type, only : Recon1d, testing
 
 implicit none ; private
 
-public PLM_CW
+public PLM_CW, testing
 
 !> The White and Adcroft limited PLM implementation of Recon1d
 type, extends (Recon1d) :: PLM_CW
@@ -64,6 +64,8 @@ subroutine reconstruct(this, h, u)
                                     ! differences across the cell [A]
   real :: u_min, u_max ! Minimum and maximum value across cell [A]
   real :: u_l, u_r, u_c ! Left, right, and center values [A]
+  real :: h_l, h_c, h_r ! Thickness of left, center and right cells [H]
+  real :: h_c0 ! Thickness of center with h_neglect added [H]
   integer :: k, n
 
   n = this%n
@@ -87,8 +89,19 @@ subroutine reconstruct(this, h, u)
     sigma_r = u_r - u_c
     sigma_l = u_c - u_l
 
-    ! Quasi-second order difference
-    sigma_c = 2.0 * ( u_r - u_l ) * ( h(k) / ( ( h(k-1) + h(k+1) ) + 2.0*h(k) + this%h_neglect ) )
+    h_l = h(k-1)
+    h_c = h(k)
+    h_r = h(k+1)
+    ! Avoids division by zero
+    h_c0 = h_c + this%h_neglect
+
+    ! This is the second order slope given by equation 1.7 of
+    ! Piecewise Parabolic Method, Colella and Woodward (1984),
+    ! http://dx.doi.org/10.1016/0021-991(84)90143-8.
+    ! For uniform resolution it simplifies to ( u_r - u_l )/2 .
+    sigma_c = ( h_c / ( h_c0 + ( h_l + h_r ) ) ) * ( &
+                  ( 2.*h_l + h_c ) / ( h_r + h_c0 ) * sigma_r &
+                + ( 2.*h_r + h_c ) / ( h_l + h_c0 ) * sigma_l )
 
     ! Limit slope so that reconstructions are bounded by neighbors
     u_min = min( u_l, u_c, u_r )

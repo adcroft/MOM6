@@ -240,6 +240,20 @@ logical function unit_tests(this, verbose, stdout, stderr)
   call test%real_arr(3, ur, (/1.,0.75,1./), 'Return position of f>')
   call test%real_arr(3, urr, (/1.,1.,1./), 'Return position of f>>')
 
+  deallocate( um, ul, ur, ull, urr )
+
+  allocate( um(4), ul(4), ur(4) )
+  call this%init(4)
+
+  call this%reconstruct( (/1.,1.,1.,1./), (/0.,3.,4.,7./) )
+  do k = 1, 4
+    call this%lr_edge(k, ul(k), ur(k))
+  enddo
+  call test%real_arr(4, ul, (/0.,2.,3.,7./), 'Return left edge')
+  call test%real_arr(4, ur, (/0.,4.,5.,7./), 'Return right edge')
+
+  deallocate( um, ul, ur )
+
   unit_tests = test%summarize('PLM_CW:unit_tests')
 
 end function unit_tests

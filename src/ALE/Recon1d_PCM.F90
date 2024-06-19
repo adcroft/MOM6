@@ -17,16 +17,23 @@ contains
   procedure :: init => init
   !> Implementation of the PCM reconstruction
   procedure :: reconstruct => reconstruct
-  !> Duplicate interface to PCM reconstruction
-  procedure :: reconstruct_ => reconstruct
   !> Implementation of function returning the PCM edge values
   procedure :: lr_edge => lr_edge
   !> Implementation of the PCM average over an interval [A]
   procedure :: average => average
   !> Implementation of finding the PCM position of a value
   procedure :: inv_f => inv_f
+  !> Implementation of deallocation for PCM
+  procedure :: destroy => destroy
   !> Implementation of unit tests for the PCM reconstruction
   procedure :: unit_tests => unit_tests
+
+  !> Duplicate interface to init()
+  procedure :: init_parent => init
+  !> Duplicate interface to reconstruct()
+  procedure :: reconstruct_parent => reconstruct
+  !> Duplicate interface to destroy()
+  procedure :: destroy_parent => destroy
 
 end type PCM
 
@@ -97,6 +104,14 @@ real function average(this, k, xa, xb)
   average = this%u_mean(k)
 
 end function average
+
+!> Deallocate the PCM reconstruction
+subroutine destroy(this)
+  class(PCM), intent(inout) :: this !< This reconstruction
+
+  deallocate( this%u_mean )
+
+end subroutine destroy
 
 !> Runs PCM reconstruction unit tests and returns True for any fails, False otherwise
 logical function unit_tests(this, verbose, stdout, stderr)

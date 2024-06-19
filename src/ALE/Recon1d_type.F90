@@ -23,8 +23,6 @@ contains
   procedure(i_init), deferred :: init
   !> Deferred implementation of reconstruction function
   procedure(i_reconstruct), deferred :: reconstruct
-  !> Second interface to reconstruction function, used to reach the primary class if extending further
-  procedure(i_reconstruct_), deferred :: reconstruct_
   !> Deferred implementation of function returning the edge values
   procedure(i_lr_edge), deferred :: lr_edge
   !> Deferred implementation of the average over an interval
@@ -33,10 +31,23 @@ contains
   procedure(i_inv_f), deferred :: inv_f
   !> Deferred implementation of unit tests for the reconstruction
   procedure(i_unit_tests), deferred :: unit_tests
+  !> Deferred implementation of deallocation
+  procedure(i_destroy), deferred :: destroy
 
   ! The following functions/subroutines are shared across all reconstructions and provided by this module
+
   !> Cell mean of cell k [A]
   procedure :: cell_mean => a_cell_mean
+
+  ! The following functions usually point to the same implementation as above but
+  ! for derived secondary children these allow invocation of the parent class function.
+
+  !> Second interface to init(), used to reach the primary class if derived from a primary implementation
+  procedure(i_init_parent), deferred :: init_parent
+  !> Second interface to reconstruct(), used to reach the primary class if derived from a primary implementation
+  procedure(i_reconstruct_parent), deferred :: reconstruct_parent
+  !> Second interface to destroy(), used to reach the primary class if derived from a primary implementation
+  procedure(i_destroy_parent), deferred :: destroy_parent
 
 end type Recon1d
 
@@ -89,13 +100,6 @@ interface
     real,           intent(in)    :: h(*) !< Grid spacing (thickness) [typically H]
     real,           intent(in)    :: u(*) !< Cell mean values [A]
   end subroutine i_reconstruct
-  !> Second interface, or parent reconstruction
-  subroutine i_reconstruct_(this, h, u)
-    import :: Recon1d
-    class(Recon1d), intent(inout) :: this !< This reconstruction
-    real,           intent(in)    :: h(*) !< Grid spacing (thickness) [typically H]
-    real,           intent(in)    :: u(*) !< Cell mean values [A]
-  end subroutine i_reconstruct_
 
   !> Returns the left/right edge values in cell k of a 1D reconstruction
   subroutine i_lr_edge(this, k, u_left, u_right)
@@ -137,6 +141,34 @@ interface
     integer,        intent(in)    :: stdout  !< I/O channel for stdout
     integer,        intent(in)    :: stderr  !< I/O channel for stderr
   end function i_unit_tests
+
+  !> Deallocate a 1D reconstruction
+  subroutine i_destroy(this)
+    import :: Recon1d
+    class(Recon1d), intent(inout) :: this !< This reconstruction
+  end subroutine i_destroy
+
+  !> Second interface to init(), or to parent init()
+  subroutine i_init_parent(this, n, h_neglect)
+    import :: Recon1d
+    class(Recon1d), intent(out) :: this !< This reconstruction
+    integer,        intent(in)  :: n    !< Number of cells in this column
+    real, optional, intent(in)  :: h_neglect !< A negligibly small width used in cell reconstructions [H]
+  end subroutine i_init_parent
+
+  !> Second interface to reconstruct(), or to parent reconstruct()
+  subroutine i_reconstruct_parent(this, h, u)
+    import :: Recon1d
+    class(Recon1d), intent(inout) :: this !< This reconstruction
+    real,           intent(in)    :: h(*) !< Grid spacing (thickness) [typically H]
+    real,           intent(in)    :: u(*) !< Cell mean values [A]
+  end subroutine i_reconstruct_parent
+
+  !> Second interface to destroy(), or to parent destroy()
+  subroutine i_destroy_parent(this)
+    import :: Recon1d
+    class(Recon1d), intent(inout) :: this !< This reconstruction
+  end subroutine i_destroy_parent
 
 end interface
 
@@ -350,5 +382,18 @@ end subroutine int_arr
 !!
 !! \section section_recon1d_type Generic vertical reconstruction type
 !!
-
+!! A class to describe generic reconstruction in 1-D. This module has no implementations
+!! but defines the interfaces for members that implement a reconstruction.
+!!
+!! e.g. a chain of derived reconstructions might look like
+!!   Recon1d_type <- Recond1d_XYZ <- Recon1d_XYZ_v2
+!! where
+!!   Recon1d_type      - defines the interfaces (this module)
+!!   Recon1d_XYZ       - extends Recon1d_type, implements the XYZ reconstruction in reconstruct(),
+!!                       and reconstruc_parent() -> reconstruct() of the same Recon1d_XYZ module
+!!   Recon1d_XYZ_v2    - implements a slight variant of Recon1d_XYZ via reconstruct()
+!!                       but reconstruc_parent() is not redefined so that it still is defined by Recon1d_XYZ
+!!
+!! The module also defines a type "testing" which is used to abbreviate the unit_tests() member.
+!! This should no be used outside of these derived reconstructions.
 end module Recon1d_type

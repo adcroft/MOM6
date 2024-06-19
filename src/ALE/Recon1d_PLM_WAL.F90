@@ -22,12 +22,15 @@ contains
   procedure :: init => init
   !> Implementation of the PLM reconstruction
   procedure :: reconstruct => reconstruct
-  !> Duplicate interface to PLM reconstruction
-  procedure :: reconstruct_ => reconstruct
   !> Implementation of the PLM average over an interval [A]
   procedure :: average => average
   !> Implementation of unit tests for the PLM reconstruction
   procedure :: unit_tests => unit_tests
+
+  !> Duplicate interface to reconstruct()
+  procedure :: init_parent => init
+  !> Duplicate interface to reconstruct()
+  procedure :: reconstruct_parent => reconstruct
 
 end type PLM_WAL
 
@@ -203,6 +206,8 @@ real elemental pure function PLM_monotonized_slope(u_l, u_c, u_r, s_l, s_c, s_r)
 end function PLM_monotonized_slope
 
 !> Average between xa and xb for cell k of a 1D PLM reconstruction [A]
+!! Note: this uses the simple polynomial form a + b * x  on x E (0,1)
+!! which can overshoot at x=1
 real function average(this, k, xa, xb)
   class(PLM_WAL), intent(in) :: this !< This reconstruction
   integer,        intent(in) :: k    !< Cell number

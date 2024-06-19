@@ -21,16 +21,23 @@ contains
   procedure :: init => init
   !> Implementation of the PLM reconstruction
   procedure :: reconstruct => reconstruct
-  !> Duplicate interface to PLM reconstruction
-  procedure :: reconstruct_ => reconstruct
   !> Implementation of function returning the PLM edge values
   procedure :: lr_edge => lr_edge
   !> Implementation of the PLM average over an interval [A]
   procedure :: average => average
   !> Implementation of finding the PLM position of a value
   procedure :: inv_f => inv_f
+  !> Implementation of deallocation for PLM
+  procedure :: destroy => destroy
   !> Implementation of unit tests for the PLM reconstruction
   procedure :: unit_tests => unit_tests
+
+  !> Duplicate interface to reconstruct()
+  procedure :: init_parent => init
+  !> Duplicate interface to reconstruct()
+  procedure :: reconstruct_parent => reconstruct
+  !> Duplicate interface to destroy()
+  procedure :: destroy_parent => destroy
 
 end type PLM_CW
 
@@ -181,15 +188,36 @@ real function average(this, k, xa, xb)
   !u_b = this%ul(k) * ( 1. - xb ) + this%ur(k) * xb
   !average = 0.5 * ( u_a + u_b )
 
+  ! Mid-point between xa and xb
   xmab = 0.5 * ( xa + xb )
-  average = this%ul(k) * ( 1. - xmab ) + this%ur(k) * xmab ! Can this expression ever be outside the range of ul and ur?
 
-  u_a = this%ul(k) + ( this%ur(k)  - this%ul(k) ) * xmab ! This expression can overshoort u_r but is good for xmab<<1
-  u_b = this%ur(k) + ( this%ul(k)  - this%ur(k) ) * ( 1. - xmab ) ! This expression can overshoort u_l but is good for 1-xmab<<1
-  xmab = sign(1., xmab-0.5) ! -1 for xmab<0.5, 1 for xmab>=0.5
-  average = xmab * u_b + ( 1. - xmab ) * u_a ! either u_a or u_b
+  ! The following expression is exact at xmab=0 and xmab=1,
+  ! i.e. gives the numerically correct values.
+  ! It is not obvious that the expression is monotonic but according to
+  ! https://math.stackexchange.com/questions/907329/accurate-floating-point-linear-interpolation
+  ! it will be for the default rounding behavior. Otherwise is it
+  ! then possible this expression can be outside the range of ul and ur?
+  average = this%ul(k) * ( 1. - xmab ) + this%ur(k) * xmab
+
+! ! The following is more complicated but seems to ensure being within bounds.
+! ! This expression for u_a can overshoort u_r but is good for xmab<<1
+! u_a = this%ul(k) + ( this%ur(k)  - this%ul(k) ) * xmab
+! ! This expression for u_b can overshoort u_l but is good for 1-xmab<<1
+! u_b = this%ur(k) + ( this%ul(k)  - this%ur(k) ) * ( 1. - xmab )
+! ! Replace xmab with -1 for xmab<0.5, 1 for xmab>=0.5
+! xmab = sign(1., xmab-0.5)
+! ! Select either u_a or u_b, depending whether mid-point of xa, xb is smaller/larger than 0.5
+! average = xmab * u_b + ( 1. - xmab ) * u_a
 
 end function average
+
+!> Deallocate the PLM reconstruction
+subroutine destroy(this)
+  class(PLM_CW), intent(inout) :: this !< This reconstruction
+
+  deallocate( this%u_mean, this%ul, this%ur )
+
+end subroutine destroy
 
 !> Runs PLM reconstruction unit tests and returns True for any fails, False otherwise
 logical function unit_tests(this, verbose, stdout, stderr)
@@ -240,11 +268,18 @@ logical function unit_tests(this, verbose, stdout, stderr)
   call test%real_arr(3, ur, (/1.,0.75,1./), 'Return position of f>')
   call test%real_arr(3, urr, (/1.,1.,1./), 'Return position of f>>')
 
+  call this%destroy()
   deallocate( um, ul, ur, ull, urr )
 
   allocate( um(4), ul(4), ur(4) )
   call this%init(4)
 
+  ! These values lead to non-monotonic reconstuctions which are
+  ! valid for transport problems but not always appropriate for
+  ! remapping to arbitrary resolution grids.
+  ! The O(h^2) slopes are -, 2, 2, - and the limited
+  ! slopes are 0, 1, 1, 0 so the everywhere the reconstructions
+  ! are bounded by neighbors but ur(2) and ul(3) are out-of-order.
   call this%reconstruct( (/1.,1.,1.,1./), (/0.,3.,4.,7./) )
   do k = 1, 4
     call this%lr_edge(k, ul(k), ur(k))

@@ -4,12 +4,11 @@ module Recon1d_PLM_WAX
 
 ! This file is part of MOM6. See LICENSE.md for the license.
 
-!use Recon1d_type, only : Recon1d, testing
 use Recon1d_PLM_WAL, only : PLM_WAL, testing
 
 implicit none ; private
 
-public PLM_WAX, testing
+public PLM_WAX
 
 !> The White and Adcroft PLM implementation of Recon1d with extrapolation in first/last cells
 !!
@@ -36,18 +35,18 @@ subroutine reconstruct(this, h, u)
   real :: slope ! Difference of u across cell [A]
 
   ! Use parent (PLM_WAL) reconstruction
-  call this%reconstruct_(h, u)
+  call this%reconstruct_parent(h, u)
 
   n = this%n
 
-  ! Fix reconstruction for first layer
+  ! Fix reconstruction for first cell
   slope = - PLM_extrapolate_slope( h(2), h(1), this%h_neglect, u(2), u(1) )
   this%ul(1) = u(1) - 0.5 * slope
   this%ur(1) = u(1) + 0.5 * slope
   this%poly_coef(1,1) = this%ul(1)
   this%poly_coef(1,2) = this%ur(1) - this%ul(1)
 
-  ! Fix reconstruction for last layer
+  ! Fix reconstruction for last cell
   slope = PLM_extrapolate_slope( h(n-1), h(n), this%h_neglect, u(n-1), u(n) )
   this%ul(n) = u(n) - 0.5 * slope
   this%ur(n) = u(n) + 0.5 * slope

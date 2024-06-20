@@ -239,7 +239,7 @@ logical function summarize(this, label)
 
   if (this%state) then
     write(this%stdout,'(a," : ",a,", ",i4," failed of ",i4," tested")') &
-         red('FAIL'), trim(label), this%num_tests_failed, this%num_tests_checked
+         'FAIL', trim(label), this%num_tests_failed, this%num_tests_checked
     write(this%stdout,'(a,100i4)') 'Failed tests:',(this%ifailed(i),i=1,this%num_tests_failed)
     write(this%stdout,'(a,a)') 'First failed test: ',trim(this%label_first_fail)
     write(this%stderr,'(a,100i4)') 'Failed tests:',(this%ifailed(i),i=1,this%num_tests_failed)
@@ -247,56 +247,10 @@ logical function summarize(this, label)
     write(this%stderr,'(a," : ",a)') trim(label),'FAILED'
   else
     write(this%stdout,'(a," : ",a,", all ",i4," tests passed")') &
-         green('Pass'), trim(label), this%num_tests_checked
+         'Pass', trim(label), this%num_tests_checked
   endif
   summarize = this%state
 end function summarize
-
-!> Pads string with the color codes for red/reset
-function red(string) result(newstr)
-  character(len=*),  intent(in) :: string !< Input string
-  character(len=:), allocatable :: newstr !< The modified output string
-  newstr = achar(27)//'[31m'//trim(string)//achar(27)//'[0m'
-end function red
-
-!> Pads string with the color codes for green/reset
-function green(string) result(newstr)
-  character(len=*),  intent(in) :: string !< Input string
-  character(len=:), allocatable :: newstr !< The modified output string
-  newstr = achar(27)//'[32m'//trim(string)//achar(27)//'[0m'
-end function green
-
-!! !> Compare u_test to u_true, report, and return true if a difference larger than tol is measured
-!! !!
-!! !! If in verbose mode, display results to stdout
-!! !! If a difference is measured, display results to stdout and stderr
-!! subroutine real_scalar(this, u_test, u_true, label)
-!!   class(testing),   intent(inout) :: this   !< This testing class
-!!   real,             intent(in)    :: u_test !< Values to test [A]
-!!   real,             intent(in)    :: u_true !< Values to test against (correct answer) [A]
-!!   character(len=*), intent(in)    :: label  !< Message
-!!   ! Local variables
-!!   logical :: this_test
-!!   real :: err
-!!
-!!   this_test = .false.
-!!
-!!   ! Scan for any mismatch between u_test and u_true
-!!   err = u_test - u_true
-!!   if (abs(err) > 0.) this_test = .true.
-!!
-!!   ! If either being verbose, or an error was measured then display results
-!!   if (this_test .or. this%verbose) then
-!!     if (this_test) then
-!!       write(this%stdout,'(3(a,1pe24.16,1x),a)') 'Calculated value =',u_test,'correct value =',u_true,'error =',err,label
-!!       write(this%stderr,'(3(a,1pe24.16,1x),a)') 'Calculated value =',u_test,'correct value =',u_true,'error =',err,label
-!!     else
-!!       write(this%stdout,'(2(a,1pe24.16,1x),a)') 'Calculated value =',u_test,'correct value =',u_true,label
-!!     endif
-!!   endif
-!!
-!!   call this%test( this_test, label ) ! Updates state and counters in this
-!! end subroutine real_scalar
 
 !> Compare u_test to u_true, report, and return true if a difference larger than tol is measured
 !!
@@ -331,7 +285,7 @@ subroutine real_arr(this, n, u_test, u_true, label, tol)
       err = u_test(k) - u_true(k)
       if (abs(err) > tolerance) then
         write(this%stdout,'(i4,1p2e24.16,a,1pe24.16,a)') k, u_test(k), u_true(k), &
-                         ' err=', err, red(' <--- WRONG')
+                         ' err=', err, ' <--- WRONG'
         write(this%stderr,'(i4,1p2e24.16,a,1pe24.16,a)') k, u_test(k), u_true(k), &
                          ' err=', err, ' <--- WRONG'
       else
@@ -367,7 +321,7 @@ subroutine int_arr(this, n, i_test, i_true, label)
   if (this%verbose) then
      write(this%stdout,'(a12," : calculated =",30i3)') label, i_test
      write(this%stdout,'(12x,"      correct =",30i3)') i_true
-     if (this_test) write(this%stdout,'(3x,a,8x,"error =",30i3)') red('FAIL --->'), i_test(:) - i_true(:)
+     if (this_test) write(this%stdout,'(3x,a,8x,"error =",30i3)') 'FAIL --->', i_test(:) - i_true(:)
    endif
    if (this_test) then
      write(this%stderr,'(a12," : calculated =",30i3)') label, i_test

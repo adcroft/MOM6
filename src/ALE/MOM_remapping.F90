@@ -18,6 +18,7 @@ use PPM_functions, only : PPM_monotonicity
 use PQM_functions, only : PQM_reconstruction, PQM_boundary_extrapolation_v1
 use MOM_hybgen_remap, only : hybgen_plm_coefs, hybgen_ppm_coefs, hybgen_weno_coefs
 
+use Recon1d_type, only : Recon1d
 use Recon1d_PCM, only : PCM
 use Recon1d_PLM_CW, only : PLM_CW
 use Recon1d_PLM_WAL, only : PLM_WAL
@@ -45,6 +46,9 @@ type, public :: remapping_CS ; private
   !> If true, use the OM4 version of the remapping algorithm that makes poor assumptions
   !! about the reconstructions in top and bottom layers of the source grid
   logical :: om4_remap_via_sub_cells = .false.
+
+  !> The instance of the actual equation of state
+  class(Recon1d), pointer :: reconstruction => Null()
 end type
 
 !> Class to assist in unit tests
@@ -79,7 +83,7 @@ type :: testing
 end type
 
 ! The following routines are visible to the outside world
-public remapping_core_h, remapping_core_w
+public remapping_core_h, remapping_core_w, remapping_core_c
 public initialize_remapping, end_remapping, remapping_set_param, extract_member_remapping_CS
 public remapping_unit_tests, build_reconstructions_1d, average_value_ppoly
 public interpolate_column, reintegrate_column, dzFromH1H2
@@ -119,7 +123,7 @@ contains
 !> Set parameters within remapping object
 subroutine remapping_set_param(CS, remapping_scheme, boundary_extrapolation,  &
                check_reconstruction, check_remapping, force_bounds_in_subcell, &
-               om4_remap_via_sub_cells, answers_2018, answer_date)
+               om4_remap_via_sub_cells, answers_2018, answer_date, nk)
   type(remapping_CS),         intent(inout) :: CS !< Remapping control structure
   character(len=*), optional, intent(in)    :: remapping_scheme !< Remapping scheme to use
   logical, optional,          intent(in)    :: boundary_extrapolation !< Indicate to extrapolate in boundary cells
@@ -129,9 +133,13 @@ subroutine remapping_set_param(CS, remapping_scheme, boundary_extrapolation,  &
   logical, optional,          intent(in)    :: om4_remap_via_sub_cells !< If true, use OM4 remapping algorithm
   logical, optional,          intent(in)    :: answers_2018 !< If true use older, less accurate expressions.
   integer, optional,          intent(in)    :: answer_date  !< The vintage of the expressions to use
+  integer, optional,          intent(in)    :: nk !< Number of levels to initialize reconstruction class with
 
   if (present(remapping_scheme)) then
     call setReconstructionType( remapping_scheme, CS )
+    if (index(trim(remapping_scheme),'C_')>0 .and. present(nk)) then
+      call CS%reconstruction%init(nk)
+    endif
   endif
   if (present(boundary_extrapolation)) then
     CS%boundary_extrapolation = boundary_extrapolation
@@ -182,7 +190,8 @@ subroutine extract_member_remapping_CS(CS, remapping_scheme, degree, boundary_ex
 
 end subroutine extract_member_remapping_CS
 
-!> Remaps column of values u0 on grid h0 to grid h1 assuming the top edge is aligned.
+!> Remaps column of values u0 on grid h0 to grid h1 assuming the top edge is aligned and using the OM4
+!! reconstruction methods
 !!
 !! \todo Remove h_neglect argument by moving into remapping_CS
 !! \todo Remove PCM_cell argument by adding new method in Recon1D class
@@ -238,6 +247,57 @@ subroutine remapping_core_h(CS, n0, h0, u0, n1, h1, u1, h_neglect, h_neglect_edg
   endif
 
 end subroutine remapping_core_h
+
+!> Remaps column of values u0 on grid h0 to grid h1 assuming the top edge is aligned
+!! using allocatable reconstructions
+subroutine remapping_core_c(CS, n0, h0, u0, n1, h1, u1)
+  type(remapping_CS),  intent(in)  :: CS !< Remapping control structure
+  integer,             intent(in)  :: n0 !< Number of cells on source grid
+  real, dimension(n0), intent(in)  :: h0 !< Cell widths on source grid [H]
+  real, dimension(n0), intent(in)  :: u0 !< Cell averages on source grid [A]
+  integer,             intent(in)  :: n1 !< Number of cells on target grid
+  real, dimension(n1), intent(in)  :: h1 !< Cell widths on target grid [H]
+  real, dimension(n1), intent(out) :: u1 !< Cell averages on target grid [A]
+  ! Local variables
+  real, dimension(n0+n1+1) :: h_sub ! Width of each each sub-cell [H]
+  real, dimension(n0+n1+1) :: uh_sub ! Integral of u*h over each sub-cell [A H]
+  real, dimension(n0+n1+1) :: u_sub ! Average of u over each sub-cell [A]
+  integer, dimension(n0+n1+1) :: isub_src ! Index of source cell for each sub-cell
+  integer, dimension(n0) :: isrc_start ! Index of first sub-cell within each source cell
+  integer, dimension(n0) :: isrc_end ! Index of last sub-cell within each source cell
+  integer, dimension(n0) :: isrc_max ! Index of thickest sub-cell within each source cell
+  real, dimension(n0) :: h0_eff ! Effective thickness of source cells [H]
+  integer, dimension(n1) :: itgt_start ! Index of first sub-cell within each target cell
+  integer, dimension(n1) :: itgt_end ! Index of last sub-cell within each target cell
+  ! For error checking/debugging
+  logical, parameter :: force_bounds_in_target = .true. ! To fix round-off issues
+  real :: u02_err ! Integrated reconstruction error estimates [H A]
+  real :: uh_err       ! A bound on the error in the sum of u*h, as estimated by the remapping code [A H]
+
+  call CS%reconstruction%reconstruct(h0, u0)
+
+  ! Calculate sub-layer thicknesses and indices connecting sub-layers to source and target grids
+  call intersect_src_tgt_grids( n0, h0, n1, h1, h_sub, h0_eff, &
+                                isrc_start, isrc_end, isrc_max, itgt_start, itgt_end, isub_src )
+
+  ! Loop over each sub-cell to calculate average/integral values within each sub-cell.
+  ! Uses: h_sub, h0_eff, isub_src
+  ! Sets: u_sub, uh_sub
+  call remap_src_to_sub_grid_g(CS%reconstruction, n0, h0, u0, n1, h_sub, &
+                               isrc_start, isrc_end, isrc_max, isub_src, &
+                               u_sub, uh_sub, u02_err)
+
+  ! Loop over each target cell summing the integrals from sub-cells within the target cell.
+  ! Uses: itgt_start, itgt_end, h1, h_sub, uh_sub, u_sub
+  ! Sets: u1, uh_err
+  call remap_sub_to_tgt_grid(n0, n1, h1, h_sub, u_sub, uh_sub, itgt_start, itgt_end, &
+                             force_bounds_in_target, u1, uh_err)
+
+  ! Include the error remapping from source to sub-cells in the estimate of total remapping error
+  uh_err = uh_err + u02_err
+
+
+end subroutine remapping_core_c
 
 !> Remaps column of values u0 on grid h0 to implied grid h1
 !! where the interfaces of h1 differ from those of h0 by dx.
@@ -1050,6 +1110,118 @@ subroutine remap_src_to_sub_grid(n0, h0, u0, ppoly0_E, ppoly0_coefs, n1, h_sub, 
 
 end subroutine remap_src_to_sub_grid
 
+!> Remaps column of n0 values u0 on grid h0 to subgrid h_sub
+subroutine remap_src_to_sub_grid_g(reconstruction, n0, h0, u0, n1, h_sub, &
+                                   isrc_start, isrc_end, isrc_max, isub_src, &
+                                   u_sub, uh_sub, u02_err)
+  class(Recon1d), intent(in) :: reconstruction !< 1-D reconstruction type
+  integer, intent(in)  :: n0      !< Number of cells in source grid
+  real,    intent(in)  :: h0(n0)  !< Source grid widths (size n0) [H]
+  real,    intent(in)  :: u0(n0)  !< Source grid widths (size n0) [H]
+  integer, intent(in)  :: n1      !< Number of cells in target grid
+  real,    intent(in)  :: h_sub(n0+n1+1) !< Overlapping sub-cell thicknesses, h_sub [H]
+  integer, intent(in)  :: isrc_start(n0) !< Index of first sub-cell within each source cell
+  integer, intent(in)  :: isrc_end(n0) !< Index of last sub-cell within each source cell
+  integer, intent(in)  :: isrc_max(n0) !< Index of thickest sub-cell within each source cell
+  integer, intent(in)  :: isub_src(n0+n1+1) !< Index of source cell for each sub-cell
+  real,    intent(out) :: u_sub(n0+n1+1) !< Sub-cell cell averages (size n1) [A]
+  real,    intent(out) :: uh_sub(n0+n1+1) !< Sub-cell cell integrals (size n1) [A H]
+  real,    intent(out) :: u02_err !< Integrated reconstruction error estimates [A H]
+  ! Local variables
+  integer :: i_sub ! Index of sub-cell
+  integer :: i0 ! Index into h0(1:n0), source column
+  integer :: i_max ! Used to record which sub-cell is the largest contribution of a source cell
+  real :: dh_max ! Used to record which sub-cell is the largest contribution of a source cell [H]
+  real :: xa, xb ! Non-dimensional position within a source cell (0..1) [nondim]
+  real :: dh ! The width of the sub-cell [H]
+  real :: duh ! The total amount of accumulated stuff (u*h) [A H]
+  real :: dh0_eff ! Running sum of source cell thickness [H]
+  integer :: i0_last_thick_cell
+
+  i0_last_thick_cell = 0
+  do i0 = 1, n0
+    if (h0(i0)>0.) i0_last_thick_cell = i0
+  enddo
+
+  ! Loop over each sub-cell to calculate average/integral values within each sub-cell.
+  ! Uses: h_sub, isub_src, h0_eff
+  ! Sets: u_sub, uh_sub
+  xa = 0.
+  dh0_eff = 0.
+  u02_err = 0.
+  do i_sub = 1, n0+n1
+
+    ! Sub-cell thickness from loop above
+    dh = h_sub(i_sub)
+
+    ! Source cell
+    i0 = isub_src(i_sub)
+
+    ! Evaluate average and integral for sub-cell i_sub.
+    ! Integral is over distance dh but expressed in terms of non-dimensional
+    ! positions with source cell from xa to xb  (0 <= xa <= xb <= 1).
+    dh0_eff = dh0_eff + dh ! Cumulative thickness within the source cell
+    if (h0(i0)>0.) then
+      xb = dh0_eff / h0(i0) ! This expression yields xa <= xb <= 1.0
+      xb = min(1., xb) ! This is only needed when the total target column is wider than the source column
+      u_sub(i_sub) = reconstruction%average( i0, xa, xb )
+    else ! Vanished cell
+      xb = 1.
+      u_sub(i_sub) = u0(i0)
+    endif
+    uh_sub(i_sub) = dh * u_sub(i_sub)
+
+    if (isub_src(i_sub+1) /= i0) then
+      ! If the next sub-cell is in a different source cell, reset the position counters
+      dh0_eff = 0.
+      xa = 0.
+    else
+      xa = xb ! Next integral will start at end of last
+    endif
+
+  enddo
+  i_sub = n0+n1+1
+  ! Sub-cell thickness from loop above
+  dh = h_sub(i_sub)
+
+  ! Source cell
+  i0 = isub_src(i_sub)
+
+  ! Evaluate average and integral for sub-cell i_sub.
+  ! Integral is over distance dh but expressed in terms of non-dimensional
+  ! positions with source cell from xa to xb  (0 <= xa <= xb <= 1).
+  dh0_eff = dh0_eff + dh ! Cumulative thickness within the source cell
+  if (h0(i0)>0.) then
+    xb = dh0_eff / h0(i0) ! This expression yields xa <= xb <= 1.0
+    xb = min(1., xb) ! This is only needed when the total target column is wider than the source column
+    u_sub(i_sub) = reconstruction%average( i0, xa, xb )
+  else ! Vanished cell
+    xb = 1.
+    u_sub(i_sub) = u0(i0)
+  endif
+  uh_sub(i_sub) = dh * u_sub(i_sub)
+
+  ! Loop over each source cell substituting the integral/average for the thickest sub-cell (within
+  ! the source cell) with the residual of the source cell integral minus the other sub-cell integrals
+  ! aka a genius algorithm for accurate conservation when remapping from Robert Hallberg (@Hallberg-NOAA).
+  ! Uses: i0_last_thick_cell, isrc_max, h_sub, isrc_start, isrc_end, uh_sub, u0, h0
+  ! Updates: uh_sub
+  do i0 = 1, i0_last_thick_cell
+    i_max = isrc_max(i0)
+    dh_max = h_sub(i_max)
+    if (dh_max > 0.) then
+      ! duh will be the sum of sub-cell integrals within the source cell except for the thickest sub-cell.
+      duh = 0.
+      do i_sub = isrc_start(i0), isrc_end(i0)
+        if (i_sub /= i_max) duh = duh + uh_sub(i_sub)
+      enddo
+      uh_sub(i_max) = u0(i0)*h0(i0) - duh
+      u02_err = u02_err + max( abs(uh_sub(i_max)), abs(u0(i0)*h0(i0)), abs(duh) )
+    endif
+  enddo
+
+end subroutine remap_src_to_sub_grid_g
+
 !> Remaps column of n0+n1+1 values usub on sub-grid h_sub to targets on grid h1
 subroutine remap_sub_to_tgt_grid(n0, n1, h1, h_sub, u_sub, uh_sub, &
                                  itgt_start, itgt_end, force_bounds_in_target, u1, uh_err)
@@ -1523,7 +1695,7 @@ end subroutine dzFromH1H2
 !> Constructor for remapping control structure
 subroutine initialize_remapping( CS, remapping_scheme, boundary_extrapolation, &
                 check_reconstruction, check_remapping, force_bounds_in_subcell, &
-                om4_remap_via_sub_cells, answers_2018, answer_date)
+                om4_remap_via_sub_cells, answers_2018, answer_date, nk)
   ! Arguments
   type(remapping_CS), intent(inout) :: CS !< Remapping control structure
   character(len=*),   intent(in)    :: remapping_scheme !< Remapping scheme to use
@@ -1534,12 +1706,14 @@ subroutine initialize_remapping( CS, remapping_scheme, boundary_extrapolation, &
   logical, optional,  intent(in)    :: om4_remap_via_sub_cells !< If true, use OM4 remapping algorithm
   logical, optional,  intent(in)    :: answers_2018 !< If true use older, less accurate expressions.
   integer, optional,  intent(in)    :: answer_date  !< The vintage of the expressions to use
+  integer, optional,  intent(in)    :: nk !< Number of levels to initialize reconstruction class with
 
   ! Note that remapping_scheme is mandatory for initialize_remapping()
   call remapping_set_param(CS, remapping_scheme=remapping_scheme, boundary_extrapolation=boundary_extrapolation,  &
                check_reconstruction=check_reconstruction, check_remapping=check_remapping, &
                force_bounds_in_subcell=force_bounds_in_subcell, &
-               om4_remap_via_sub_cells=om4_remap_via_sub_cells, answers_2018=answers_2018, answer_date=answer_date)
+               om4_remap_via_sub_cells=om4_remap_via_sub_cells, answers_2018=answers_2018, answer_date=answer_date, &
+               nk=nk)
 
 end subroutine initialize_remapping
 
@@ -1553,6 +1727,10 @@ subroutine setReconstructionType(string,CS)
   ! Local variables
   integer :: degree
   degree = -99
+  if (associated(CS%reconstruction)) then
+    call CS%reconstruction%destroy()
+    deallocate( CS%reconstruction )
+  endif
   select case ( uppercase(trim(string)) )
     case ("PCM")
       CS%remapping_scheme = REMAPPING_PCM
@@ -1584,6 +1762,14 @@ subroutine setReconstructionType(string,CS)
     case ("PQM_IH6IH5")
       CS%remapping_scheme = REMAPPING_PQM_IH6IH5
       degree = 4
+    case ("C_PCM")
+      allocate( PCM :: CS%reconstruction )
+    case ("C_PLM_CW")
+      allocate( PLM_CW :: CS%reconstruction )
+    case ("C_PLM_WAL")
+      allocate( PLM_WAL :: CS%reconstruction )
+    case ("C_PLM_WAX")
+      allocate( PLM_WAX :: CS%reconstruction )
     case default
       call MOM_error(FATAL, "setReconstructionType: "//&
        "Unrecognized choice for REMAPPING_SCHEME ("//trim(string)//").")
@@ -2271,6 +2457,21 @@ logical function remapping_unit_tests(verbose)
   call test%test( PLM_WAL%unit_tests(verbose, test%stdout, test%stderr), 'PLM_WAL unit test')
   call test%test( PLM_WAX%unit_tests(verbose, test%stdout, test%stderr), 'PLM_WAX unit test')
   call test%test( PLM_CW%unit_tests(verbose, test%stdout, test%stderr), 'PLM_CW unit test')
+
+  n0 = 8
+  allocate( h0(n0), u0(n0) )
+  h0 = (/0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.0, 0.0/)
+  u0 = (/1.0, 1.5, 2.5, 3.5, 4.5, 5.5, 6.0, 6.0/)
+  allocate( u1(8) )
+  call initialize_remapping(CS, 'C_PLM_CW', answer_date=99990101, nk=n0)
+
+
+    ! Unchanged grid
+    call remapping_core_c( CS, n0, h0, u0, 8, [0.,1.,1.,1.,1.,1.,0.,0.], u1 )
+    call test%real_arr(8, u1, (/1.0,1.5,2.5,3.5,4.5,5.5,6.0,6.0/), 'PLM_WAX: remapped  h=01111100->h=01111100')
+
+  call end_remapping(CS)
+  deallocate( h0, u0, u1 )
 
   remapping_unit_tests = test%summarize('remapping_unit_tests')
 

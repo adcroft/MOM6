@@ -5,11 +5,12 @@ program time_MOM_remapping
 use MOM_remapping, only : remapping_CS
 use MOM_remapping, only : initialize_remapping
 use MOM_remapping, only : remapping_core_h
+use MOM_remapping, only : remapping_core_c
 
 implicit none
 
 type(remapping_CS) :: CS
-integer, parameter :: nk=75, nij=20*20, nits=10, nsamp=100, nschemes = 2
+integer, parameter :: nk=75, nij=20*20, nits=10, nsamp=100, nschemes = 6
 character(len=10) :: scheme_labels(nschemes)
 real, dimension(nschemes) :: timings ! Time for nits of nij calls for each scheme [s]
 real, dimension(nschemes) :: tmean ! Mean time for a call [s]
@@ -32,6 +33,10 @@ call random_seed(put=seed)
 
 scheme_labels(1) = 'PCM'
 scheme_labels(2) = 'PLM'
+scheme_labels(3) = 'C_PCM'
+scheme_labels(4) = 'C_PLM_WAL'
+scheme_labels(5) = 'C_PLM_WAX'
+scheme_labels(6) = 'C_PLM_CW'
 
 ! Set up some test data (note: using k,i indexing rather than i,k)
 allocate( u0(nk,nij), h0(nk,nij), u1(nk,nij), h1(nk,nij) )
@@ -59,13 +64,21 @@ tmax(:) = 0.
 do isamp = 1, nsamp
   ! Time reconstruction + remapping
   do ischeme = 1, nschemes
-    call initialize_remapping(CS, remapping_scheme=trim(scheme_labels(ischeme)))
+    call initialize_remapping(CS, remapping_scheme=trim(scheme_labels(ischeme)), nk=nk)
     call cpu_time(start)
-    do iter = 1, nits ! Make many passes to reduce sampling error
-      do ij = 1, nij ! Calling nij times to make similar to cost in MOM_ALE()
-        call remapping_core_h(CS, nk, h0(:,ij), u0(:,ij), nk, h1(:,ij), u1(:,ij))
+    if (index(trim(scheme_labels(ischeme)), 'C_')>0) then
+      do iter = 1, nits ! Make many passes to reduce sampling error
+        do ij = 1, nij ! Calling nij times to make similar to cost in MOM_ALE()
+          call remapping_core_c(CS, nk, h0(:,ij), u0(:,ij), nk, h1(:,ij), u1(:,ij))
+        enddo
       enddo
-    enddo
+    else
+      do iter = 1, nits ! Make many passes to reduce sampling error
+        do ij = 1, nij ! Calling nij times to make similar to cost in MOM_ALE()
+          call remapping_core_h(CS, nk, h0(:,ij), u0(:,ij), nk, h1(:,ij), u1(:,ij))
+        enddo
+      enddo
+    endif
     call cpu_time(finish)
     timings(ischeme) = (finish-start)/real(nits*nij) ! Average time per call
   enddo

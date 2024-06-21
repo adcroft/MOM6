@@ -1164,6 +1164,111 @@ subroutine ALE_remap_velocities(CS, G, GV, h_old_u, h_old_v, h_new_u, h_new_v, u
 
 end subroutine ALE_remap_velocities
 
+!> Remap velocity components maintaining the integrated transport defined by the PPM scheme
+!! as used by the continuity solver.
+!!
+!! Algorithm:
+!!   1) The transports are calculated
+!!   2) A nominal velocity grid is defined for the old grid
+!!      (must be a linear combination of h-grid thicknesses for consistency
+!!   3) A nominal velocity grid is defined for the new grid
+!!   4) The transports are re-sampled on the new grid
+!!   5) The transports are inverted for the new velocity components such that
+!!      calculating transports with PPM will yield the same net transport
+!!
+!! Comments:
+!! - We need access to the PPM edge values but it is more efficient to recalculate them
+!!   rather than pass those used in the continuity solver. This could lead to inconsistent
+!!   transports if we ever had a different scheme in continuity. For now, we have one scheme and
+!!   replicating it here is simplest and fastest.
+!subroutine ALE_remap_vel_as_tansports(CS, G, GV, h_old, h_new, u, v, debug)
+!  type(ALE_CS),                               intent(in)    :: CS    !< ALE control structure
+!  type(ocean_grid_type),                      intent(in)    :: G     !< Ocean grid structure
+!  type(verticalGrid_type),                    intent(in)    :: GV    !< Ocean vertical grid structure
+!  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)),  intent(in)    :: h_old !< Source grid thickness [H ~> m or kg m-2]
+!  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)),  intent(in)    :: h_new !< Destination grid thickness [H ~> m or kg m-2]
+!  real, dimension(SZIB_(G),SZJ_(G),SZK_(GV)), intent(inout) :: u     !< Zonal velocity [L T-1 ~> m s-1]
+!  real, dimension(SZI_(G),SZJB_(G),SZK_(GV)), intent(inout) :: v     !< Meridional velocity [L T-1 ~> m s-1]
+!  logical,                          optional, intent(in)    :: debug !< If true, show the call tree
+!
+!  ! Local variables
+!  real :: u_src(GV%ke) ! A column of u-velocities on the source grid [L T-1 ~> m s-1]
+!  real :: h_src(4,GV%ke) ! Columns of source grid thicknesses [H ~> m or kg_m2]
+!  real :: h_tgt(4,GV%ke) ! Columns of target grid thicknesses [H ~> m or kg_m2]
+!  real :: u_tgt(GV%ke)  ! A column of u-velocities on the target grid [L T-1 ~> m s-1]
+!  real :: h_neglect ! Tiny thicknesses used in remapping [H ~> m or kg m-2]
+!  integer :: i, j, k, nz
+!
+!  show_call_tree = .false.
+!  if (present(debug)) show_call_tree = debug
+!  if (show_call_tree) call callTree_enter("ALE_remap_vel_as_tansports()")
+!
+!  if (CS%answer_date >= 20190101) then
+!    h_neglect = GV%H_subroundoff ; h_neglect_edge = GV%H_subroundoff
+!  elseif (GV%Boussinesq) then
+!    h_neglect = GV%m_to_H*1.0e-30 ; h_neglect_edge = GV%m_to_H*1.0e-10
+!  else
+!    h_neglect = GV%kg_m2_to_H*1.0e-30 ; h_neglect_edge = GV%kg_m2_to_H*1.0e-10
+!  endif
+!
+!  nz = GV%ke
+!
+!  ! --- Remap u profiles from the source vertical grid onto the new target grid.
+!
+!  !$OMP parallel do default(shared) private(h1,h2,u_src,h_mask_vel,u_tgt)
+!  do j=G%jsc,G%jec ; do I=G%IscB,G%IecB ; if (G%mask2dCu(I,j)>0.) then
+!    do k=1,nz
+!      h_src(1,k) = h_old(I-1,j,k)
+!      h_src(2,k) = h_old(I,j,k)
+!      h_src(3,k) = h_old(I+1,j,k)
+!      h_src(4,k) = h_old(I+2,j,k)
+!      h_tgt(1,k) = h_new(I-1,j,k)
+!      h_tgt(2,k) = h_new(I,j,k)
+!      h_tgt(3,k) = h_new(I+1,j,k)
+!      h_tgt(4,k) = h_new(I+2,j,k)
+!      u_src(k) = u(I,j,k)
+!    enddo
+!
+!    call remapping_core_h(CS%vel_remapCS, nz, h_src, u_src, nz, h_tgt, u_tgt)
+!
+!    ! Copy the column of new velocities back to the 3-d array
+!    do k=1,nz
+!      u(I,j,k) = u_tgt(k)
+!    enddo !k
+!  endif ; enddo ; enddo
+!
+!  if (show_call_tree) call callTree_waypoint("u remapped (ALE_remap_vel_as_tansports)")
+!
+!
+!  ! --- Remap v profiles from the source vertical grid onto the new target grid.
+!
+!  !$OMP parallel do default(shared) private(h1,h2,v_src,h_mask_vel,v_tgt)
+!  do J=G%JscB,G%JecB ; do i=G%isc,G%iec ; if (G%mask2dCv(i,J)>0.) then
+!
+!    do k=1,nz
+!      h1(k) = h_old_v(i,J,k)
+!      h2(k) = h_new_v(i,J,k)
+!      v_src(k) = v(i,J,k)
+!    enddo
+!
+!    call remapping_core_h(CS%vel_remapCS, nz, h1, v_src, nz, h2, v_tgt, &
+!                          h_neglect, h_neglect_edge)
+!
+!    if ((CS%BBL_h_vel_mask > 0.0) .and. (CS%h_vel_mask > 0.0)) then
+!      call mask_near_bottom_vel(v_tgt, h2, CS%BBL_h_vel_mask, CS%h_vel_mask, nz)
+!    endif
+!
+!    ! Copy the column of new velocities back to the 3-d array
+!    do k=1,nz
+!      v(i,J,k) = v_tgt(k)
+!    enddo !k
+!  endif ; enddo ; enddo
+!
+!  if (show_call_tree) call callTree_waypoint("v remapped (ALE_remap_vel_as_transports)")
+!  if (show_call_tree) call callTree_leave("ALE_remap_vel_as_transports()")
+!
+!end subroutine ALE_remap_vel_as_transports
+
 !> Interpolate to find an updated array of values at interfaces after remapping.
 subroutine ALE_remap_interface_vals(CS, G, GV, h_old, h_new, int_val)
   type(ALE_CS),                              intent(in)    :: CS       !< ALE control structure
@@ -1300,6 +1405,7 @@ end subroutine mask_near_bottom_vel
 !> Remaps a single scalar between grids described by thicknesses h_src and h_dst.
 !! h_dst must be dimensioned as a model array with GV%ke layers while h_src can
 !! have an arbitrary number of layers specified by nk_src.
+!! This routine is used during initialization. Model integration uses ALE_remap_tracers().
 subroutine ALE_remap_scalar(CS, G, GV, nk_src, h_src, s_src, h_dst, s_dst, all_cells, old_remap, &
                             answers_2018, answer_date, h_neglect, h_neglect_edge)
   type(remapping_CS),                      intent(in)    :: CS        !< Remapping control structure

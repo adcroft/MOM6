@@ -39,7 +39,7 @@ type, public :: remapping_CS ; private
   integer :: answer_date = 99991231
   !> If true, use the OM4 version of the remapping algorithm that makes poor assumptions
   !! about the reconstructions in top and bottom layers of the source grid
-  logical :: om4_remap_via_sub_cells = .true.
+  logical :: om4_remap_via_sub_cells = .false.
 end type
 
 !> Class to assist in unit tests

@@ -39,7 +39,7 @@ type, public :: remapping_CS ; private
   integer :: answer_date = 99991231
   !> If true, use the OM4 version of the remapping algorithm that makes poor assumptions
   !! about the reconstructions in top and bottom layers of the source grid
-  logical :: om4_remap_via_sub_cells = .false.
+  logical :: om4_remap_via_sub_cells = .true.
 end type
 
 !> Class to assist in unit tests
@@ -1042,7 +1042,6 @@ subroutine remap_src_to_sub_grid(n0, h0, u0, ppoly0_E, ppoly0_coefs, n1, h_sub, 
       endif
     enddo
   endif
-
 end subroutine remap_src_to_sub_grid
 
 !> Remaps column of n0+n1+1 values usub on sub-grid h_sub to targets on grid h1

@@ -1658,6 +1658,7 @@ subroutine wave_speed_init(CS, use_ebt_mode, mono_N2_column_fraction, mono_N2_de
                             c1_thresh=c1_thresh)
 
   ! The remap_answers_2018 argument here is irrelevant, because remapping is hard-coded to use PLM.
+write(0,*) 'om4_remap_via_sub_cells=',om4_remap_via_sub_cells
   call initialize_remapping(CS%remapping_CS, 'PLM', boundary_extrapolation=.false., &
                             om4_remap_via_sub_cells=om4_remap_via_sub_cells, &
                             answer_date=CS%remap_answer_date)

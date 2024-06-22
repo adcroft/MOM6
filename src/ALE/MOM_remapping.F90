@@ -71,6 +71,7 @@ type :: testing
     procedure :: summarize => summarize !< Summarize testing state
     procedure :: real_arr => real_arr   !< Compare array of reals
     procedure :: int_arr => int_arr     !< Compare array of integers
+    procedure :: real_val => real_val   !< Compare real valuess
 end type
 
 ! The following routines are visible to the outside world
@@ -1250,6 +1251,343 @@ subroutine reintegrate_column(nsrc, h_src, uh_src, ndest, h_dest, uh_dest)
 
 end subroutine reintegrate_column
 
+!> Remap a component of flow that will yield a lateral transport calculated using upwinded PPM
+!! reconstructions that exactly match the sum of u_src * h_src.
+!!
+!! h_src is the "effective" thickness of the source grid and should be the transported thickness from
+!! continuity solver used to move volume/mass around.
+!!
+!! rc_up ~ dt / dx is what multiplies u to obtain the CFL number. MOM_continuity_PPM uses
+!! "dt * G%dy_Cu(I,j) * G%IareaT(i,j)" for u>0 and "dt * G%dy_Cu(I,j) * G%IareaT(i+1,j)" for u<0
+subroutine remap_flow_component( CS, nsrc, u_src, h_src, rc_le, rc_ri, &
+                                 ndst, hle_m, hle_l, hle_r, hri_m, hri_l, hri_r, h_neglect, &
+                                 u_tol, max_its, u_dst)
+  type(remapping_CS),    intent(in) :: CS    !< Remapping control structure
+  integer,               intent(in) :: nsrc  !< Number of source cells
+  real, dimension(nsrc), intent(in) :: u_src !< Flow values for source cells [L T-1 ~> m s-1]
+  real, dimension(nsrc), intent(in) :: h_src !< Effective thickness of source cells [H]
+  real,                  intent(in) :: rc_le !< The time step divided by the left side grid spacing [T L-1 ~> s m-1]
+  real,                  intent(in) :: rc_ri !< The time step divided by the right side grid spacing [T L-1 ~> s m-1]
+  integer,               intent(in) :: ndst  !< Number of destination cells
+  real, dimension(ndst), intent(in) :: hle_m !< Mean thickness of left side destination cells [H]
+  real, dimension(ndst), intent(in) :: hle_l !< Left edge value of thickness of left side destination cells [H]
+  real, dimension(ndst), intent(in) :: hle_r !< Right edge value of thickness of left side destination cells [H]
+  real, dimension(ndst), intent(in) :: hri_m !< Mean thickness of right side destination cells [H]
+  real, dimension(ndst), intent(in) :: hri_l !< Left edge value of thickness of right side destination cells [H]
+  real, dimension(ndst), intent(in) :: hri_r !< Right edge value of thickness of right side destination cells [H]
+  real,                  intent(in) :: h_neglect !< A negligible value that should not change a thickness [H]
+  real,                  intent(in) :: u_tol !< The tolerance for layer-wise convergence of flow [L T-1 ~> m s-1]
+  integer,               intent(in) :: max_its !< Maximum number of iterations
+  real, dimension(ndst), intent(inout) :: u_dst !< Flow values for destination cells [L T-1 ~> m s-1]
+
+  ! Local variables
+  real :: ppoly_r_coefs(nsrc,CS%degree+1) ! Coefficients of polynomial [A] returned from build_reconstructions_1d()
+  real :: ppoly_r_E(nsrc,2) ! Edge value of polynomial [L T-1] returned from build_reconstructions_1d()
+  real :: ppoly_r_S(nsrc,2) ! Edge slope of polynomial [L T-1 H-1] returned from build_reconstructions_1d()
+  integer :: iMethod ! Integration method returned from build_reconstructions_1d()
+  real :: u_last(ndst) ! Solution from previous iteration to test for convergence [L T-1]
+  real :: uh_err  ! Estimate of bound on error in sum of u*h [L T-1 H] returned from remap_via-sub_cells()
+  real :: h_src_tot ! Total column thickness of source [H]
+  real :: h_dst_tot ! Total column thickness of destination [H]
+  real :: uh_src_tot, uh_dst_tot ! Total source/destination transport [H L T-1 ~> m s-1]
+  real :: h_dst(ndst) ! Effective thickness of destination cells [L T-1 ~> m s-1]
+  real :: cfl ! CFL calculated as u * dt / dx [nondim]
+  real :: ac ! PPM curvature of upstream thickness reconstruction [H]
+  real :: hneg, hpos ! Upstream thickness averaged over the CFL fraction of the cell [H]
+  integer :: k, iter
+
+  ! First guess at destination thicknesses
+  h_dst_tot = 0.
+  do k = 1, ndst
+    !h_dst(k) = 0.5 * ( hle_m(k) + hri_m(k) ) ! Mid-point of cell mean thicknesses
+    h_dst(k) = 0.5 * ( hle_r(k) + hri_l(k) ) ! Mid-point of edge thickness
+    !? In the above, should we anticipate a local minimum that might extrapolate to 0. (meaning we need to add h_neglect)? -AJA
+    h_dst_tot = h_dst_tot + h_dst(k)
+  enddo
+! print *,'h_dst_tot=',h_dst_tot,' first guess'
+
+! print *,'hle_l:', hle_l
+! print *,'hle_m:', hle_m
+! print *,'hle_r:', hle_r
+! print *,'hri_l:', hri_l
+! print *,'hri_m:', hri_m
+! print *,'hri_r:', hri_r
+! print *,'h_src=(',h_src,')'
+! print *,'u_src=(',u_src,')'
+
+  call build_reconstructions_1d( CS, nsrc, h_src, u_src, &
+                                 ppoly_r_coefs, ppoly_r_E, ppoly_r_S, iMethod, &
+                                 h_neglect=h_neglect)
+  h_src_tot = h_src(1)
+  uh_src_tot = u_src(1) * h_src(1)
+  do k = 2, nsrc
+    h_src_tot = h_src_tot + h_src(k)
+    uh_src_tot = uh_src_tot + u_src(k) * h_src(k)
+  enddo
+! print *,'h_src_tot=',h_src_tot
+! print *,'uh_src_tot=',uh_src_tot
+
+  do iter = 1, max_its
+!   print *,'Iteration', iter, '-------------------'
+    ! Scaling current h_dst to have the same total as h_src can fail if sum(h_src)=0. -AJA
+    h_dst_tot = 1. / ( h_dst_tot + h_neglect ) ! Note inversion of units
+    h_dst(:) = h_dst(:) * ( h_src_tot * h_dst_tot )
+!   print *,'sum(h_dst)=',sum(h_dst)
+!   print *,'h_dst=(',h_dst,') rescaled'
+
+    call remap_via_sub_cells( nsrc, h_src, u_src, ppoly_r_E, ppoly_r_coefs, &
+                              ndst, h_dst, iMethod, CS%force_bounds_in_subcell, &
+                              u_dst, uh_err )
+!   print *,'u_dst=(',u_dst,')'
+
+    ! Calculate layer wise transports
+    h_dst_tot = 0.
+    uh_dst_tot = 0.
+    do k = 1, ndst
+      ! Upstream for positive flow
+      cfl = max( 0., u_dst(k) * rc_le )
+      ac = ( hle_r(k) + hle_l(k) ) - 2.0 * hle_m(k)
+      hpos = hle_r(k) + cfl * ( 0.5 * ( hle_l(k) - hle_r(k) ) + ac * ( cfl - 1.5 ) )
+!     print *,k,'+  cfl=',cfl,'ac=',ac,'hpos=',hpos,'h',hle_l(k),hle_m(k),hle_r(k),ac
+
+      ! Upstream for negative flow
+      cfl = max( 0., - u_dst(k) * rc_ri )
+      ac = ( hri_r(k) + hri_l(k) ) - 2.0 * hri_m(k)
+      hneg = hri_l(k) + cfl * ( 0.5 * ( hri_r(k) - hri_l(k) ) + ac * ( cfl - 1.5 ) )
+!     print *,k,'-  cfl=',cfl,'ac=',ac,'hneg=',hneg,'h',hri_l(k),hri_m(k),hri_r(k),ac
+
+      if ( u_dst(k) > 0. ) then
+        h_dst(k) = hpos
+      elseif ( u_dst(k) < 0. ) then
+        h_dst(k) = hneg
+      else
+        h_dst(k) = 0.5 * ( hneg + hpos )
+      endif
+      h_dst_tot = h_dst_tot + h_dst(k)
+      uh_dst_tot = uh_dst_tot + u_dst(k) * h_dst(k)
+    enddo ! k
+!   print *,'h_dst=(',h_dst,') from PPM reconstruction'
+!   print *,'h_dst_tot=',h_dst_tot
+!   print *,'uh_dst_tot=',uh_dst_tot
+
+    ! Test for convergence
+    if ( iter > 1 ) then
+!     print *,'|delta u|=', maxval( abs( u_dst(:) - u_last(:) ) )
+      if ( maxval( abs( u_dst(:) - u_last(:) ) ) <= u_tol ) exit
+    endif
+    u_last(:) = u_dst(:)
+!   print *,'cycling',iter
+  enddo
+
+end subroutine remap_flow_component
+
+!> Remap a component of transport that will yield a lateral transport calculated using upwind PPM
+!! reconstructions that exactly match the sum of uh_src.
+!!
+!! The nominal grid at the velocity component for both source and target is the mid-point average
+!! of the column center thicknesses. This nominal grid is not used directly in the transport but
+!! simply provides a consistent frame of reference for the remapping operation.
+!!
+!! The underlying solver solves for the CFL parameter such that
+!!    int_(1-c)^1 h(x) dx = (dt / dx) (uh)    (where uh = flow * thickness, e.g. in m^2 s-1)
+!! so uh_src should be converted from the normal MOM6 units scale the model volume flux [L^2 H]
+!! rc_up ~ dt / dx is what multiplies u to obtain the CFL number. MOM_continuity_PPM uses
+!! "dt * G%dy_Cu(I,j) * G%IareaT(i,j)" for u>0 and "dt * G%dy_Cu(I,j) * G%IareaT(i+1,j)" for u<0
+subroutine remap_transport_component( CS, nsrc, uh_src, hl_src, hr_src, rc_le, rc_ri, &
+                                      ndst, hle_m, hle_l, hle_r, hri_m, hri_l, hri_r, h_neglect, &
+                                      u_tol, max_its, u_dst)
+  type(remapping_CS),    intent(in) :: CS     !< Remapping control structure
+  integer,               intent(in) :: nsrc   !< Number of source cells
+  real, dimension(nsrc), intent(in) :: uh_src !< Transports between source cells [L H T-1 ~> m2 s-1]
+  real, dimension(nsrc), intent(in) :: hl_src !< Thickness of source cells to the left [H]
+  real, dimension(nsrc), intent(in) :: hr_src !< Thickness of source cells to the right [H]
+  real,                  intent(in) :: rc_le  !< The time step divided by the left side grid spacing [T L-1 ~> s m-1]
+  real,                  intent(in) :: rc_ri  !< The time step divided by the right side grid spacing [T L-1 ~> s m-1]
+  integer,               intent(in) :: ndst   !< Number of destination cells
+  real, dimension(ndst), intent(in) :: hle_m  !< Mean thickness of left side destination cells [H]
+  real, dimension(ndst), intent(in) :: hle_l  !< Left edge value of thickness of left side destination cells [H]
+  real, dimension(ndst), intent(in) :: hle_r  !< Right edge value of thickness of left side destination cells [H]
+  real, dimension(ndst), intent(in) :: hri_m  !< Mean thickness of right side destination cells [H]
+  real, dimension(ndst), intent(in) :: hri_l  !< Left edge value of thickness of right side destination cells [H]
+  real, dimension(ndst), intent(in) :: hri_r  !< Right edge value of thickness of right side destination cells [H]
+  real,                  intent(in) :: h_neglect !< A negligible value that should not change a thickness [H]
+  real,                  intent(in) :: u_tol  !< The tolerance for layer-wise convergence of flow [L T-1 ~> m s-1]
+  integer,               intent(in) :: max_its !< Maximum number of iterations
+  real, dimension(ndst), intent(inout) :: u_dst !< Flow values for destination cells [L T-1 ~> m s-1]
+
+  ! Local variables
+  real :: h_src(nsrc) ! Nominal source grid [H]
+  real :: uh_dst(ndst) ! Transports reintegrated on destination grid [L T-1]
+  real :: uh_src_tot ! Total transport of source [H T-1]
+  real :: uh_err  ! Estimate of bound on error in sum of u*h [L T-1 H] returned from remap_via-sub_cells()
+  real :: h_src_tot ! Total column thickness of source [H]
+  real :: h_dst_tot ! Total column thickness of destination [H]
+  real :: h_dst(ndst) ! Effective thickness of destination cells [L T-1 ~> m s-1]
+  real :: cfl ! CFL calculated as u * dt / dx [nondim]
+  real :: ac ! PPM curvature of upstream thickness reconstruction [H]
+  real :: hneg, hpos ! Upstream thickness averaged over the CFL fraction of the cell [H]
+  integer :: k, ks, iter
+
+  ! Source grid (only used for re-integration of transport)
+  h_src_tot = 0.
+  uh_src_tot = 0.
+  do k = 1, nsrc
+    h_src(k) = 0.5 * ( hl_src(k) + hr_src(k) ) ! Mid-point of cell mean thicknesses
+    h_src_tot = h_src_tot + h_src(k)
+    uh_src_tot = uh_src_tot + uh_src(k)
+  enddo
+! print *,'h_src_tot=',h_src_tot
+! print *,'uh_src_tot=',uh_src_tot
+
+  ! Destination grid (only used for re-integration of transport)
+  h_dst_tot = 0.
+  do k = 1, ndst
+    h_dst(k) = 0.5 * ( hle_m(k) + hri_m(k) ) ! Mid-point of cell mean thicknesses
+    h_dst_tot = h_dst_tot + h_dst(k)
+  enddo
+! print *,'h_dst_tot=',h_dst_tot
+
+! print *,'hle_l:', hle_l
+! print *,'hle_m:', hle_m
+! print *,'hle_r:', hle_r
+! print *,'hri_l:', hri_l
+! print *,'hri_m:', hri_m
+! print *,'hri_r:', hri_r
+! print *,'h_src=(',h_src,')'
+! print *,'uh_src=(',uh_src,')'
+
+  ! Re-integrate uh on destination grid
+  ! Note: this currently uses PCM representation of uh_src which is equivalent to
+  ! a continuous piecewise linear representation of the transport stream function
+  ! - should switch to cubic representation in vertical for better local accuracy
+  call reintegrate_column(nsrc, h_src, uh_src, ndst, h_dst, uh_dst)
+
+! uh_dst_tot = 0.
+! do k = 1, ndst
+!   uh_dst_tot = uh_dst_tot + uh_dst(k)
+! enddo
+! print *,'uh_dst_tot=',uh_dst_tot
+
+! ! Invert transport for flow
+! do k = 1, ndst
+!   if ( uh_dst(k) > 0. ) then
+!     ! Positive transport is from the left
+!     u_dst(k) = invert_PPM_trans_for_c(uh_src(k), hle_l(k), hle_m(k), hle_r(k), u_tol)
+!   elseif  ( uh_dst(k) < 0. ) then
+!     ! Negative transport is from the right
+!     u_dst(k) = invert_PPM_trans_for_c(uh_src(k), hri_l(k), hri_m(k), hri_r(k), u_tol)
+!   else
+!     ! Zero transport -> zero flow
+!     u_dst(k) = 0.
+!   endif
+! enddo ! k
+! print *,'h_dst=(',h_dst,') from PPM reconstruction'
+! print *,'h_dst_tot=',h_dst_tot
+! print *,'uh_dst_tot=',uh_dst_tot
+
+! print *,'cycling',iter
+
+end subroutine remap_transport_component
+
+!> Construct layer-wise cubic interpolation data for interface data.
+subroutine construct_P3( nk, h, psi, h_neglect, aL, aR, sL, sR )
+  integer,               intent(in)    :: nk  !< Number of cells
+  real, dimension(nk),   intent(in)    :: h   !< Thickness of cells [H]
+  real, dimension(nk+1), intent(in)    :: psi !< Interface values [A]
+  real,                  intent(in) :: h_neglect !< A negligible value that should not change a thickness [H]
+  real, dimension(nk),   intent(inout) :: aL  !< Left edge value [A]
+  real, dimension(nk),   intent(inout) :: aR  !< Right edge value [A]
+  real, dimension(nk),   intent(inout) :: sL  !< Left edge slope [A H-1]
+  real, dimension(nk),   intent(inout) :: sR  !< Left edge slope [A H-1]
+
+  ! Local variables
+  integer :: k
+  real :: hf(nk) ! Filtered h [H]
+  real :: sC(nk) ! Secant across layers [A H-1]
+  real :: sI(nk+1) ! Second order derivative at interfaces [A H-1]
+
+  if (nk>1) then
+    hf(1) = h(1) + h_neglect
+    sI(1) = ( psi(2) - psi(1) ) / hf(1)
+    sI(2) = sI(1)
+  else
+    do k = 1, nk
+      hf(k) = h(k) + h_neglect
+      sC(k) = ( psi(k+1) - psi(k) ) / hf(k)
+    enddo
+    do K = 2, nk
+      sI(K) = ( h(k-1) * sC(k) + h(k) * sC(k-1) ) / ( hf(k-1) + hf(k) )
+    enddo
+    sI(1) = 1.5 * sC(1) - 0.5 * sI(2)
+    sI(nk+1) = 1.5 * sC(nk) - 0.5 * sI(nk-1)
+  endif
+
+  do k = 1, nk
+    aL(k) = psi(K)
+    aR(k) = psi(K+1)
+    sL(k) = sI(K)
+    sR(k) = sI(K+1)
+  enddo
+
+end subroutine construct_P3
+
+!> Lagrange cubic interpolation f(z)
+!!
+!! Fits a cubic f(x) through four points, (x0,y0), (x1,y1), (x2,y2) and (x3,y3),
+!! written as a Lagrange polynomial, and returns f(x=z)
+real function interp_Lagrange_cubic(x0, x1, x2, x3, y0, y1, y2, y3, ep, z)
+  real, intent(in) :: x0 !< Position of node 0 [A]
+  real, intent(in) :: x1 !< Position of node 1 [A]
+  real, intent(in) :: x2 !< Position of node 2 [A]
+  real, intent(in) :: x3 !< Position of node 3 [A]
+  real, intent(in) :: y0 !< Value of node 0 [B]
+  real, intent(in) :: y1 !< Value of node 1 [B]
+  real, intent(in) :: y2 !< Value of node 2 [B]
+  real, intent(in) :: y3 !< Value of node 3 [B]
+  real, intent(in) :: ep !< A negligible coordinate increment to avoid division by zero [A]
+  real, intent(in) :: z  !< Position to interpolate to [A]
+  ! Local
+  real :: x10, x20, x30, x21, x31, x32, z0, z1, z2, z3, n0, d0, n1, d1, n2, d2, n3, d3
+  real :: q0, q1, q2, q3, dq
+
+  ! Separation of nodes (these terms appear in the denominator)
+  x10 = ( x1 - x0 ) + ep
+  x20 = ( x2 - x0 ) + ep
+  x30 = ( x3 - x0 ) + ep
+  x21 = ( x2 - x1 ) + ep
+  x31 = ( x3 - x1 ) + ep
+  x32 = ( x3 - x2 ) + ep
+
+  ! Separation between argument, z, and nodes
+  z0 = z - x0
+  z1 = z - x1
+  z2 = z - x2
+  z3 = z - x3
+
+  ! n - numerator, d - denominator
+  n0 =   (  z1 *  z2 ) *  z3
+  d0 = - ( x10 * x20 ) * x30
+  n1 =   (  z0 *  z2 ) *  z3
+  d1 =   ( x10 * x21 ) * x31
+  n2 =   (  z0 *  z1 ) *  z3
+  d2 = - ( x20 * x21 ) * x32
+  n3 =   (  z0 *  z1 ) *  z2
+  d3 =   ( x30 * x31 ) * x32
+
+  ! Shift values to maintain uniformity of constant values
+  dq = 0.5 * ( y1 + y2 )
+  q0 = y0 - dq
+  q1 = y1 - dq
+  q2 = y2 - dq
+  q3 = y3 - dq
+! interp_Lagrange_cubic = ( ( n0 / d0 ) * q0 + ( n3 / d3 ) * q3 ) + ( ( n1 / d1 ) * q1 + ( n2 / d2 ) * q2 )
+  interp_Lagrange_cubic = ( ( n0 * d3 ) * q0 + ( n3 * d0 ) * q3 ) / ( d0 * d3 ) + &
+                          ( ( n1 * d2 ) * q1 + ( n2 * d1 ) * q2 ) / ( d1 * d2 )
+  interp_Lagrange_cubic = interp_Lagrange_cubic + dq
+
+end function interp_Lagrange_cubic
+
+
 !> Returns the average value of a reconstruction within a single source cell, i0,
 !! between the non-dimensional positions xa and xb (xa<=xb) with dimensional
 !! separation dh.
@@ -1621,6 +1959,7 @@ logical function remapping_unit_tests(verbose)
                                       ! a division by zero would otherwise occur.
   real :: err                         ! Errors in the remapped thicknesses [H] or values [A]
   real :: h_neglect, h_neglect_edge   ! Tiny thicknesses used in remapping [H]
+  real :: val ! Test values [A]
   type(testing) :: test ! Unit testing convenience functions
   integer :: om4
   character(len=4) :: om4_tag
@@ -2257,6 +2596,85 @@ logical function remapping_unit_tests(verbose)
                      3, (/0.,0.,0./), (/0.,0.,0./), &
                      3, (/0.,0.,0./), (/0.,0.,0./) )
 
+  if (verbose) write(test%stdout,*) '- - - - - - - - - - Lagrange interp tests  - - - - - - - -'
+  ! Lagrange polynomial cubic interpolation:
+  ! This tests that interpolating between the same values yields exactly the
+  ! same value (using ratios of primes to make it hard to cheat)
+  val = interp_Lagrange_cubic( -7./3., -5./3., 7./5., 13./3., &
+                               11./7., 11./7., 11./7., 11./7., 0., 11./7. )
+  call test%real_val(val, 11./7., 'LagrCubic: p0 (constant)')
+  ! Verifies we can fit a straight line (y = x + 1)
+  val = interp_Lagrange_cubic( 0., 1., 4., 6., &
+                               1., 2., 5., 7., 0., 3. )
+  call test%real_val(val, 4., 'LagrCubic: p1 (linear)')
+  ! Verifies we get exactly the middle value of a perfectly symmetric list of values
+  val = interp_Lagrange_cubic( 1., 2., 4., 5., &
+                               -2., -1., 1., 2., 0., 3. )
+  call test%real_val(val, 0., 'LagrCubic: symmetric p3')
+  ! Verifies adding an "x neglect" does not change answers
+  val = interp_Lagrange_cubic( 1., 2., 4., 5., &
+                               -2., -1., 1., 2., 1.e-20, 3. )
+  call test%real_val(val, 0., 'LagrCubic: symmetric p3 with eps')
+  ! Behavior near vanished layers ( y = x - 1 )
+! val = interp_Lagrange_cubic( 0., 0., 4., 5., &
+!                              -1., -1., 3., 4., 1.e-20, 1. )
+! call test%real_val(val, 0., 'LagrCubic: near vanished')
+
+  if (verbose) write(test%stdout,*) '- - - - - - - - - - - Flow remap tests - - - - - - - - - -'
+  call initialize_remapping(CS, 'PCM', answer_date=answer_date)
+  call test_remap_flow( test, &
+       "Uniform 2 layer, vertical PCM", CS, &
+          2, (/10., 10./), (/-1., 2./), 0.5, 0.5, &
+          2, transpose( reshape( (/10., 10., 10., &
+                                   10., 10., 10./), (/3,2/) ) ), &
+             transpose( reshape( (/10., 10., 10., &
+                                   10., 10., 10./), (/3,2/) ) ), &
+             0., (/-1., 2./) )
+  call test_remap_flow( test, &
+       "Linear 2 layer, vertical  PCM", CS, &
+          2, (/10., 20./), (/-1., 1./), 0.5, 0.5, &
+          2, transpose( reshape( (/10., 10., 10., &
+                                   20., 20., 20./), (/3,2/) ) ), &
+             transpose( reshape( (/ 9., 11., 13., &
+                                   21., 19., 17./), (/3,2/) ) ), &
+             0., (/-1., 1./) )
+  call test_remap_flow( test, &
+       "Parabolic 2 layer, vertical  PCM", CS, &
+          2, (/10., 30./), (/-1., 1./), 0.5, 0.5, &
+          2, transpose( reshape( (/10., 10., 10., &
+                                   30., 30., 30./), (/3,2/) ) ), &
+             transpose( reshape( (/ 9., 13., 21., &
+                                   31., 27., 19./), (/3,2/) ) ), &
+             0., (/-1., 1./) )
+  call test_remap_flow( test, &
+       "Distorted same grid 2 layer, vertical  PCM", CS, &
+          2, (/10., 10./), (/-1., 1./), 0.5, 0.5, &
+          2, transpose( reshape( (/20., 20., 20., &
+                                   10., 10., 10./), (/3,2/) ) ), &
+             transpose( reshape( (/10., 10., 10., &
+                                   20., 20., 20./), (/3,2/) ) ), &
+             0., (/-1., 1./) )
+  call test_remap_flow( test, &
+       "Distorted 2->3 layer, vertical  PCM", CS, &
+          2, (/3., 3./), (/-1., 1./), 0.5, 0.5, &
+          3, transpose( reshape( (/10., 10., 10., &
+                                   10., 10., 10., &
+                                   10., 10., 10./), (/3,3/) ) ), &
+             transpose( reshape( (/10., 10., 10., &
+                                   10., 10., 10., &
+                                   10., 10., 10./), (/3,3/) ) ), &
+             0., (/-1., 0., 1./) )
+  call test_remap_flow( test, &
+       "Distorted 2->3 layer, vertical  PCM", CS, &
+          2, (/3., 3./), (/-1., 1./), 0.5, 0.5, &
+          3, transpose( reshape( (/10., 10., 10., &
+                                   10., 10., 10., &
+                                   10., 10., 10./), (/3,3/) ) ), &
+             transpose( reshape( (/10., 10., 10., &
+                                   10., 10., 10., &
+                                   10., 10., 10./), (/3,3/) ) ), &
+             1.e-30, (/-1., 0., 1./) )
+
   remapping_unit_tests = test%summarize('remapping_unit_tests')
 
 end function remapping_unit_tests
@@ -2297,6 +2715,37 @@ subroutine test_reintegrate(test, msg, nsrc, h_src, uh_src, ndest, h_dest, uh_tr
   call test%real_arr(ndest, uh_dest, uh_true, msg)
 
 end subroutine test_reintegrate
+
+!> Test if interpolate_column() produces the wrong answer
+subroutine test_remap_flow( test, msg, CS, ns, h_src, u_src, rc_le, rc_ri, &
+                                  nd, hl, hr, h_neglect, u_true)
+  type(testing),     intent(inout) :: test    !< Testing class
+  character(len=*),   intent(in) :: msg        !< Message to label test
+  type(remapping_CS), intent(in) :: CS         !< Remapping control structure
+  integer,            intent(in) :: ns         !< Number of source cells
+  real,               intent(in) :: h_src(ns)  !< Thickness of source layers [H]
+  real,               intent(in) :: u_src(ns)  !< Source flow values [L T-1]
+  real,               intent(in) :: rc_le      !< The time step divided by the left side grid spacing [T L-1]
+  real,               intent(in) :: rc_ri      !< The time step divided by the right side grid spacing [T L-1]
+  integer,            intent(in) :: nd         !< Number of destination layers
+  real,               intent(in) :: hl(nd,3)   !< Destination thickness left parameters [H]
+                                               !! 1 - Left, 2- Mean, 3- Right
+  real,               intent(in) :: hr(nd,3)   !< Destination thickness right parameters [H]
+                                               !! 1 - Left, 2- Mean, 3- Right
+  real,               intent(in) :: h_neglect  !< A negligible value that should not change a thickness [H]
+  real,               intent(in) :: u_true(nd) !< Correct value [L T-1]
+  ! Local variables
+  real :: error ! [L T-1]
+  real :: u_dst(nd) ! Output from remapping function to test [L T-1]
+  integer :: k
+
+  ! Remap from src to dest
+  call remap_flow_component( CS, ns, u_src, h_src, rc_le, rc_ri, &
+                             nd, hl(:,2), hl(:,1), hl(:,3), hr(:,2), hr(:,1), hr(:,3), h_neglect, &
+                             0., 5, u_dst)
+  call test%real_arr(nd, u_dst, u_true, msg)
+
+end subroutine test_remap_flow
 
 ! =========================================================================================
 ! The following provide the function for the testing_type helper class
@@ -2411,6 +2860,38 @@ subroutine real_arr(this, n, u_test, u_true, label, tol)
   call this%test( this_test, label ) ! Updates state and counters in this
 end subroutine real_arr
 
+!> Compare u_test to u_true, report, and return true if a difference larger than tol is measured
+!!
+!! If in verbose mode, display results to stdout
+!! If a difference is measured, display results to stdout and stderr
+subroutine real_val(this, u_test, u_true, label)
+  class(testing),   intent(inout) :: this   !< This testing class
+  real,             intent(in)    :: u_test !< Values to test [A]
+  real,             intent(in)    :: u_true !< Values to test against (correct answer) [A]
+  character(len=*), intent(in)    :: label  !< Message
+  ! Local variables
+  integer :: k
+  logical :: this_test
+  real :: err ! Error [A]
+
+  err = u_test - u_true
+  this_test = abs(err) > 0.
+
+  ! If either being verbose, or an error was measured then display results
+  if (this_test .or. this%verbose) then
+    if (abs(err) > 0.) then
+      write(this%stdout,'(3(a,1pe24.16),x,2a)') 'Calculated =', u_test, ' correct =', u_true, &
+                                                ' err=', err, label, ' <--- WRONG'
+      write(this%stderr,'(3(a,1pe24.16),x,2a)') 'Calculated =', u_test, ' correct =', u_true, &
+                                                ' err=', err, label, ' <--- WRONG'
+    else
+      write(this%stdout,'(2(a,1pe24.16),x,a)') 'Calculated =', u_test, ' correct =', u_true, label
+    endif
+  endif
+
+  call this%test( this_test, label ) ! Updates state and counters in this
+end subroutine real_val
+
 !> Compare i_test to i_true and report and return true if a difference is found
 !!
 !! If in verbose mode, display results to stdout
@@ -2445,5 +2926,44 @@ subroutine int_arr(this, n, i_test, i_true, label)
 
   call this%test( this_test, label ) ! Updates state and counters in this
 end subroutine int_arr
+
+!> Returns true if a test of interpolate_column() produces the wrong answer
+logical function test_construct_P3( verbose, msg, nk, h, p, h_neglect, s_true)
+  logical,          intent(in) :: verbose      !< If true, write results to stdout
+  character(len=*), intent(in) :: msg          !< Message to label test
+  integer,          intent(in) :: nk           !< Number of cells
+  real,             intent(in) :: h(nk)        !< Thickness of source layers [H]
+  real,             intent(in) :: p(nk+1)      !< Interface values [A]
+  real,             intent(in) :: h_neglect    !< A negligible value that should not change a thickness [H]
+  real,             intent(in) :: s_true(nk+1) !< Correct value [L T-1]
+  ! Local variables
+  real :: eL, eR ! [A H-1]
+  real, dimension(nk) :: aL, aR ! Edge values [A]
+  real, dimension(nk) :: sL, sR ! Edge sloeps [A H-1]
+  integer :: k
+
+  ! Remap from src to dest
+! call construct_P3( nk, h, p, aL, aR, sL, sR )
+
+  test_construct_P3 = .false.
+  do k = 1, nk
+    if (aL(k)/=p(k)) test_construct_P3 = .true.
+    if (aR(k)/=p(k+1)) test_construct_P3 = .true.
+    if (sL(k)/=s_true(k)) test_construct_P3 = .true.
+    if (sR(k)/=s_true(k+1)) test_construct_P3 = .true.
+  enddo
+  do k = 1, nk
+    if (verbose .or. test_construct_P3) then
+      eL = sL(k) - s_true(k)
+      eR = sR(k) - s_true(k+1)
+!     if (abs(eL) == 0.) then
+!       write(stdout,'(1x,i2,3(a,"=",1pe24.16,1x),a)') k, " v", u_dst(k), "=", u_true(k), "err", error, msg
+!     else
+!       write(stdout,'(1x,i2,3(a,"=",1pe24.16,1x),a,"<===== FAIL!")') k, " v", u_dst(k), "!", u_true(k), "err", error, msg
+!       write(stderr,'(1x,i2,3(a,"=",1pe24.16,1x),a,"<===== FAIL!")') k, " v", u_dst(k), "!", u_true(k), "err", error, msg
+!     endif
+    endif
+  enddo
+end function test_construct_P3
 
 end module MOM_remapping

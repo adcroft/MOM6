@@ -76,7 +76,6 @@ type :: testing
   contains
     procedure :: test => test           !< Update the testing state
     procedure :: set => set             !< Set attributes
-    procedure :: outcome => outcome     !< Return current outcome
     procedure :: summarize => summarize !< Summarize testing state
     procedure :: real_arr => real_arr   !< Compare array of reals
     procedure :: int_arr => int_arr     !< Compare array of integers
@@ -123,7 +122,7 @@ contains
 !> Set parameters within remapping object
 subroutine remapping_set_param(CS, remapping_scheme, boundary_extrapolation,  &
                check_reconstruction, check_remapping, force_bounds_in_subcell, &
-               om4_remap_via_sub_cells, answers_2018, answer_date, nk)
+               om4_remap_via_sub_cells, answers_2018, answer_date, nk, h_neglect)
   type(remapping_CS),         intent(inout) :: CS !< Remapping control structure
   character(len=*), optional, intent(in)    :: remapping_scheme !< Remapping scheme to use
   logical, optional,          intent(in)    :: boundary_extrapolation !< Indicate to extrapolate in boundary cells
@@ -134,11 +133,12 @@ subroutine remapping_set_param(CS, remapping_scheme, boundary_extrapolation,  &
   logical, optional,          intent(in)    :: answers_2018 !< If true use older, less accurate expressions.
   integer, optional,          intent(in)    :: answer_date  !< The vintage of the expressions to use
   integer, optional,          intent(in)    :: nk !< Number of levels to initialize reconstruction class with
+  real,    optional,          intent(in)    :: h_neglect !< A negligibly small width used in cell reconstructions [H]
 
   if (present(remapping_scheme)) then
     call setReconstructionType( remapping_scheme, CS )
     if (index(trim(remapping_scheme),'C_')>0 .and. present(nk)) then
-      call CS%reconstruction%init(nk)
+      call CS%reconstruction%init(nk, h_neglect=h_neglect)
     endif
   endif
   if (present(boundary_extrapolation)) then
@@ -1060,7 +1060,6 @@ subroutine remap_src_to_sub_grid(n0, h0, u0, ppoly0_E, ppoly0_coefs, n1, h_sub, 
   i_sub = n0+n1+1
   ! Sub-cell thickness from loop above
   dh = h_sub(i_sub)
-
   ! Source cell
   i0 = isub_src(i_sub)
 
@@ -1183,7 +1182,6 @@ subroutine remap_src_to_sub_grid_g(reconstruction, n0, h0, u0, n1, h_sub, &
   i_sub = n0+n1+1
   ! Sub-cell thickness from loop above
   dh = h_sub(i_sub)
-
   ! Source cell
   i0 = isub_src(i_sub)
 
@@ -1695,7 +1693,7 @@ end subroutine dzFromH1H2
 !> Constructor for remapping control structure
 subroutine initialize_remapping( CS, remapping_scheme, boundary_extrapolation, &
                 check_reconstruction, check_remapping, force_bounds_in_subcell, &
-                om4_remap_via_sub_cells, answers_2018, answer_date, nk)
+                om4_remap_via_sub_cells, answers_2018, answer_date, nk, h_neglect)
   ! Arguments
   type(remapping_CS), intent(inout) :: CS !< Remapping control structure
   character(len=*),   intent(in)    :: remapping_scheme !< Remapping scheme to use
@@ -1707,13 +1705,14 @@ subroutine initialize_remapping( CS, remapping_scheme, boundary_extrapolation, &
   logical, optional,  intent(in)    :: answers_2018 !< If true use older, less accurate expressions.
   integer, optional,  intent(in)    :: answer_date  !< The vintage of the expressions to use
   integer, optional,  intent(in)    :: nk !< Number of levels to initialize reconstruction class with
+  real,    optional,  intent(in)    :: h_neglect !< A negligibly small width used in cell reconstructions [H]
 
   ! Note that remapping_scheme is mandatory for initialize_remapping()
   call remapping_set_param(CS, remapping_scheme=remapping_scheme, boundary_extrapolation=boundary_extrapolation,  &
                check_reconstruction=check_reconstruction, check_remapping=check_remapping, &
                force_bounds_in_subcell=force_bounds_in_subcell, &
                om4_remap_via_sub_cells=om4_remap_via_sub_cells, answers_2018=answers_2018, answer_date=answer_date, &
-               nk=nk)
+               nk=nk, h_neglect=h_neglect)
 
 end subroutine initialize_remapping
 
@@ -1797,7 +1796,7 @@ logical function remapping_unit_tests(verbose)
   real, allocatable :: h0(:), h1(:), h2(:) ! Thicknesses for test columns [H]
   real, allocatable :: u0(:), u1(:), u2(:) ! Values for test profiles [A]
   real, allocatable :: dx1(:) ! Change in interface position [H]
-  type(remapping_CS) :: CS !< Remapping control structure
+  type(remapping_CS) :: CS, CS2 !< Remapping control structures
   real, allocatable, dimension(:,:) :: ppoly0_E     ! Edge values of polynomials [A]
   real, allocatable, dimension(:,:) :: ppoly0_S     ! Edge slopes of polynomials [A H-1]
   real, allocatable, dimension(:,:) :: ppoly0_coefs ! Coefficients of polynomials [A]
@@ -1812,9 +1811,12 @@ logical function remapping_unit_tests(verbose)
                                       ! a division by zero would otherwise occur.
   real :: err                         ! Errors in the remapped thicknesses [H] or values [A]
   real :: h_neglect, h_neglect_edge   ! Tiny thicknesses used in remapping [H]
+  integer :: seed_size ! Number of integers used by seed
+  integer, allocatable :: seed(:) ! Random number seed
   type(testing) :: test ! Unit testing convenience functions
-  integer :: om4
-  character(len=4) :: om4_tag
+  integer :: om4 ! Loop parameter, 0 or 1
+  integer, parameter :: ntests = 3000 ! Number of iterations when brute force testing
+  character(len=4) :: om4_tag ! Generated label
   type(PCM) :: PCM
   type(PLM_CW) :: PLM_CW
   type(PLM_WAL) :: PLM_WAL
@@ -2466,16 +2468,89 @@ logical function remapping_unit_tests(verbose)
   call initialize_remapping(CS, 'C_PLM_CW', answer_date=99990101, nk=n0)
 
 
-    ! Unchanged grid
-    call remapping_core_c( CS, n0, h0, u0, 8, [0.,1.,1.,1.,1.,1.,0.,0.], u1 )
-    call test%real_arr(8, u1, (/1.0,1.5,2.5,3.5,4.5,5.5,6.0,6.0/), 'PLM_WAX: remapped  h=01111100->h=01111100')
+  ! Unchanged grid
+  call remapping_core_c( CS, n0, h0, u0, 8, [0.,1.,1.,1.,1.,1.,0.,0.], u1 )
+  call test%real_arr(8, u1, (/1.0,1.5,2.5,3.5,4.5,5.5,6.0,6.0/), 'PLM_WAX: remapped  h=01111100->h=01111100')
 
   call end_remapping(CS)
   deallocate( h0, u0, u1 )
 
+  ! Brute force test that we have bitwise identical answers with the new class
+
+  call random_seed(size=seed_size)
+  allocate( seed(seed_Size) )
+  seed(:) = 102030405
+  call random_seed(put=seed)
+
+  n0 = 12
+  n1 = 13
+  call initialize_remapping(CS, 'PCM', answer_date=99990101, om4_remap_via_sub_cells=.false.)
+  call initialize_remapping(CS2, 'C_PCM', answer_date=99990101, nk=n0, h_neglect=h_neglect)
+  call test_class_v_orig(test, CS, CS2, n0, n1, ntests, h_neglect, 'PCM <-> C_PCM')
+
+  call initialize_remapping(CS, 'PLM', answer_date=99990101, boundary_extrapolation=.false.)
+  call initialize_remapping(CS2, 'C_PLM_WAL', answer_date=99990101, nk=n0, h_neglect=h_neglect)
+  call test_class_v_orig(test, CS, CS2, n0, n1, ntests, h_neglect, 'PLM <-> C_PLM_WAL')
+
+  call initialize_remapping(CS, 'PLM', answer_date=99990101, boundary_extrapolation=.true.)
+  call initialize_remapping(CS2, 'C_PLM_WAX', answer_date=99990101, nk=n0, h_neglect=h_neglect)
+  call test_class_v_orig(test, CS, CS2, n0, n1, ntests, h_neglect, 'PLM <-> C_PLM_WAX')
+
+  call end_remapping(CS)
+  call end_remapping(CS2)
+
   remapping_unit_tests = test%summarize('remapping_unit_tests')
 
 end function remapping_unit_tests
+
+!> Test class-based remapping bitwise reproduces original implementation
+subroutine test_class_v_orig(test, CS1, CS2, n0, n1, niter, h_neglect, msg)
+  type(testing),      intent(inout) :: test  !< Unit testing convenience functions
+  type(remapping_CS), intent(inout) :: CS1   !< Remapping control structure configured for
+                                             !! original implementation
+  type(remapping_CS), intent(inout) :: CS2   !< Remapping control structure configured for
+                                             !! class-based implementation
+  integer,            intent(in)    :: n0    !< Number of source cells
+  integer,            intent(in)    :: n1    !< Number of destination cells
+  integer,            intent(in)    :: niter !< Number of randomized columns to try
+  real,               intent(in)    :: h_neglect !< A negligibly small width used in cell reconstructions [H]
+  character(len=*),   intent(in)    :: msg   !< Message to label test
+  ! Local
+  real :: h0(n0), h1(n1) ! Source and target grids [H but really nondim]
+  real :: u0(n0), u1(n1), u2(n1)  ! Source and two target values [A]
+  logical :: error ! Indicates a divergence
+  integer :: iter ! Loop counter
+  character(len=8) :: label ! Generated label
+
+  error = .false.
+  do iter = 1, niter
+    call random_number( h0 ) ! In range 0-1
+    h0(:) = max(0., h0(:) - 0.00) ! Make 5% of values equal to zero
+    h0(:) = h0(:) / sum( h0 ) ! Approximately normalize to total depth of 1
+    call random_number(h1) ! In range 0-1
+    h1(:) = max(0., h1(:) - 0.00) ! Make 5% of values equal to zero
+    h1(:) = h1(:) / sum( h1 ) ! Approximately normalize to total depth of 1
+    call random_number( u0 ) ! In range 0-1
+
+    call remapping_core_h( CS1, n0, h0, u0, n1, h1, u1, h_neglect, h_neglect)
+    call remapping_core_c( CS2, n0, h0, u0, n1, h1, u2 )
+    error = sum( abs( u2(:) - u1(:) ) ) > 0.
+    if (error) then
+      print *,'iter=',iter
+      print *,'h1',h1
+      print *,'h0',h0
+      print *,'u0',u0
+      print *,'u1',u1
+      print *,'u2',u2
+      print *,'e',u2-u1
+      exit
+    endif
+  enddo
+
+  write(label(1:8),'(i8)') niter
+  call test%test( error, trim(adjustl(label))//' comparisons of '//msg )
+
+end subroutine test_class_v_orig
 
 !> Test if interpolate_column() produces the wrong answer
 subroutine test_interp(test, msg, nsrc, h_src, u_src, ndest, h_dest, u_true)
@@ -2529,6 +2604,10 @@ subroutine test(this, state, label)
     this%num_tests_failed = this%num_tests_failed + 1
     this%ifailed( this%num_tests_failed ) = this%num_tests_checked
     if (this%num_tests_failed == 1) this%label_first_fail = label
+    write(this%stdout, '(2x,3a)') 'Test "',trim(label),'" FAILED!'
+    write(this%stderr, '(2x,3a)') 'Test "',trim(label),'" FAILED!'
+  elseif (this%verbose) then
+    write(this%stdout, '(2x,3a)') 'Test "',trim(label),'" passed'
   endif
   if (this%stop_instantly .and. this%state) stop 1
 end subroutine test
@@ -2554,12 +2633,6 @@ subroutine set(this, verbose, stdout, stderr, stop_instantly)
     this%stop_instantly = stop_instantly
   endif
 end subroutine set
-
-!> Returns state
-logical function outcome(this)
-  class(testing), intent(inout) :: this !< This testing class
-  outcome = this%state
-end function outcome
 
 !> Summarize results
 logical function summarize(this, label)

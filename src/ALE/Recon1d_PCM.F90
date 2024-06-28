@@ -101,6 +101,7 @@ real function average(this, k, xa, xb)
   real,       intent(in) :: xa   !< Start of averaging interval on element (0 to 1)
   real,       intent(in) :: xb   !< End of averaging interval on element (0 to 1)
 
+  average = xb + xa ! no-op to avoid compiler warnings about unused dummy argument
   average = this%u_mean(k)
 
 end function average
@@ -124,6 +125,8 @@ logical function unit_tests(this, verbose, stdout, stderr)
   type(testing) :: test ! convenience functions
   integer :: k
 
+  call test%set( stdout=stdout ) ! Sets the stdout channel in test
+  call test%set( stderr=stderr ) ! Sets the stderr channel in test
   call test%set( verbose=verbose ) ! Sets the verbosity flag in test
 
   call this%init(3)

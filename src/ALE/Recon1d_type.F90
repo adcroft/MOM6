@@ -76,7 +76,6 @@ type :: testing
   contains
     procedure :: test => test           !< Update the testing state
     procedure :: set => set             !< Set attributes
-    procedure :: outcome => outcome     !< Return current outcome
     procedure :: summarize => summarize !< Summarize testing state
 !   procedure :: real_scalar => real_scalar !< Compare two reals
     procedure :: real_arr => real_arr   !< Compare array of reals
@@ -199,6 +198,10 @@ subroutine test(this, state, label)
     this%num_tests_failed = this%num_tests_failed + 1
     this%ifailed( this%num_tests_failed ) = this%num_tests_checked
     if (this%num_tests_failed == 1) this%label_first_fail = label
+    write(this%stdout, '(2x,3a)') 'Test "',trim(label),'" FAILED!'
+    write(this%stderr, '(2x,3a)') 'Test "',trim(label),'" FAILED!'
+  elseif (this%verbose) then
+    write(this%stdout, '(2x,3a)') 'Test "',trim(label),'" passed'
   endif
   if (this%stop_instantly .and. this%state) stop 1
 end subroutine test
@@ -224,12 +227,6 @@ subroutine set(this, verbose, stdout, stderr, stop_instantly)
     this%stop_instantly = stop_instantly
   endif
 end subroutine set
-
-!> Returns state
-logical function outcome(this)
-  class(testing), intent(inout) :: this !< This testing class
-  outcome = this%state
-end function outcome
 
 !> Summarize results
 logical function summarize(this, label)

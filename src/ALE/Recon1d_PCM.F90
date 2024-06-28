@@ -46,6 +46,8 @@ subroutine init(this, n, h_neglect)
   real, optional, intent(in)  :: h_neglect !< A negligibly small width used in cell reconstructionsa [H].
                                            !! Not used by PCM.
 
+  if (present(h_neglect)) this%n = n ! no-op to avoid compiler warning about unused dummy argument
+
   this%n = n
 
   allocate( this%u_mean(n) )
@@ -59,6 +61,8 @@ subroutine reconstruct(this, h, u)
   real,       intent(in)    :: u(*) !< Cell mean values [A]
   ! Local variables
   integer :: k
+
+  this%u_mean(1) = h(1) ! no-op to avoid compiler warning about unused dummy argument
 
   do k = 1, this%n
     this%u_mean(k) = u(k)

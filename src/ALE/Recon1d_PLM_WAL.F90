@@ -231,6 +231,8 @@ logical function unit_tests(this, verbose, stdout, stderr)
   type(testing) :: test ! convenience functions
   integer :: k
 
+  call test%set( stdout=stdout ) ! Sets the stdout channel in test
+  call test%set( stderr=stderr ) ! Sets the stderr channel in test
   call test%set( verbose=verbose ) ! Sets the verbosity flag in test
 
   call this%init(3)

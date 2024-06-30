@@ -283,9 +283,9 @@ subroutine remapping_core_c(CS, n0, h0, u0, n1, h1, u1)
   ! Loop over each sub-cell to calculate average/integral values within each sub-cell.
   ! Uses: h_sub, h0_eff, isub_src
   ! Sets: u_sub, uh_sub
-  call remap_src_to_sub_grid_g(CS%reconstruction, n0, h0, u0, n1, h_sub, &
-                               isrc_start, isrc_end, isrc_max, isub_src, &
-                               u_sub, uh_sub, u02_err)
+  call CS%reconstruction%remap_to_sub_grid(h0, u0, n1, h_sub, &
+                                           isrc_start, isrc_end, isrc_max, isub_src, &
+                                           u_sub, uh_sub, u02_err)
 
   ! Loop over each target cell summing the integrals from sub-cells within the target cell.
   ! Uses: itgt_start, itgt_end, h1, h_sub, uh_sub, u_sub
@@ -1108,117 +1108,6 @@ subroutine remap_src_to_sub_grid(n0, h0, u0, ppoly0_E, ppoly0_coefs, n1, h_sub, 
   endif
 
 end subroutine remap_src_to_sub_grid
-
-!> Remaps column of n0 values u0 on grid h0 to subgrid h_sub
-subroutine remap_src_to_sub_grid_g(reconstruction, n0, h0, u0, n1, h_sub, &
-                                   isrc_start, isrc_end, isrc_max, isub_src, &
-                                   u_sub, uh_sub, u02_err)
-  class(Recon1d), intent(in) :: reconstruction !< 1-D reconstruction type
-  integer, intent(in)  :: n0      !< Number of cells in source grid
-  real,    intent(in)  :: h0(n0)  !< Source grid widths (size n0) [H]
-  real,    intent(in)  :: u0(n0)  !< Source grid widths (size n0) [H]
-  integer, intent(in)  :: n1      !< Number of cells in target grid
-  real,    intent(in)  :: h_sub(n0+n1+1) !< Overlapping sub-cell thicknesses, h_sub [H]
-  integer, intent(in)  :: isrc_start(n0) !< Index of first sub-cell within each source cell
-  integer, intent(in)  :: isrc_end(n0) !< Index of last sub-cell within each source cell
-  integer, intent(in)  :: isrc_max(n0) !< Index of thickest sub-cell within each source cell
-  integer, intent(in)  :: isub_src(n0+n1+1) !< Index of source cell for each sub-cell
-  real,    intent(out) :: u_sub(n0+n1+1) !< Sub-cell cell averages (size n1) [A]
-  real,    intent(out) :: uh_sub(n0+n1+1) !< Sub-cell cell integrals (size n1) [A H]
-  real,    intent(out) :: u02_err !< Integrated reconstruction error estimates [A H]
-  ! Local variables
-  integer :: i_sub ! Index of sub-cell
-  integer :: i0 ! Index into h0(1:n0), source column
-  integer :: i_max ! Used to record which sub-cell is the largest contribution of a source cell
-  real :: dh_max ! Used to record which sub-cell is the largest contribution of a source cell [H]
-  real :: xa, xb ! Non-dimensional position within a source cell (0..1) [nondim]
-  real :: dh ! The width of the sub-cell [H]
-  real :: duh ! The total amount of accumulated stuff (u*h) [A H]
-  real :: dh0_eff ! Running sum of source cell thickness [H]
-  integer :: i0_last_thick_cell
-
-  i0_last_thick_cell = 0
-  do i0 = 1, n0
-    if (h0(i0)>0.) i0_last_thick_cell = i0
-  enddo
-
-  ! Loop over each sub-cell to calculate average/integral values within each sub-cell.
-  ! Uses: h_sub, isub_src, h0_eff
-  ! Sets: u_sub, uh_sub
-  xa = 0.
-  dh0_eff = 0.
-  u02_err = 0.
-  do i_sub = 1, n0+n1
-
-    ! Sub-cell thickness from loop above
-    dh = h_sub(i_sub)
-
-    ! Source cell
-    i0 = isub_src(i_sub)
-
-    ! Evaluate average and integral for sub-cell i_sub.
-    ! Integral is over distance dh but expressed in terms of non-dimensional
-    ! positions with source cell from xa to xb  (0 <= xa <= xb <= 1).
-    dh0_eff = dh0_eff + dh ! Cumulative thickness within the source cell
-    if (h0(i0)>0.) then
-      xb = dh0_eff / h0(i0) ! This expression yields xa <= xb <= 1.0
-      xb = min(1., xb) ! This is only needed when the total target column is wider than the source column
-      u_sub(i_sub) = reconstruction%average( i0, xa, xb )
-    else ! Vanished cell
-      xb = 1.
-      u_sub(i_sub) = u0(i0)
-    endif
-    uh_sub(i_sub) = dh * u_sub(i_sub)
-
-    if (isub_src(i_sub+1) /= i0) then
-      ! If the next sub-cell is in a different source cell, reset the position counters
-      dh0_eff = 0.
-      xa = 0.
-    else
-      xa = xb ! Next integral will start at end of last
-    endif
-
-  enddo
-  i_sub = n0+n1+1
-  ! Sub-cell thickness from loop above
-  dh = h_sub(i_sub)
-  ! Source cell
-  i0 = isub_src(i_sub)
-
-  ! Evaluate average and integral for sub-cell i_sub.
-  ! Integral is over distance dh but expressed in terms of non-dimensional
-  ! positions with source cell from xa to xb  (0 <= xa <= xb <= 1).
-  dh0_eff = dh0_eff + dh ! Cumulative thickness within the source cell
-  if (h0(i0)>0.) then
-    xb = dh0_eff / h0(i0) ! This expression yields xa <= xb <= 1.0
-    xb = min(1., xb) ! This is only needed when the total target column is wider than the source column
-    u_sub(i_sub) = reconstruction%average( i0, xa, xb )
-  else ! Vanished cell
-    xb = 1.
-    u_sub(i_sub) = u0(i0)
-  endif
-  uh_sub(i_sub) = dh * u_sub(i_sub)
-
-  ! Loop over each source cell substituting the integral/average for the thickest sub-cell (within
-  ! the source cell) with the residual of the source cell integral minus the other sub-cell integrals
-  ! aka a genius algorithm for accurate conservation when remapping from Robert Hallberg (@Hallberg-NOAA).
-  ! Uses: i0_last_thick_cell, isrc_max, h_sub, isrc_start, isrc_end, uh_sub, u0, h0
-  ! Updates: uh_sub
-  do i0 = 1, i0_last_thick_cell
-    i_max = isrc_max(i0)
-    dh_max = h_sub(i_max)
-    if (dh_max > 0.) then
-      ! duh will be the sum of sub-cell integrals within the source cell except for the thickest sub-cell.
-      duh = 0.
-      do i_sub = isrc_start(i0), isrc_end(i0)
-        if (i_sub /= i_max) duh = duh + uh_sub(i_sub)
-      enddo
-      uh_sub(i_max) = u0(i0)*h0(i0) - duh
-      u02_err = u02_err + max( abs(uh_sub(i_max)), abs(u0(i0)*h0(i0)), abs(duh) )
-    endif
-  enddo
-
-end subroutine remap_src_to_sub_grid_g
 
 !> Remaps column of n0+n1+1 values usub on sub-grid h_sub to targets on grid h1
 subroutine remap_sub_to_tgt_grid(n0, n1, h1, h_sub, u_sub, uh_sub, &

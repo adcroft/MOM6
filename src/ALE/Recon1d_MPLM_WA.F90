@@ -1,6 +1,9 @@
-!> Piecewise Linear Method 1D reconstruction following White and Adcroft, 2008,
-!! with cells resorting to PCM for extrema including first and last cells in column.
-module Recon1d_PLM_WAL
+!> Monotonized Piecewise Linear Method 1D reconstruction
+!!
+!! This implementation of PLM follows White and Adcroft, 2008. The PLM slopes are first limited following
+!! Colella and Woodward, 1984, but are then further limited to ensure the edge values moving across cell
+!! boundaries are monotone.  The first and last cells are always limited to PCM.
+module Recon1d_MPLM_WA
 
 ! This file is part of MOM6. See LICENSE.md for the license.
 
@@ -8,10 +11,10 @@ use Recon1d_PLM_CW, only : PLM_CW, testing
 
 implicit none ; private
 
-public PLM_WAL, testing
+public MPLM_WA, testing
 
 !> The White and Adcroft limited PLM implementation of Recon1d
-type, extends (PLM_CW) :: PLM_WAL
+type, extends (PLM_CW) :: MPLM_WA
 
   ! Legacy representation
   integer :: degree !< Degree of polynomial used in legacy representation
@@ -37,13 +40,13 @@ contains
   procedure :: remap_to_sub_grid => remap_to_sub_grid
 #endif
 
-end type PLM_WAL
+end type MPLM_WA
 
 contains
 
 !> Initialize a 1D PLM reconstruction for n cells
 subroutine init(this, n, h_neglect)
-  class(PLM_WAL), intent(out) :: this !< This reconstruction
+  class(MPLM_WA), intent(out) :: this !< This reconstruction
   integer,        intent(in)  :: n    !< Number of cells in this column
   real, optional, intent(in)  :: h_neglect !< A negligibly small width used in cell reconstructionsa [H]
 
@@ -63,7 +66,7 @@ end subroutine init
 
 !> Calculate a 1D PLM reconstructions based on h(:) and u(:)
 subroutine reconstruct(this, h, u)
-  class(PLM_WAL), intent(inout) :: this !< This reconstruction
+  class(MPLM_WA), intent(inout) :: this !< This reconstruction
   real,           intent(in)    :: h(*) !< Grid spacing (thickness) [typically H]
   real,           intent(in)    :: u(*) !< Cell mean values [A]
   ! Local variables
@@ -214,7 +217,7 @@ end function PLM_monotonized_slope
 !! Note: this uses the simple polynomial form a + b * x  on x E (0,1)
 !! which can overshoot at x=1
 real function average(this, k, xa, xb)
-  class(PLM_WAL), intent(in) :: this !< This reconstruction
+  class(MPLM_WA), intent(in) :: this !< This reconstruction
   integer,        intent(in) :: k    !< Cell number
   real,           intent(in) :: xa   !< Start of averaging interval on element (0 to 1)
   real,           intent(in) :: xb   !< End of averaging interval on element (0 to 1)
@@ -234,7 +237,7 @@ end function average
 subroutine remap_to_sub_grid(this, h0, u0, n1, h_sub, &
                                    isrc_start, isrc_end, isrc_max, isub_src, &
                                    u_sub, uh_sub, u02_err)
-  class(PLM_WAL), intent(in) :: this !< 1-D reconstruction type
+  class(MPLM_WA), intent(in) :: this !< 1-D reconstruction type
   real,    intent(in)  :: h0(*)  !< Source grid widths (size n0) [H]
   real,    intent(in)  :: u0(*)  !< Source grid widths (size n0) [H]
   integer, intent(in)  :: n1      !< Number of cells in target grid
@@ -345,7 +348,7 @@ end subroutine remap_to_sub_grid
 
 !> Runs PLM reconstruction unit tests and returns True for any fails, False otherwise
 logical function unit_tests(this, verbose, stdout, stderr)
-  class(PLM_WAL), intent(inout) :: this    !< This reconstruction
+  class(MPLM_WA), intent(inout) :: this    !< This reconstruction
   logical,        intent(in)    :: verbose !< True, if verbose
   integer,        intent(in)    :: stdout  !< I/O channel for stdout
   integer,        intent(in)    :: stderr  !< I/O channel for stderr
@@ -394,11 +397,11 @@ logical function unit_tests(this, verbose, stdout, stderr)
   call test%real_arr(3, ur, (/1.,0.75,1./), 'Return position of f>')
   call test%real_arr(3, urr, (/1.,1.,1./), 'Return position of f>>')
 
-  unit_tests = test%summarize('PLM_WAL:unit_tests')
+  unit_tests = test%summarize('MPLM_WA:unit_tests')
 
 end function unit_tests
 
 !> \namespace recon1d_plm_wal
 !!
 
-end module Recon1d_PLM_WAL
+end module Recon1d_MPLM_WA

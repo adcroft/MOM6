@@ -21,8 +21,8 @@ use MOM_hybgen_remap, only : hybgen_plm_coefs, hybgen_ppm_coefs, hybgen_weno_coe
 use Recon1d_type, only : Recon1d
 use Recon1d_PCM, only : PCM
 use Recon1d_PLM_CW, only : PLM_CW
-use Recon1d_PLM_WAL, only : PLM_WAL
-use Recon1d_PLM_WAX, only : PLM_WAX
+use Recon1d_MPLM_WA, only : MPLM_WA
+use Recon1d_EMPLM_WA, only : EMPLM_WA
 
 implicit none ; private
 
@@ -1654,11 +1654,12 @@ subroutine setReconstructionType(string,CS)
       allocate( PCM :: CS%reconstruction )
     case ("C_PLM_CW")
       allocate( PLM_CW :: CS%reconstruction )
-    case ("C_PLM_WAL")
-      allocate( PLM_WAL :: CS%reconstruction )
-    case ("C_PLM_WAX")
-      allocate( PLM_WAX :: CS%reconstruction )
+    case ("C_MPLM_WA")
+      allocate( MPLM_WA :: CS%reconstruction )
+    case ("C_EMPLM_WA")
+      allocate( EMPLM_WA :: CS%reconstruction )
     case default
+print *,trim(string)
       call MOM_error(FATAL, "setReconstructionType: "//&
        "Unrecognized choice for REMAPPING_SCHEME ("//trim(string)//").")
   end select
@@ -1708,8 +1709,8 @@ logical function remapping_unit_tests(verbose)
   character(len=4) :: om4_tag ! Generated label
   type(PCM) :: PCM
   type(PLM_CW) :: PLM_CW
-  type(PLM_WAL) :: PLM_WAL
-  type(PLM_WAX) :: PLM_WAX
+  type(MPLM_WA) :: MPLM_WA
+  type(EMPLM_WA) :: EMPLM_WA
 
   call test%set( verbose=verbose ) ! Sets the verbosity flag in test
 
@@ -2345,8 +2346,8 @@ logical function remapping_unit_tests(verbose)
 
   if (verbose) write(test%stdout,*) '- - - - - - - - - - Recon1d PCM tests  - - - - - - - - -'
   call test%test( PCM%unit_tests(verbose, test%stdout, test%stderr), 'PCM unit test')
-  call test%test( PLM_WAL%unit_tests(verbose, test%stdout, test%stderr), 'PLM_WAL unit test')
-  call test%test( PLM_WAX%unit_tests(verbose, test%stdout, test%stderr), 'PLM_WAX unit test')
+  call test%test( MPLM_WA%unit_tests(verbose, test%stdout, test%stderr), 'MPLM_WA unit test')
+  call test%test( EMPLM_WA%unit_tests(verbose, test%stdout, test%stderr), 'EMPLM_WA unit test')
   call test%test( PLM_CW%unit_tests(verbose, test%stdout, test%stderr), 'PLM_CW unit test')
 
   n0 = 8
@@ -2359,7 +2360,7 @@ logical function remapping_unit_tests(verbose)
 
   ! Unchanged grid
   call remapping_core_c( CS, n0, h0, u0, 8, [0.,1.,1.,1.,1.,1.,0.,0.], u1 )
-  call test%real_arr(8, u1, (/1.0,1.5,2.5,3.5,4.5,5.5,6.0,6.0/), 'PLM_WAX: remapped  h=01111100->h=01111100')
+  call test%real_arr(8, u1, (/1.0,1.5,2.5,3.5,4.5,5.5,6.0,6.0/), 'EMPLM_WA: remapped  h=01111100->h=01111100')
 
   call end_remapping(CS)
   deallocate( h0, u0, u1 )
@@ -2378,12 +2379,12 @@ logical function remapping_unit_tests(verbose)
   call test_class_v_orig(test, CS, CS2, n0, n1, ntests, h_neglect, 'PCM <-> C_PCM')
 
   call initialize_remapping(CS, 'PLM', answer_date=99990101, boundary_extrapolation=.false.)
-  call initialize_remapping(CS2, 'C_PLM_WAL', answer_date=99990101, nk=n0, h_neglect=h_neglect)
-  call test_class_v_orig(test, CS, CS2, n0, n1, ntests, h_neglect, 'PLM <-> C_PLM_WAL')
+  call initialize_remapping(CS2, 'C_MPLM_WA', answer_date=99990101, nk=n0, h_neglect=h_neglect)
+  call test_class_v_orig(test, CS, CS2, n0, n1, ntests, h_neglect, 'PLM <-> C_MPLM_WA')
 
   call initialize_remapping(CS, 'PLM', answer_date=99990101, boundary_extrapolation=.true.)
-  call initialize_remapping(CS2, 'C_PLM_WAX', answer_date=99990101, nk=n0, h_neglect=h_neglect)
-  call test_class_v_orig(test, CS, CS2, n0, n1, ntests, h_neglect, 'PLM <-> C_PLM_WAX')
+  call initialize_remapping(CS2, 'C_EMPLM_WA', answer_date=99990101, nk=n0, h_neglect=h_neglect)
+  call test_class_v_orig(test, CS, CS2, n0, n1, ntests, h_neglect, 'PLM <-> C_EMPLM_WA')
 
   call end_remapping(CS)
   call end_remapping(CS2)

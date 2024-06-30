@@ -1,5 +1,11 @@
-!> Piecewise Linear Method 1D reconstruction following Colella and Woodward, 1984,
-!! with cells resorting to PCM for extrema including first and last cells in column.
+!> Piecewise Linear Method 1D reconstruction
+!!
+!! This implementation of PLM follows Colella and Woodward, 1984, with cells resorting to PCM for
+!! extrema including first and last cells in column. The cell-wise reconstructions are limited so
+!! that the edge values (which are also the extrema in a cell) are bounded by the neighbors. The
+!! limiter yields monotonicity for the CFL<1 transport problem where parts of a cell can only move
+!! to a neighboring cell, but does not yield monotonic profiles for the general remapping problem.
+!! The first and last cells are always limtied to PCM.
 module Recon1d_PLM_CW
 
 ! This file is part of MOM6. See LICENSE.md for the license.

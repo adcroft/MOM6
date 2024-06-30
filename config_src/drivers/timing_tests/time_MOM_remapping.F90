@@ -34,8 +34,8 @@ call random_seed(put=seed)
 scheme_labels(1) = 'PCM'
 scheme_labels(2) = 'PLM'
 scheme_labels(3) = 'C_PCM'
-scheme_labels(4) = 'C_PLM_WAL'
-scheme_labels(5) = 'C_PLM_WAX'
+scheme_labels(4) = 'C_MPLM_WA'
+scheme_labels(5) = 'C_EMPLM_WA'
 scheme_labels(6) = 'C_PLM_CW'
 
 ! Set up some test data (note: using k,i indexing rather than i,k)

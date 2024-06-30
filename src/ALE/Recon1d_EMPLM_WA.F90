@@ -1,40 +1,42 @@
-!> Piecewise Linear Method 1D reconstruction following White and Adcroft, 2008,
-!! with extrapolation for the first and last cells in column.
-module Recon1d_PLM_WAX
+!> Extrapolated-Monotonized Piecewise Linear Method 1D reconstruction
+!!
+!! This extends MPLM, following White and Adcroft, 2008, by extraplating for the slopes of the
+!! first and last cells. This extrapolation is used by White et al., 2009 during grid-generation.
+module Recon1d_EMPLM_WA
 
 ! This file is part of MOM6. See LICENSE.md for the license.
 
-use Recon1d_PLM_WAL, only : PLM_WAL, testing
+use Recon1d_MPLM_WA, only : MPLM_WA, testing
 
 implicit none ; private
 
-public PLM_WAX
+public EMPLM_WA
 
 !> The White and Adcroft PLM implementation of Recon1d with extrapolation in first/last cells
 !!
-!! This extends the PLM_WAL type
-type, extends (PLM_WAL) :: PLM_WAX
+!! This extends the MPLM_WA type
+type, extends (MPLM_WA) :: EMPLM_WA
 
 contains
-  !> Implementation of the PLM_WAX reconstruction with boundary extrapolation
+  !> Implementation of the EMPLM_WA reconstruction with boundary extrapolation
   procedure :: reconstruct => reconstruct
-  !> Implementation of unit tests for the PLM_WAX reconstruction
+  !> Implementation of unit tests for the EMPLM_WA reconstruction
   procedure :: unit_tests => unit_tests
 
-end type PLM_WAX
+end type EMPLM_WA
 
 contains
 
 !> Calculate a 1D PLM reconstruction based on h(:) and u(:)
 subroutine reconstruct(this, h, u)
-  class(PLM_WAX), intent(inout) :: this !< This reconstruction
-  real,           intent(in)    :: h(*) !< Grid spacing (thickness) [typically H]
-  real,           intent(in)    :: u(*) !< Cell mean values [A]
+  class(EMPLM_WA), intent(inout) :: this !< This reconstruction
+  real,            intent(in)    :: h(*) !< Grid spacing (thickness) [typically H]
+  real,            intent(in)    :: u(*) !< Cell mean values [A]
   ! Local variables
   integer :: n
   real :: slope ! Difference of u across cell [A]
 
-  ! Use parent (PLM_WAL) reconstruction
+  ! Use parent (MPLM_WA) reconstruction
   call this%reconstruct_parent(h, u)
 
   n = this%n
@@ -82,10 +84,10 @@ end function PLM_extrapolate_slope
 
 !> Runs PLM reconstruction unit tests and returns True for any fails, False otherwise
 logical function unit_tests(this, verbose, stdout, stderr)
-  class(PLM_WAX), intent(inout) :: this    !< This reconstruction
-  logical,        intent(in)    :: verbose !< True, if verbose
-  integer,        intent(in)    :: stdout  !< I/O channel for stdout
-  integer,        intent(in)    :: stderr  !< I/O channel for stderr
+  class(EMPLM_WA), intent(inout) :: this    !< This reconstruction
+  logical,         intent(in)    :: verbose !< True, if verbose
+  integer,         intent(in)    :: stdout  !< I/O channel for stdout
+  integer,         intent(in)    :: stderr  !< I/O channel for stderr
   ! Local variables
   real, allocatable :: ul(:), ur(:), um(:) ! test values [A]
   real, allocatable :: ull(:), urr(:) ! test values [A]
@@ -131,11 +133,11 @@ logical function unit_tests(this, verbose, stdout, stderr)
   call test%real_arr(3, ur, (/0.75,0.75,0.75/), 'Return position of f>')
   call test%real_arr(3, urr, (/1.,1.,1./), 'Return position of f>>')
 
-  unit_tests = test%summarize('PLM_WAX:unit_tests')
+  unit_tests = test%summarize('EMPLM_WA:unit_tests')
 
 end function unit_tests
 
 !> \namespace recon1d_plm_wax
 !!
 
-end module Recon1d_PLM_WAX
+end module Recon1d_EMPLM_WA

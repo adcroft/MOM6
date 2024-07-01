@@ -10,8 +10,8 @@ use MOM_remapping, only : remapping_core_c
 implicit none
 
 type(remapping_CS) :: CS
-integer, parameter :: nk=75, nij=20*20, nits=10, nsamp=100, nschemes = 6
-character(len=10) :: scheme_labels(nschemes)
+integer, parameter :: nk=75, nij=20*20, nits=10, nsamp=100, nschemes = 8
+character(len=16) :: scheme_labels(nschemes)
 real, dimension(nschemes) :: timings ! Time for nits of nij calls for each scheme [s]
 real, dimension(nschemes) :: tmean ! Mean time for a call [s]
 real, dimension(nschemes) :: tstd ! Standard deviation of time for a call [s]
@@ -37,6 +37,8 @@ scheme_labels(3) = 'C_PCM'
 scheme_labels(4) = 'C_MPLM_WA'
 scheme_labels(5) = 'C_EMPLM_WA'
 scheme_labels(6) = 'C_PLM_CW'
+scheme_labels(7) = 'C_MPLM_WA_POLY'
+scheme_labels(8) = 'C_EMPLM_WA_POLY'
 
 ! Set up some test data (note: using k,i indexing rather than i,k)
 allocate( u0(nk,nij), h0(nk,nij), u1(nk,nij), h1(nk,nij) )

@@ -23,6 +23,8 @@ use Recon1d_PCM, only : PCM
 use Recon1d_PLM_CW, only : PLM_CW
 use Recon1d_MPLM_WA, only : MPLM_WA
 use Recon1d_EMPLM_WA, only : EMPLM_WA
+use Recon1d_MPLM_WA_poly, only : MPLM_WA_poly
+use Recon1d_EMPLM_WA_poly, only : EMPLM_WA_poly
 
 implicit none ; private
 
@@ -1658,8 +1660,11 @@ subroutine setReconstructionType(string,CS)
       allocate( MPLM_WA :: CS%reconstruction )
     case ("C_EMPLM_WA")
       allocate( EMPLM_WA :: CS%reconstruction )
+    case ("C_MPLM_WA_POLY")
+      allocate( MPLM_WA_poly :: CS%reconstruction )
+    case ("C_EMPLM_WA_POLY")
+      allocate( EMPLM_WA_poly :: CS%reconstruction )
     case default
-print *,trim(string)
       call MOM_error(FATAL, "setReconstructionType: "//&
        "Unrecognized choice for REMAPPING_SCHEME ("//trim(string)//").")
   end select
@@ -1711,6 +1716,8 @@ logical function remapping_unit_tests(verbose)
   type(PLM_CW) :: PLM_CW
   type(MPLM_WA) :: MPLM_WA
   type(EMPLM_WA) :: EMPLM_WA
+  type(MPLM_WA_poly) :: MPLM_WA_poly
+  type(EMPLM_WA_poly) :: EMPLM_WA_poly
 
   call test%set( verbose=verbose ) ! Sets the verbosity flag in test
 
@@ -2379,12 +2386,12 @@ logical function remapping_unit_tests(verbose)
   call test_class_v_orig(test, CS, CS2, n0, n1, ntests, h_neglect, 'PCM <-> C_PCM')
 
   call initialize_remapping(CS, 'PLM', answer_date=99990101, boundary_extrapolation=.false.)
-  call initialize_remapping(CS2, 'C_MPLM_WA', answer_date=99990101, nk=n0, h_neglect=h_neglect)
-  call test_class_v_orig(test, CS, CS2, n0, n1, ntests, h_neglect, 'PLM <-> C_MPLM_WA')
+  call initialize_remapping(CS2, 'C_MPLM_WA_POLY', answer_date=99990101, nk=n0, h_neglect=h_neglect)
+  call test_class_v_orig(test, CS, CS2, n0, n1, ntests, h_neglect, 'PLM <-> C_MPLM_WA_poly')
 
   call initialize_remapping(CS, 'PLM', answer_date=99990101, boundary_extrapolation=.true.)
-  call initialize_remapping(CS2, 'C_EMPLM_WA', answer_date=99990101, nk=n0, h_neglect=h_neglect)
-  call test_class_v_orig(test, CS, CS2, n0, n1, ntests, h_neglect, 'PLM <-> C_EMPLM_WA')
+  call initialize_remapping(CS2, 'C_EMPLM_WA_POLY', answer_date=99990101, nk=n0, h_neglect=h_neglect)
+  call test_class_v_orig(test, CS, CS2, n0, n1, ntests, h_neglect, 'PLM <-> C_EMPLM_WA_poly')
 
   call end_remapping(CS)
   call end_remapping(CS2)

@@ -3,40 +3,65 @@
 !! This implementation of PLM follows White and Adcroft, 2008. The PLM slopes are first limited following
 !! Colella and Woodward, 1984, but are then further limited to ensure the edge values moving across cell
 !! boundaries are monotone.  The first and last cells are always limited to PCM.
-module Recon1d_MPLM_WA
+module Recon1d_MPLM_WA_poly
 
 ! This file is part of MOM6. See LICENSE.md for the license.
 
-use Recon1d_PLM_CW, only : PLM_CW, testing
+use Recon1d_MPLM_WA, only : MPLM_WA, testing
 
 implicit none ; private
 
-public MPLM_WA, testing
+public MPLM_WA_poly, testing
 
 !> The White and Adcroft limited PLM implementation of Recon1d
-type, extends (PLM_CW) :: MPLM_WA
+type, extends (MPLM_WA) :: MPLM_WA_poly
+
+  ! Legacy representation
+  integer :: degree !< Degree of polynomial used in legacy representation
+  real, allocatable, dimension(:,:) :: poly_coef !< Polynomial coefficients in legacy representation
 
 contains
+  !> Implementation of the PLM initialization
+  procedure :: init => init
   !> Implementation of the PLM reconstruction
   procedure :: reconstruct => reconstruct
+  !> Implementation of the PLM average over an interval [A]
+  procedure :: average => average
   !> Implementation of unit tests for the PLM reconstruction
   procedure :: unit_tests => unit_tests
 
   !> Duplicate interface to reconstruct()
+  procedure :: init_parent => init
+  !> Duplicate interface to reconstruct()
   procedure :: reconstruct_parent => reconstruct
 
-#ifdef RINLINE
-  !> Remaps the column to subgrid h_sub
-  procedure :: remap_to_sub_grid => remap_to_sub_grid
-#endif
-
-end type MPLM_WA
+end type MPLM_WA_poly
 
 contains
 
+!> Initialize a 1D PLM reconstruction for n cells
+subroutine init(this, n, h_neglect)
+  class(MPLM_WA_poly), intent(out) :: this !< This reconstruction
+  integer,        intent(in)  :: n    !< Number of cells in this column
+  real, optional, intent(in)  :: h_neglect !< A negligibly small width used in cell reconstructionsa [H]
+
+  this%n = n
+
+  allocate( this%u_mean(n) )
+  allocate( this%ul(n) )
+  allocate( this%ur(n) )
+
+  this%h_neglect = tiny( this%u_mean(1) )
+  if (present(h_neglect)) this%h_neglect = h_neglect
+
+  this%degree = 2
+  allocate( this%poly_coef(n,2) )
+
+end subroutine init
+
 !> Calculate a 1D PLM reconstructions based on h(:) and u(:)
 subroutine reconstruct(this, h, u)
-  class(MPLM_WA), intent(inout) :: this !< This reconstruction
+  class(MPLM_WA_poly), intent(inout) :: this !< This reconstruction
   real,           intent(in)    :: h(*) !< Grid spacing (thickness) [typically H]
   real,           intent(in)    :: u(*) !< Cell mean values [A]
   ! Local variables
@@ -73,12 +98,26 @@ subroutine reconstruct(this, h, u)
   almost_one = 1. - epsilon(e_r)
   this%ul(1) = u(1)
   this%ur(1) = u(1)
+  this%poly_coef(1,1) = u(1)
+  this%poly_coef(1,2) = 0.
   do k = 2, n-1
     this%ul(k) = u(k) - 0.5 * mslp(k) ! Left edge value of cell k
     this%ur(k) = u(k) + 0.5 * mslp(k) ! Right edge value of cell k
+
+    this%poly_coef(k,1) = this%ul(k)
+    this%poly_coef(k,2) = this%ur(k) - this%ul(k)
+    ! Check to see if this evaluation of the polynomial at x=1 would be
+    ! monotonic w.r.t. the next cell's edge value. If not, scale back!
+    edge = this%poly_coef(k,2) + this%poly_coef(k,1)
+    e_r = u(k+1) - 0.5 * sign( mslp(k+1), slp(k+1) )
+    if ( (edge-u(k))*(e_r-edge)<0.) then
+      this%poly_coef(k,2) = this%poly_coef(k,2) * almost_one
+    endif
   enddo
   this%ul(n) = u(n)
   this%ur(n) = u(n)
+  this%poly_coef(n,1) = u(n)
+  this%poly_coef(n,2) = 0.
 
 end subroutine reconstruct
 
@@ -169,128 +208,23 @@ real elemental pure function PLM_monotonized_slope(u_l, u_c, u_r, s_l, s_c, s_r)
 
 end function PLM_monotonized_slope
 
-#ifdef RINLINE
-!> Remaps the column to subgrid h_sub
-!!
-!! It is assumed that h_sub is a perfect sub-grid of h0, meaning each h0 cell
-!! can be constructed by joining a contiguous set of h_sub cells. The integer
-!! indices isrc_start, isrc_end, isub_src provide this mapping, and are
-!! calcualted in MOM_remapping
-subroutine remap_to_sub_grid(this, h0, u0, n1, h_sub, &
-                                   isrc_start, isrc_end, isrc_max, isub_src, &
-                                   u_sub, uh_sub, u02_err)
-  class(MPLM_WA), intent(in) :: this !< 1-D reconstruction type
-  real,    intent(in)  :: h0(*)  !< Source grid widths (size n0) [H]
-  real,    intent(in)  :: u0(*)  !< Source grid widths (size n0) [H]
-  integer, intent(in)  :: n1      !< Number of cells in target grid
-  real,    intent(in)  :: h_sub(*) !< Overlapping sub-cell thicknesses, h_sub [H]
-  integer, intent(in)  :: isrc_start(*) !< Index of first sub-cell within each source cell
-  integer, intent(in)  :: isrc_end(*) !< Index of last sub-cell within each source cell
-  integer, intent(in)  :: isrc_max(*) !< Index of thickest sub-cell within each source cell
-  integer, intent(in)  :: isub_src(*) !< Index of source cell for each sub-cell
-  real,    intent(out) :: u_sub(*) !< Sub-cell cell averages (size n1) [A]
-  real,    intent(out) :: uh_sub(*) !< Sub-cell cell integrals (size n1) [A H]
-  real,    intent(out) :: u02_err !< Integrated reconstruction error estimates [A H]
-  ! Local variables
-  integer :: i_sub ! Index of sub-cell
-  integer :: i0 ! Index into h0(1:n0), source column
-  integer :: i_max ! Used to record which sub-cell is the largest contribution of a source cell
-  real :: dh_max ! Used to record which sub-cell is the largest contribution of a source cell [H]
-  real :: xa, xb ! Non-dimensional position within a source cell (0..1) [nondim]
-  real :: dh ! The width of the sub-cell [H]
-  real :: duh ! The total amount of accumulated stuff (u*h) [A H]
-  real :: dh0_eff ! Running sum of source cell thickness [H]
-  integer :: i0_last_thick_cell, n0
+!> Average between xa and xb for cell k of a 1D PLM reconstruction [A]
+!! Note: this uses the simple polynomial form a + b * x  on x E (0,1)
+!! which can overshoot at x=1
+real function average(this, k, xa, xb)
+  class(MPLM_WA_poly), intent(in) :: this !< This reconstruction
+  integer,        intent(in) :: k    !< Cell number
+  real,           intent(in) :: xa   !< Start of averaging interval on element (0 to 1)
+  real,           intent(in) :: xb   !< End of averaging interval on element (0 to 1)
 
-  n0 = this%n
+  average = this%poly_coef(k,1) &
+          + this%poly_coef(k,2) * 0.5 * ( xb + xa )
 
-  i0_last_thick_cell = 0
-  do i0 = 1, n0
-    if (h0(i0)>0.) i0_last_thick_cell = i0
-  enddo
-
-  ! Loop over each sub-cell to calculate average/integral values within each sub-cell.
-  ! Uses: h_sub, isub_src, h0_eff
-  ! Sets: u_sub, uh_sub
-  xa = 0.
-  dh0_eff = 0.
-  u02_err = 0.
-  do i_sub = 1, n0+n1
-
-    ! Sub-cell thickness from loop above
-    dh = h_sub(i_sub)
-
-    ! Source cell
-    i0 = isub_src(i_sub)
-
-    ! Evaluate average and integral for sub-cell i_sub.
-    ! Integral is over distance dh but expressed in terms of non-dimensional
-    ! positions with source cell from xa to xb  (0 <= xa <= xb <= 1).
-    dh0_eff = dh0_eff + dh ! Cumulative thickness within the source cell
-    if (h0(i0)>0.) then
-      xb = dh0_eff / h0(i0) ! This expression yields xa <= xb <= 1.0
-      xb = min(1., xb) ! This is only needed when the total target column is wider than the source column
-      u_sub(i_sub) = this%average( i0, xa, xb )
-    else ! Vanished cell
-      xb = 1.
-      u_sub(i_sub) = u0(i0)
-    endif
-    uh_sub(i_sub) = dh * u_sub(i_sub)
-
-    if (isub_src(i_sub+1) /= i0) then
-      ! If the next sub-cell is in a different source cell, reset the position counters
-      dh0_eff = 0.
-      xa = 0.
-    else
-      xa = xb ! Next integral will start at end of last
-    endif
-
-  enddo
-  i_sub = n0+n1+1
-  ! Sub-cell thickness from loop above
-  dh = h_sub(i_sub)
-  ! Source cell
-  i0 = isub_src(i_sub)
-
-  ! Evaluate average and integral for sub-cell i_sub.
-  ! Integral is over distance dh but expressed in terms of non-dimensional
-  ! positions with source cell from xa to xb  (0 <= xa <= xb <= 1).
-  dh0_eff = dh0_eff + dh ! Cumulative thickness within the source cell
-  if (h0(i0)>0.) then
-    xb = dh0_eff / h0(i0) ! This expression yields xa <= xb <= 1.0
-    xb = min(1., xb) ! This is only needed when the total target column is wider than the source column
-    u_sub(i_sub) = this%average( i0, xa, xb )
-  else ! Vanished cell
-    xb = 1.
-    u_sub(i_sub) = u0(i0)
-  endif
-  uh_sub(i_sub) = dh * u_sub(i_sub)
-
-  ! Loop over each source cell substituting the integral/average for the thickest sub-cell (within
-  ! the source cell) with the residual of the source cell integral minus the other sub-cell integrals
-  ! aka a genius algorithm for accurate conservation when remapping from Robert Hallberg (@Hallberg-NOAA).
-  ! Uses: i0_last_thick_cell, isrc_max, h_sub, isrc_start, isrc_end, uh_sub, u0, h0
-  ! Updates: uh_sub
-  do i0 = 1, i0_last_thick_cell
-    i_max = isrc_max(i0)
-    dh_max = h_sub(i_max)
-    if (dh_max > 0.) then
-      ! duh will be the sum of sub-cell integrals within the source cell except for the thickest sub-cell.
-      duh = 0.
-      do i_sub = isrc_start(i0), isrc_end(i0)
-        if (i_sub /= i_max) duh = duh + uh_sub(i_sub)
-      enddo
-      uh_sub(i_max) = u0(i0)*h0(i0) - duh
-      u02_err = u02_err + max( abs(uh_sub(i_max)), abs(u0(i0)*h0(i0)), abs(duh) )
-    endif
-  enddo
-
-end subroutine remap_to_sub_grid
-#endif
+end function average
 
 !> Runs PLM reconstruction unit tests and returns True for any fails, False otherwise
 logical function unit_tests(this, verbose, stdout, stderr)
-  class(MPLM_WA), intent(inout) :: this    !< This reconstruction
+  class(MPLM_WA_poly), intent(inout) :: this    !< This reconstruction
   logical,        intent(in)    :: verbose !< True, if verbose
   integer,        intent(in)    :: stdout  !< I/O channel for stdout
   integer,        intent(in)    :: stderr  !< I/O channel for stderr
@@ -339,11 +273,11 @@ logical function unit_tests(this, verbose, stdout, stderr)
   call test%real_arr(3, ur, (/1.,0.75,1./), 'Return position of f>')
   call test%real_arr(3, urr, (/1.,1.,1./), 'Return position of f>>')
 
-  unit_tests = test%summarize('MPLM_WA:unit_tests')
+  unit_tests = test%summarize('MPLM_WA_poly:unit_tests')
 
 end function unit_tests
 
 !> \namespace recon1d_plm_wal
 !!
 
-end module Recon1d_MPLM_WA
+end module Recon1d_MPLM_WA_poly

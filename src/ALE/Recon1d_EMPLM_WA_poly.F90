@@ -1,35 +1,35 @@
 !> Extrapolated-Monotonized Piecewise Linear Method 1D reconstruction
 !!
-!! This extends MPLM, following White and Adcroft, 2008, by extraplating for the slopes of the
+!! This extends MPLM_poly, following White and Adcroft, 2008, by extraplating for the slopes of the
 !! first and last cells. This extrapolation is used by White et al., 2009 during grid-generation.
-module Recon1d_EMPLM_WA
+module Recon1d_EMPLM_WA_poly
 
 ! This file is part of MOM6. See LICENSE.md for the license.
 
-use Recon1d_MPLM_WA, only : MPLM_WA, testing
+use Recon1d_MPLM_WA_poly, only : MPLM_WA_poly, testing
 
 implicit none ; private
 
-public EMPLM_WA
+public EMPLM_WA_poly
 
 !> The White and Adcroft PLM implementation of Recon1d with extrapolation in first/last cells
 !!
 !! This extends the MPLM_WA type
-type, extends (MPLM_WA) :: EMPLM_WA
+type, extends (MPLM_WA_poly) :: EMPLM_WA_poly
 
 contains
-  !> Implementation of the EMPLM_WA reconstruction with boundary extrapolation
+  !> Implementation of the EMPLM_WA_poly reconstruction with boundary extrapolation
   procedure :: reconstruct => reconstruct
-  !> Implementation of unit tests for the EMPLM_WA reconstruction
+  !> Implementation of unit tests for the EMPLM_WA_poly reconstruction
   procedure :: unit_tests => unit_tests
 
-end type EMPLM_WA
+end type EMPLM_WA_poly
 
 contains
 
 !> Calculate a 1D PLM reconstruction based on h(:) and u(:)
 subroutine reconstruct(this, h, u)
-  class(EMPLM_WA), intent(inout) :: this !< This reconstruction
+  class(EMPLM_WA_poly), intent(inout) :: this !< This reconstruction
   real,            intent(in)    :: h(*) !< Grid spacing (thickness) [typically H]
   real,            intent(in)    :: u(*) !< Cell mean values [A]
   ! Local variables
@@ -45,11 +45,15 @@ subroutine reconstruct(this, h, u)
   slope = - PLM_extrapolate_slope( h(2), h(1), this%h_neglect, u(2), u(1) )
   this%ul(1) = u(1) - 0.5 * slope
   this%ur(1) = u(1) + 0.5 * slope
+  this%poly_coef(1,1) = this%ul(1)
+  this%poly_coef(1,2) = this%ur(1) - this%ul(1)
 
   ! Fix reconstruction for last cell
   slope = PLM_extrapolate_slope( h(n-1), h(n), this%h_neglect, u(n-1), u(n) )
   this%ul(n) = u(n) - 0.5 * slope
   this%ur(n) = u(n) + 0.5 * slope
+  this%poly_coef(n,1) = this%ul(n)
+  this%poly_coef(n,2) = this%ur(n) - this%ul(n)
 
 end subroutine reconstruct
 
@@ -80,7 +84,7 @@ end function PLM_extrapolate_slope
 
 !> Runs PLM reconstruction unit tests and returns True for any fails, False otherwise
 logical function unit_tests(this, verbose, stdout, stderr)
-  class(EMPLM_WA), intent(inout) :: this    !< This reconstruction
+  class(EMPLM_WA_poly), intent(inout) :: this    !< This reconstruction
   logical,         intent(in)    :: verbose !< True, if verbose
   integer,         intent(in)    :: stdout  !< I/O channel for stdout
   integer,         intent(in)    :: stderr  !< I/O channel for stderr
@@ -129,11 +133,11 @@ logical function unit_tests(this, verbose, stdout, stderr)
   call test%real_arr(3, ur, (/0.75,0.75,0.75/), 'Return position of f>')
   call test%real_arr(3, urr, (/1.,1.,1./), 'Return position of f>>')
 
-  unit_tests = test%summarize('EMPLM_WA:unit_tests')
+  unit_tests = test%summarize('EMPLM_WA_poly:unit_tests')
 
 end function unit_tests
 
 !> \namespace recon1d_plm_wax
 !!
 
-end module Recon1d_EMPLM_WA
+end module Recon1d_EMPLM_WA_poly

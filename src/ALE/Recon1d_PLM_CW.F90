@@ -5,7 +5,7 @@
 !! that the edge values (which are also the extrema in a cell) are bounded by the neighbors. The
 !! limiter yields monotonicity for the CFL<1 transport problem where parts of a cell can only move
 !! to a neighboring cell, but does not yield monotonic profiles for the general remapping problem.
-!! The first and last cells are always limtied to PCM.
+!! The first and last cells are always limited to PCM.
 module Recon1d_PLM_CW
 
 ! This file is part of MOM6. See LICENSE.md for the license.
@@ -16,7 +16,12 @@ implicit none ; private
 
 public PLM_CW, testing
 
-!> The White and Adcroft limited PLM implementation of Recon1d
+!> PLM reconstruction following Colella and Woodward, 1984
+!!
+!! The following methods are defined in the Recon1d base class:
+!!   %cell_mean()
+!!   %remap_to_sub_grid()
+!! All other methods are defined in this module.
 type, extends (Recon1d) :: PLM_CW
 
   real, allocatable :: ul(:) !< Left edge value [A]
@@ -53,7 +58,7 @@ contains
 subroutine init(this, n, h_neglect)
   class(PLM_CW),  intent(out) :: this !< This reconstruction
   integer,        intent(in)  :: n    !< Number of cells in this column
-  real, optional, intent(in)  :: h_neglect !< A negligibly small width used in cell reconstructionsa [H]
+  real, optional, intent(in)  :: h_neglect !< A negligibly small width used in cell reconstructions [H]
 
   this%n = n
 
@@ -165,7 +170,7 @@ real function inv_f(this, k, f)
   integer,       intent(in) :: k    !< Cell number
   real,          intent(in) :: f    !< Value of reconstruction to solve for [A]
 
-! inv_f = 0.5 ! Avoid compiler warngings
+  inv_f = 0.5 ! Avoid compiler warnings
 
   if ( f < this%ul(k) ) then
     inv_f = 0.
@@ -174,8 +179,8 @@ real function inv_f(this, k, f)
   elseif ( this%ur(k) - this%ul(k) == 0. ) then
     inv_f = 0.5 ! Same as for PCM
   else ! ul < f < ur
-    ! Note that if ur=ul (i.e. ur-ul=00 then we would meet one of the previous
-    ! conditions so avoid division by zero
+    ! Note that if ur=ul (i.e. ur-ul=0 then we would meet one of the previous
+    ! conditions that avoid division by zero
     inv_f = ( f - this%ul(k) ) / ( this%ur(k) - this%ul(k) )
   endif
 
@@ -206,9 +211,9 @@ real function average(this, k, xa, xb)
   average = this%ul(k) * ( 1. - xmab ) + this%ur(k) * xmab
 
 ! ! The following is more complicated but seems to ensure being within bounds.
-! ! This expression for u_a can overshoort u_r but is good for xmab<<1
+! ! This expression for u_a can overshoot u_r but is good for xmab<<1
 ! u_a = this%ul(k) + ( this%ur(k)  - this%ul(k) ) * xmab
-! ! This expression for u_b can overshoort u_l but is good for 1-xmab<<1
+! ! This expression for u_b can overshoot u_l but is good for 1-xmab<<1
 ! u_b = this%ur(k) + ( this%ul(k)  - this%ur(k) ) * ( 1. - xmab )
 ! ! Replace xmab with -1 for xmab<0.5, 1 for xmab>=0.5
 ! xmab = sign(1., xmab-0.5)

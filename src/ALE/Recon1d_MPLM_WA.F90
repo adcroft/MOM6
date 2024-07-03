@@ -13,7 +13,20 @@ implicit none ; private
 
 public MPLM_WA, testing
 
-!> The White and Adcroft limited PLM implementation of Recon1d
+!> Limited Monotonic PLM reconstruction following White and Adcroft, 2008
+!!
+!! The following methods are defined in the PLM_CW class:
+!!   %init()
+!!   %lr_edge()
+!!   %average()
+!!   %inf_f()
+!!   %destroy()
+!!   %init_parent()
+!!   %destroy_parent()
+!! The following methods are defined in the Recon1d base class:
+!!   %cell_mean()
+!!   %remap_to_sub_grid()
+!! All other methods are defined in this module.
 type, extends (PLM_CW) :: MPLM_WA
 
 contains
@@ -25,7 +38,9 @@ contains
   !> Duplicate interface to reconstruct()
   procedure :: reconstruct_parent => reconstruct
 
-#ifdef RINLINE
+#ifdef REMAP_INLINE
+! This block is here to test whether the compiler can do better if we have local copies of
+! the remapping functions.
   !> Remaps the column to subgrid h_sub
   procedure :: remap_to_sub_grid => remap_to_sub_grid
 #endif
@@ -169,13 +184,16 @@ real elemental pure function PLM_monotonized_slope(u_l, u_c, u_r, s_l, s_c, s_r)
 
 end function PLM_monotonized_slope
 
-#ifdef RINLINE
+#ifdef REMAP_INLINE
+! This block is here to test whether the compiler can do better if we have local copies of
+! the remapping functions.
+
 !> Remaps the column to subgrid h_sub
 !!
 !! It is assumed that h_sub is a perfect sub-grid of h0, meaning each h0 cell
 !! can be constructed by joining a contiguous set of h_sub cells. The integer
 !! indices isrc_start, isrc_end, isub_src provide this mapping, and are
-!! calcualted in MOM_remapping
+!! calculated in MOM_remapping
 subroutine remap_to_sub_grid(this, h0, u0, n1, h_sub, &
                                    isrc_start, isrc_end, isrc_max, isub_src, &
                                    u_sub, uh_sub, u02_err)
@@ -343,7 +361,7 @@ logical function unit_tests(this, verbose, stdout, stderr)
 
 end function unit_tests
 
-!> \namespace recon1d_plm_wal
+!> \namespace recon1d_mplm_wa
 !!
 
 end module Recon1d_MPLM_WA

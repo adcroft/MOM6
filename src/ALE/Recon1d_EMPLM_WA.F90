@@ -1,6 +1,6 @@
 !> Extrapolated-Monotonized Piecewise Linear Method 1D reconstruction
 !!
-!! This extends MPLM, following White and Adcroft, 2008, by extraplating for the slopes of the
+!! This extends MPLM_WA, following White and Adcroft, 2008, by extrapolating for the slopes of the
 !! first and last cells. This extrapolation is used by White et al., 2009 during grid-generation.
 module Recon1d_EMPLM_WA
 
@@ -12,9 +12,21 @@ implicit none ; private
 
 public EMPLM_WA
 
-!> The White and Adcroft PLM implementation of Recon1d with extrapolation in first/last cells
+!> Extraplated Monotonic PLM reconstruction of White and Adcroft, 2008
 !!
-!! This extends the MPLM_WA type
+!! The following methods are defined in the PLM_CW class (inherited via MPLM_WA):
+!!   %init()
+!!   %lr_edge()
+!!   %average()
+!!   %inf_f()
+!!   %destroy()
+!! The following methods are defined in the MPLM_WA class:
+!!   %init_parent()
+!!   %destroy_parent()
+!! The following methods are defined in the Recon1d base class:
+!!   %cell_mean()
+!!   %remap_to_sub_grid()
+!! All other methods are defined in this module.
 type, extends (MPLM_WA) :: EMPLM_WA
 
 contains
@@ -133,7 +145,7 @@ logical function unit_tests(this, verbose, stdout, stderr)
 
 end function unit_tests
 
-!> \namespace recon1d_plm_wax
+!> \namespace recon1d_emplm_wa
 !!
 
 end module Recon1d_EMPLM_WA

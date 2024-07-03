@@ -2,6 +2,9 @@
 !!
 !! This extends MPLM_poly, following White and Adcroft, 2008, by extraplating for the slopes of the
 !! first and last cells. This extrapolation is used by White et al., 2009 during grid-generation.
+!!
+!! This stores and evaluates the reconstruction using a polynomial representation which is not preferred
+!! but was the form used in OM4.
 module Recon1d_EMPLM_WA_poly
 
 ! This file is part of MOM6. See LICENSE.md for the license.
@@ -12,9 +15,22 @@ implicit none ; private
 
 public EMPLM_WA_poly
 
-!> The White and Adcroft PLM implementation of Recon1d with extrapolation in first/last cells
+!> Extrapolation Limited Monotonic PLM reconstruction following White and Adcroft, 2008
 !!
-!! This extends the MPLM_WA type
+!! The following methods are defined in the MPLM_WA_poly class:
+!!   %init()
+!!   %reconstruct_parent()
+!!   %average()
+!!   %init_parent()
+!! The following methods are defined in the PLM_CW class (inherited via MPLM_WA):
+!!   %lr_edge()
+!!   %inf_f()
+!!   %destroy()
+!!   %destroy_parent()
+!! The following methods are defined in the Recon1d base class:
+!!   %cell_mean()
+!!   %remap_to_sub_grid()
+!! All other methods are defined in this module.
 type, extends (MPLM_WA_poly) :: EMPLM_WA_poly
 
 contains
@@ -30,8 +46,8 @@ contains
 !> Calculate a 1D PLM reconstruction based on h(:) and u(:)
 subroutine reconstruct(this, h, u)
   class(EMPLM_WA_poly), intent(inout) :: this !< This reconstruction
-  real,            intent(in)    :: h(*) !< Grid spacing (thickness) [typically H]
-  real,            intent(in)    :: u(*) !< Cell mean values [A]
+  real,                 intent(in)    :: h(*) !< Grid spacing (thickness) [typically H]
+  real,                 intent(in)    :: u(*) !< Cell mean values [A]
   ! Local variables
   integer :: n
   real :: slope ! Difference of u across cell [A]
@@ -137,7 +153,7 @@ logical function unit_tests(this, verbose, stdout, stderr)
 
 end function unit_tests
 
-!> \namespace recon1d_plm_wax
+!> \namespace recon1d_emplm_wa_poly
 !!
 
 end module Recon1d_EMPLM_WA_poly

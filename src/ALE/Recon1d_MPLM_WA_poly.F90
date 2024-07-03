@@ -1,8 +1,11 @@
-!> Monotonized Piecewise Linear Method 1D reconstruction
+!> Monotonized Piecewise Linear Method 1D reconstruction using polynomial representation
 !!
 !! This implementation of PLM follows White and Adcroft, 2008. The PLM slopes are first limited following
 !! Colella and Woodward, 1984, but are then further limited to ensure the edge values moving across cell
 !! boundaries are monotone.  The first and last cells are always limited to PCM.
+!!
+!! This stores and evaluates the reconstruction using a polynomial representation which is not preferred
+!! but was the form used in OM4.
 module Recon1d_MPLM_WA_poly
 
 ! This file is part of MOM6. See LICENSE.md for the license.
@@ -13,7 +16,17 @@ implicit none ; private
 
 public MPLM_WA_poly, testing
 
-!> The White and Adcroft limited PLM implementation of Recon1d
+!> Limited Monotonic PLM reconstruction following White and Adcroft, 2008
+!!
+!! The following methods are defined in the PLM_CW class (inherited via MPLM_WA):
+!!   %lr_edge()
+!!   %inf_f()
+!!   %destroy()
+!!   %destroy_parent()
+!! The following methods are defined in the Recon1d base class:
+!!   %cell_mean()
+!!   %remap_to_sub_grid()
+!! All other methods are defined in this module.
 type, extends (MPLM_WA) :: MPLM_WA_poly
 
   ! Legacy representation
@@ -43,7 +56,7 @@ contains
 subroutine init(this, n, h_neglect)
   class(MPLM_WA_poly), intent(out) :: this !< This reconstruction
   integer,        intent(in)  :: n    !< Number of cells in this column
-  real, optional, intent(in)  :: h_neglect !< A negligibly small width used in cell reconstructionsa [H]
+  real, optional, intent(in)  :: h_neglect !< A negligibly small width used in cell reconstructions [H]
 
   this%n = n
 
@@ -277,7 +290,7 @@ logical function unit_tests(this, verbose, stdout, stderr)
 
 end function unit_tests
 
-!> \namespace recon1d_plm_wal
+!> \namespace recon1d_mplm_wa_poly
 !!
 
 end module Recon1d_MPLM_WA_poly

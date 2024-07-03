@@ -9,7 +9,12 @@ implicit none ; private
 
 public PCM
 
-!> The PCM implementation of Recon1d
+!! PCM (piecewise constant) reconstruction
+!!
+!! The following methods are defined in the Recon1d base class:
+!!   %cell_mean()
+!!   %remap_to_sub_grid()
+!! All other methods are defined in this module.
 type, extends (Recon1d) :: PCM
 
 contains
@@ -43,7 +48,7 @@ contains
 subroutine init(this, n, h_neglect)
   class(PCM), intent(out) :: this !< This reconstruction
   integer,    intent(in)  :: n    !< Number of cells in this column
-  real, optional, intent(in)  :: h_neglect !< A negligibly small width used in cell reconstructionsa [H].
+  real, optional, intent(in)  :: h_neglect !< A negligibly small width used in cell reconstructions [H].
                                            !! Not used by PCM.
 
   if (present(h_neglect)) this%n = n ! no-op to avoid compiler warning about unused dummy argument

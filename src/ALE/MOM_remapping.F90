@@ -1684,8 +1684,10 @@ end subroutine end_remapping
 !> Runs unit tests on remapping functions.
 !! Should only be called from a single/root thread
 !! Returns True if a test fails, otherwise False
-logical function remapping_unit_tests(verbose)
+logical function remapping_unit_tests(verbose, num_comp_samp)
   logical, intent(in) :: verbose !< If true, write results to stdout
+  integer, optional, intent(in) :: num_comp_samp !< If present, number of samples to
+                                 !! try comparing class-based cade against OM4 code
   ! Local variables
   integer :: n0, n1, n2
   real, allocatable :: h0(:), h1(:), h2(:) ! Thicknesses for test columns [H]
@@ -1710,7 +1712,7 @@ logical function remapping_unit_tests(verbose)
   integer, allocatable :: seed(:) ! Random number seed
   type(testing) :: test ! Unit testing convenience functions
   integer :: om4 ! Loop parameter, 0 or 1
-  integer, parameter :: ntests = 3000 ! Number of iterations when brute force testing
+  integer :: ntests ! Number of iterations when brute force testing
   character(len=4) :: om4_tag ! Generated label
   type(PCM) :: PCM
   type(PLM_CW) :: PLM_CW
@@ -2373,6 +2375,9 @@ logical function remapping_unit_tests(verbose)
   deallocate( h0, u0, u1 )
 
   ! Brute force test that we have bitwise identical answers with the new class
+
+  ntests = 3000
+  if (present(num_comp_samp)) ntests = num_comp_samp
 
   call random_seed(size=seed_size)
   allocate( seed(seed_Size) )

@@ -14,7 +14,9 @@ public EMPLM_WA
 
 !> Extraplated Monotonic PLM reconstruction of White and Adcroft, 2008
 !!
-!! The following methods are defined in the PLM_CW parent class (inherited via MPLM_WA):
+!! The following methods are defined in the MPLM_WA parent class:
+!!   %check_reconstruction()
+!! The following methods are defined in the PLM_CW grand-parent class (inherited via MPLM_WA):
 !!   %init()
 !!   %lr_edge()
 !!   %average()

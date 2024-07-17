@@ -29,9 +29,11 @@ public MPLM_WA, testing
 type, extends (PLM_CW) :: MPLM_WA
 
 contains
-  !> Implementation of the PLM reconstruction
+  !> Implementation of the MPLM_WA reconstruction
   procedure :: reconstruct => reconstruct
-  !> Implementation of unit tests for the PLM reconstruction
+  !> Implementation of check reconstruction for the MPLM_WA reconstruction
+  procedure :: check_reconstruction => check_reconstruction
+  !> Implementation of unit tests for the MPLM_WA reconstruction
   procedure :: unit_tests => unit_tests
 
   !> Duplicate interface to reconstruct()
@@ -291,6 +293,42 @@ subroutine remap_to_sub_grid(this, h0, u0, n1, h_sub, &
 
 end subroutine remap_to_sub_grid
 #endif
+
+!> Checks the MPLM_WA reconstruction for consistency
+logical function check_reconstruction(this, h, u)
+  class(MPLM_WA), intent(in) :: this !< This reconstruction
+  real,           intent(in) :: h(*) !< Grid spacing (thickness) [typically H]
+  real,           intent(in) :: u(*) !< Cell mean values [A]
+  ! Local variables
+  integer :: k
+
+  check_reconstruction = .false.
+
+  do k = 1, this%n
+    if ( abs( this%u_mean(k) - u(k) ) > 0. ) check_reconstruction = .true.
+  enddo
+
+  ! Check implied curvature
+  do k = 1, this%n
+    if ( ( this%u_mean(k) - this%ul(k) ) * ( this%ur(k) - this%u_mean(k) ) < 0. ) check_reconstruction = .true.
+  enddo
+
+  ! Check bounding of right edges
+  do K = 1, this%n-1
+    if ( ( this%ur(k) - this%u_mean(k) ) * ( this%u_mean(k+1) - this%ur(k) ) < 0. ) check_reconstruction = .true.
+  enddo
+
+  ! Check bounding of left edges
+  do K = 2, this%n
+    if ( ( this%u_mean(k) - this%ul(k) ) * ( this%ul(k) - this%u_mean(k-1) ) < 0. ) check_reconstruction = .true.
+  enddo
+
+  ! Check order of edges
+  do K = 1, this%n-1
+    if ( ( this%ur(k) - this%u_mean(k) ) * ( this%u_mean(k+1) - this%ul(k+1) ) < 0. ) check_reconstruction = .true.
+  enddo
+
+end function check_reconstruction
 
 !> Runs PLM reconstruction unit tests and returns True for any fails, False otherwise
 logical function unit_tests(this, verbose, stdout, stderr)

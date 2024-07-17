@@ -40,7 +40,9 @@ contains
   procedure :: inv_f => inv_f
   !> Implementation of deallocation for PLM
   procedure :: destroy => destroy
-  !> Implementation of unit tests for the PLM reconstruction
+  !> Implementation of check reconstruction for the PLM_CW reconstruction
+  procedure :: check_reconstruction => check_reconstruction
+  !> Implementation of unit tests for the PLM_CW reconstruction
   procedure :: unit_tests => unit_tests
 
   !> Duplicate interface to reconstruct()
@@ -53,10 +55,11 @@ end type PLM_CW
 contains
 
 !> Initialize a 1D PLM reconstruction for n cells
-subroutine init(this, n, h_neglect)
-  class(PLM_CW),  intent(out) :: this !< This reconstruction
-  integer,        intent(in)  :: n    !< Number of cells in this column
-  real, optional, intent(in)  :: h_neglect !< A negligibly small width used in cell reconstructions [H]
+subroutine init(this, n, h_neglect, check)
+  class(PLM_CW),     intent(out) :: this      !< This reconstruction
+  integer,           intent(in)  :: n         !< Number of cells in this column
+  real, optional,    intent(in)  :: h_neglect !< A negligibly small width used in cell reconstructions [H]
+  logical, optional, intent(in)  :: check     !< If true, enable some consistency checking
 
   this%n = n
 
@@ -66,6 +69,8 @@ subroutine init(this, n, h_neglect)
 
   this%h_neglect = tiny( this%u_mean(1) )
   if (present(h_neglect)) this%h_neglect = h_neglect
+  this%check = .false.
+  if (present(check)) this%check = check
 
 end subroutine init
 
@@ -227,6 +232,37 @@ subroutine destroy(this)
   deallocate( this%u_mean, this%ul, this%ur )
 
 end subroutine destroy
+
+!> Checks the PLM_CW reconstruction for consistency
+logical function check_reconstruction(this, h, u)
+  class(PLM_CW), intent(in) :: this !< This reconstruction
+  real,          intent(in) :: h(*) !< Grid spacing (thickness) [typically H]
+  real,          intent(in) :: u(*) !< Cell mean values [A]
+  ! Local variables
+  integer :: k
+
+  check_reconstruction = .false.
+
+  do k = 1, this%n
+    if ( abs( this%u_mean(k) - u(k) ) > 0. ) check_reconstruction = .true.
+  enddo
+
+  ! Check implied curvature
+  do k = 1, this%n
+    if ( ( this%u_mean(k) - this%ul(k) ) * ( this%ur(k) - this%u_mean(k) ) < 0. ) check_reconstruction = .true.
+  enddo
+
+  ! Check bounding of right edges
+  do K = 1, this%n-1
+    if ( ( this%ur(k) - this%u_mean(k) ) * ( this%u_mean(k+1) - this%ur(k) ) < 0. ) check_reconstruction = .true.
+  enddo
+
+  ! Check bounding of left edges
+  do K = 2, this%n
+    if ( ( this%u_mean(k) - this%ul(k) ) * ( this%ul(k) - this%u_mean(k-1) ) < 0. ) check_reconstruction = .true.
+  enddo
+
+end function check_reconstruction
 
 !> Runs PLM reconstruction unit tests and returns True for any fails, False otherwise
 logical function unit_tests(this, verbose, stdout, stderr)

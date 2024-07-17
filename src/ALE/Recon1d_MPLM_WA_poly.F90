@@ -18,7 +18,9 @@ public MPLM_WA_poly, testing
 
 !> Limited Monotonic PLM reconstruction following White and Adcroft, 2008
 !!
-!! The following methods are defined in the PLM_CW parent class (inherited via MPLM_WA):
+!! The following methods are defined in the MPLM_WA parent class:
+!!   %check_reconstruction()
+!! The following methods are defined in the PLM_CW grand-parent class (inherited via MPLM_WA):
 !!   %lr_edge()
 !!   %inv_f()
 !!   %destroy()
@@ -52,10 +54,11 @@ end type MPLM_WA_poly
 contains
 
 !> Initialize a 1D PLM reconstruction for n cells
-subroutine init(this, n, h_neglect)
-  class(MPLM_WA_poly), intent(out) :: this !< This reconstruction
-  integer,        intent(in)  :: n    !< Number of cells in this column
-  real, optional, intent(in)  :: h_neglect !< A negligibly small width used in cell reconstructions [H]
+subroutine init(this, n, h_neglect, check)
+  class(MPLM_WA_poly), intent(out) :: this      !< This reconstruction
+  integer,             intent(in)  :: n         !< Number of cells in this column
+  real, optional,      intent(in)  :: h_neglect !< A negligibly small width used in cell reconstructions [H]
+  logical, optional,   intent(in)  :: check     !< If true, enable some consistency checking
 
   this%n = n
 
@@ -65,6 +68,8 @@ subroutine init(this, n, h_neglect)
 
   this%h_neglect = tiny( this%u_mean(1) )
   if (present(h_neglect)) this%h_neglect = h_neglect
+  this%check = .false.
+  if (present(check)) this%check = check
 
   this%degree = 2
   allocate( this%poly_coef(n,2) )

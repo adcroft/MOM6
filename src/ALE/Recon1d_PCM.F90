@@ -30,6 +30,8 @@ contains
   procedure :: inv_f => inv_f
   !> Implementation of deallocation for PCM
   procedure :: destroy => destroy
+  !> Implementation of check reconstruction for the PLM reconstruction
+  procedure :: check_reconstruction => check_reconstruction
   !> Implementation of unit tests for the PCM reconstruction
   procedure :: unit_tests => unit_tests
 
@@ -43,13 +45,15 @@ end type PCM
 contains
 
 !> Initialize a 1D PCM reconstruction for n cells
-subroutine init(this, n, h_neglect)
-  class(PCM), intent(out) :: this !< This reconstruction
-  integer,    intent(in)  :: n    !< Number of cells in this column
-  real, optional, intent(in)  :: h_neglect !< A negligibly small width used in cell reconstructions [H].
-                                           !! Not used by PCM.
+subroutine init(this, n, h_neglect, check)
+  class(PCM),        intent(out) :: this      !< This reconstruction
+  integer,           intent(in)  :: n         !< Number of cells in this column
+  real, optional,    intent(in)  :: h_neglect !< A negligibly small width used in cell reconstructions [H].
+                                              !! Not used by PCM.
+  logical, optional, intent(in)  :: check     !< If true, enable some consistency checking
 
   if (present(h_neglect)) this%n = n ! no-op to avoid compiler warning about unused dummy argument
+  if (present(check)) this%check = check
 
   this%n = n
 
@@ -120,6 +124,22 @@ subroutine destroy(this)
   deallocate( this%u_mean )
 
 end subroutine destroy
+
+!> Checks the PCM reconstruction for consistency
+logical function check_reconstruction(this, h, u)
+  class(PCM), intent(in) :: this !< This reconstruction
+  real,       intent(in) :: h(*) !< Grid spacing (thickness) [typically H]
+  real,       intent(in) :: u(*) !< Cell mean values [A]
+  ! Local variables
+  integer :: k
+
+  check_reconstruction = .false.
+
+  do k = 1, this%n
+    if ( abs( this%u_mean(k) - u(k) ) > 0. ) check_reconstruction = .true.
+  enddo
+
+end function check_reconstruction
 
 !> Runs PCM reconstruction unit tests and returns True for any fails, False otherwise
 logical function unit_tests(this, verbose, stdout, stderr)

@@ -14,6 +14,7 @@ type, abstract :: Recon1d
   integer :: n = 0 !< Number of cells in column
   real, allocatable, dimension(:) :: u_mean !< Cell mean [A]
   real :: h_neglect = 0. !< A negligibly small width used in cell reconstructions [same as h, H]
+  logical :: check = .false. !< If true, enable some consistency checking
 
 contains
 
@@ -29,6 +30,8 @@ contains
   procedure(i_average), deferred :: average
   !> Deferred implementation of the finding position of a value
   procedure(i_inv_f), deferred :: inv_f
+  !> Deferred implementation of check_reconstruction
+  procedure(i_check_reconstruction), deferred :: check_reconstruction
   !> Deferred implementation of unit tests for the reconstruction
   procedure(i_unit_tests), deferred :: unit_tests
   !> Deferred implementation of deallocation
@@ -86,11 +89,12 @@ end type
 interface
 
   !> Initialize a 1D reconstruction for n cells
-  subroutine i_init(this, n, h_neglect)
+  subroutine i_init(this, n, h_neglect, check)
     import :: Recon1d
-    class(Recon1d), intent(out) :: this !< This reconstruction
-    integer,        intent(in)  :: n    !< Number of cells in this column
-    real, optional, intent(in)  :: h_neglect !< A negligibly small width used in cell reconstructions [H]
+    class(Recon1d),    intent(out) :: this !< This reconstruction
+    integer,           intent(in)  :: n    !< Number of cells in this column
+    real, optional,    intent(in)  :: h_neglect !< A negligibly small width used in cell reconstructions [H]
+    logical, optional, intent(in)  :: check !< If true, enable some consistency checking
   end subroutine i_init
 
   !> Calculate a 1D reconstructions based on h(:) and u(:)
@@ -131,6 +135,40 @@ interface
     real,           intent(in) :: f    !< Value of reconstruction to solve for [A]
   end function i_inv_f
 
+  !> Returns true if some inconsistency is detected, false otherwise
+  !!
+  !! The nature of "consistency" is defined by the implementations
+  !! and might be no-ops.
+  logical function i_check_reconstruction(this, h, u)
+    import :: Recon1d
+    class(Recon1d), intent(in) :: this !< This reconstruction
+    real,           intent(in) :: h(*) !< Grid spacing (thickness) [typically H]
+    real,           intent(in) :: u(*) !< Cell mean values [A]
+  end function i_check_reconstruction
+
+  !> Deallocate a 1D reconstruction
+  subroutine i_destroy(this)
+    import :: Recon1d
+    class(Recon1d), intent(inout) :: this !< This reconstruction
+  end subroutine i_destroy
+
+  !> Second interface to init(), or to parent init()
+  subroutine i_init_parent(this, n, h_neglect, check)
+    import :: Recon1d
+    class(Recon1d), intent(out) :: this !< This reconstruction
+    integer,        intent(in)  :: n    !< Number of cells in this column
+    real, optional, intent(in)  :: h_neglect !< A negligibly small width used in cell reconstructions [H]
+    logical, optional, intent(in)  :: check !< If true, enable some consistency checking
+  end subroutine i_init_parent
+
+  !> Second interface to reconstruct(), or to parent reconstruct()
+  subroutine i_reconstruct_parent(this, h, u)
+    import :: Recon1d
+    class(Recon1d), intent(inout) :: this !< This reconstruction
+    real,           intent(in)    :: h(*) !< Grid spacing (thickness) [typically H]
+    real,           intent(in)    :: u(*) !< Cell mean values [A]
+  end subroutine i_reconstruct_parent
+
   !> Runs reconstruction unit tests and returns True for any fails, False otherwise
   !!
   !! Assumes single process/thread context
@@ -141,28 +179,6 @@ interface
     integer,        intent(in)    :: stdout  !< I/O channel for stdout
     integer,        intent(in)    :: stderr  !< I/O channel for stderr
   end function i_unit_tests
-
-  !> Deallocate a 1D reconstruction
-  subroutine i_destroy(this)
-    import :: Recon1d
-    class(Recon1d), intent(inout) :: this !< This reconstruction
-  end subroutine i_destroy
-
-  !> Second interface to init(), or to parent init()
-  subroutine i_init_parent(this, n, h_neglect)
-    import :: Recon1d
-    class(Recon1d), intent(out) :: this !< This reconstruction
-    integer,        intent(in)  :: n    !< Number of cells in this column
-    real, optional, intent(in)  :: h_neglect !< A negligibly small width used in cell reconstructions [H]
-  end subroutine i_init_parent
-
-  !> Second interface to reconstruct(), or to parent reconstruct()
-  subroutine i_reconstruct_parent(this, h, u)
-    import :: Recon1d
-    class(Recon1d), intent(inout) :: this !< This reconstruction
-    real,           intent(in)    :: h(*) !< Grid spacing (thickness) [typically H]
-    real,           intent(in)    :: u(*) !< Cell mean values [A]
-  end subroutine i_reconstruct_parent
 
 end interface
 
@@ -291,6 +307,11 @@ subroutine remap_to_sub_grid(this, h0, u0, n1, h_sub, &
       u02_err = u02_err + max( abs(uh_sub(i_max)), abs(u0(i0)*h0(i0)), abs(duh) )
     endif
   enddo
+
+  ! This should not generally be used
+  if (this%check) then
+    if ( this%check_reconstruction(h0, u0) ) stop 9 ! A debugger is required to understand why this failed
+  endif
 
 end subroutine remap_to_sub_grid
 

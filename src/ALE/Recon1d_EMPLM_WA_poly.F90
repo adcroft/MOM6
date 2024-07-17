@@ -22,7 +22,9 @@ public EMPLM_WA_poly
 !!   %reconstruct_parent()
 !!   %average()
 !!   %init_parent()
-!! The following methods are defined in the PLM_CW grand-parent class (inherited via MPLM_WA):
+!! The following methods are defined in the MPLM_WA grand-parent class:
+!!   %check_reconstruction()
+!! The following methods are defined in the PLM_CW great-grand-parent class (inherited via MPLM_WA):
 !!   %lr_edge()
 !!   %inv_f()
 !!   %destroy()

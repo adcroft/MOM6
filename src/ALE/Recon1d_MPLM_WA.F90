@@ -57,7 +57,6 @@ subroutine reconstruct(this, h, u)
   ! Local variables
   real :: slp(this%n) ! The PLM slopes (difference across cell) [A]
   real :: mslp(this%n) ! The monotonized PLM slopes [A]
-  real :: almost_one  ! A value that is slightly smaller than 1 [nondim]
   integer :: k, n
 
   n = this%n
@@ -84,7 +83,6 @@ subroutine reconstruct(this, h, u)
   mslp(n) = 0.
 
   ! Store and return edge values and polynomial coefficients.
-  almost_one = 1. - epsilon(almost_one)
   this%ul(1) = u(1)
   this%ur(1) = u(1)
   do k = 2, n-1
@@ -132,16 +130,6 @@ real elemental pure function PLM_slope_wa(h_l, h_c, h_r, h_neglect, u_l, u_c, u_
     PLM_slope_wa = 0.0
   endif
 
-  ! This block tests to see if roundoff causes edge values to be out of bounds
-  if (u_c - 0.5*abs(PLM_slope_wa) < u_min .or.  u_c + 0.5*abs(PLM_slope_wa) > u_max) then
-    PLM_slope_wa = PLM_slope_wa * ( 1. - epsilon(PLM_slope_wa) )
-  endif
-
-  ! An attempt to avoid inconsistency when the values become unrepresentable.
-  ! ### The following 1.E-140 is dimensionally inconsistent. A newer version of
-  ! PLM is progress that will avoid the need for such rounding.
-  if (abs(PLM_slope_wa) < 1.E-140) PLM_slope_wa = 0.
-
 end function PLM_slope_wa
 
 !> Returns a limited PLM slope following Colella and Woodward 1984, in the same
@@ -154,29 +142,29 @@ real elemental pure function PLM_monotonized_slope(u_l, u_c, u_r, s_l, s_c, s_r)
   real, intent(in) :: s_c !< PLM slope of center cell [A]
   real, intent(in) :: s_r !< PLM slope of right cell [A]
   ! Local variables
-  real :: e_r, e_l, edge ! Right, left and temporary edge values [A]
-  real :: almost_two ! The number 2, almost [nondim]
+  real :: neighbor_edge ! Edge value of nieghbor cell [A]
+  real :: this_edge ! Edge value of this cell [A]
   real :: slp ! Magnitude of PLM central slope [A]
 
-  almost_two = 2. * ( 1. - epsilon(s_c) )
-
-  ! Edge values of neighbors abutting this cell
-  e_r = u_l + 0.5*s_l
-  e_l = u_r - 0.5*s_r
+  ! Comparison are made assuming +ve slopes
   slp = abs(s_c)
 
   ! Check that left edge is between right edge of cell to the left and this cell mean
-  edge = u_c - 0.5 * s_c
-  if ( ( edge - e_r ) * ( u_c - edge ) < 0. ) then
-    edge = 0.5 * ( edge + e_r )
-    slp = min( slp, abs( edge - u_c ) * almost_two )
+  neighbor_edge = u_l + 0.5 * s_l
+  this_edge = u_c - 0.5 * s_c
+  if ( ( this_edge - neighbor_edge ) * ( u_c - this_edge ) < 0. ) then
+    ! Using the midpoint works because the neighbor is similarly adjusted
+    this_edge = 0.5 * ( this_edge + neighbor_edge )
+    slp = min( slp, abs( this_edge - u_c ) * 2. )
   endif
 
   ! Check that right edge is between left edge of cell to the right and this cell mean
-  edge = u_c + 0.5 * s_c
-  if ( ( edge - u_c ) * ( e_l - edge ) < 0. ) then
-    edge = 0.5 * ( edge + e_l )
-    slp = min( slp, abs( edge - u_c ) * almost_two )
+  neighbor_edge = u_r - 0.5 * s_r
+  this_edge = u_c + 0.5 * s_c
+  if ( ( this_edge - u_c ) * ( neighbor_edge - this_edge ) < 0. ) then
+    ! Using the midpoint works because the neighbor is similarly adjusted
+    this_edge = 0.5 * ( this_edge + neighbor_edge )
+    slp = min( slp, abs( this_edge - u_c ) * 2. )
   endif
 
   PLM_monotonized_slope = sign( slp, s_c )

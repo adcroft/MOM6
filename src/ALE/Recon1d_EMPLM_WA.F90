@@ -51,14 +51,13 @@ subroutine reconstruct(this, h, u)
   ! Use parent (MPLM_WA) reconstruction
   call this%reconstruct_parent(h, u)
 
-  n = this%n
-
   ! Fix reconstruction for first cell
   slope = - PLM_extrapolate_slope( h(2), h(1), this%h_neglect, u(2), u(1) )
   this%ul(1) = u(1) - 0.5 * slope
   this%ur(1) = u(1) + 0.5 * slope
 
   ! Fix reconstruction for last cell
+  n = this%n
   slope = PLM_extrapolate_slope( h(n-1), h(n), this%h_neglect, u(n-1), u(n) )
   this%ul(n) = u(n) - 0.5 * slope
   this%ur(n) = u(n) + 0.5 * slope

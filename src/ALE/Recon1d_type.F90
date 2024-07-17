@@ -49,8 +49,6 @@ contains
   procedure(i_init_parent), deferred :: init_parent
   !> Second interface to reconstruct(), used to reach the primary class if derived from a primary implementation
   procedure(i_reconstruct_parent), deferred :: reconstruct_parent
-  !> Second interface to destroy(), used to reach the primary class if derived from a primary implementation
-  procedure(i_destroy_parent), deferred :: destroy_parent
 
 end type Recon1d
 
@@ -165,12 +163,6 @@ interface
     real,           intent(in)    :: h(*) !< Grid spacing (thickness) [typically H]
     real,           intent(in)    :: u(*) !< Cell mean values [A]
   end subroutine i_reconstruct_parent
-
-  !> Second interface to destroy(), or to parent destroy()
-  subroutine i_destroy_parent(this)
-    import :: Recon1d
-    class(Recon1d), intent(inout) :: this !< This reconstruction
-  end subroutine i_destroy_parent
 
 end interface
 

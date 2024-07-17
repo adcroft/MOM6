@@ -26,7 +26,6 @@ public EMPLM_WA_poly
 !!   %lr_edge()
 !!   %inv_f()
 !!   %destroy()
-!!   %destroy_parent()
 !! The following methods are defined in the Recon1d base class:
 !!   %cell_mean()
 !!   %remap_to_sub_grid()

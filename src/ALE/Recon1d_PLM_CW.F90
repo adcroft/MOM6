@@ -47,8 +47,6 @@ contains
   procedure :: init_parent => init
   !> Duplicate interface to reconstruct()
   procedure :: reconstruct_parent => reconstruct
-  !> Duplicate interface to destroy()
-  procedure :: destroy_parent => destroy
 
 end type PLM_CW
 

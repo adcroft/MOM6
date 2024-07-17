@@ -279,11 +279,12 @@ subroutine remapping_core_c(CS, n0, h0, u0, n1, h1, u1)
   call CS%reconstruction%reconstruct(h0, u0)
 
   ! Calculate sub-layer thicknesses and indices connecting sub-layers to source and target grids
+  ! Sets: h_sub, h0_eff, isrc_start, isrc_end, isrc_max, isub_src, itgt_start, itgt_end
   call intersect_src_tgt_grids( n0, h0, n1, h1, h_sub, h0_eff, &
                                 isrc_start, isrc_end, isrc_max, itgt_start, itgt_end, isub_src )
 
   ! Loop over each sub-cell to calculate average/integral values within each sub-cell.
-  ! Uses: h_sub, h0_eff, isub_src
+  ! Uses: h_sub, isrc_start, isrc_end, isrc_max, isub_src
   ! Sets: u_sub, uh_sub
   call CS%reconstruction%remap_to_sub_grid(h0, u0, n1, h_sub, &
                                            isrc_start, isrc_end, isrc_max, isub_src, &

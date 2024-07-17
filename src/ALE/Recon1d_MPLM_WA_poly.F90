@@ -18,9 +18,9 @@ public MPLM_WA_poly, testing
 
 !> Limited Monotonic PLM reconstruction following White and Adcroft, 2008
 !!
-!! The following methods are defined in the PLM_CW class (inherited via MPLM_WA):
+!! The following methods are defined in the PLM_CW parent class (inherited via MPLM_WA):
 !!   %lr_edge()
-!!   %inf_f()
+!!   %inv_f()
 !!   %destroy()
 !!   %destroy_parent()
 !! The following methods are defined in the Recon1d base class:
@@ -269,7 +269,7 @@ logical function unit_tests(this, verbose, stdout, stderr)
   call test%real_arr(3, ur, (/1.,4.,5./), 'Return right edge')
 
   do k = 1, 3
-    um(k) = this%average(k, 0.5, 0.75)
+    um(k) = this%average(k, 0.5, 0.75) ! Average from x=0.25 to 0.75 in each cell
   enddo
   call test%real_arr(3, um, (/1.,3.25,5./), 'Return interval average')
 

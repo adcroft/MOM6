@@ -57,7 +57,6 @@ subroutine reconstruct(this, h, u)
   ! Local variables
   real :: slp(this%n) ! The PLM slopes (difference across cell) [A]
   real :: mslp(this%n) ! The monotonized PLM slopes [A]
-  real :: e_r, edge ! Edge values [A]
   real :: almost_one  ! A value that is slightly smaller than 1 [nondim]
   integer :: k, n
 
@@ -85,7 +84,7 @@ subroutine reconstruct(this, h, u)
   mslp(n) = 0.
 
   ! Store and return edge values and polynomial coefficients.
-  almost_one = 1. - epsilon(e_r)
+  almost_one = 1. - epsilon(almost_one)
   this%ul(1) = u(1)
   this%ur(1) = u(1)
   do k = 2, n-1

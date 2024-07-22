@@ -234,7 +234,7 @@ subroutine remapping_core_h(CS, n0, h0, u0, n1, h1, u1, h_neglect, h_neglect_edg
     if (CS%check_reconstruction) call check_reconstructions_1d(n0, h0, u0, CS%degree, &
                                    CS%boundary_extrapolation, ppoly_r_coefs, ppoly_r_E)
 
-    ! This calls the OM4 version of the remapmping algorithms
+    ! This calls the OM4 version of the remapping algorithms
     call remap_via_sub_cells_om4( n0, h0, u0, ppoly_r_E, ppoly_r_coefs, n1, h1, iMethod, &
                                   CS%force_bounds_in_subcell, u1, uh_err )
 
@@ -715,14 +715,8 @@ subroutine intersect_src_tgt_grids( n0, h0, n1, h1, h_sub, h0_eff, &
   real :: dh ! The width of the sub-cell [H]
   real :: dh0_eff ! Running sum of source cell thickness [H]
   ! For error checking/debugging
-  integer :: i0_last_thick_cell
   logical :: src_has_volume !< True if h0 has not been consumed
   logical :: tgt_has_volume !< True if h1 has not been consumed
-
-  i0_last_thick_cell = 0
-  do i0 = 1, n0
-    if (h0(i0)>0.) i0_last_thick_cell = i0
-  enddo
 
   ! Initialize algorithm
   h0_supply = h0(1)
@@ -954,7 +948,7 @@ subroutine remap_src_to_sub_grid_om4(n0, h0, u0, ppoly0_E, ppoly0_coefs, n1, h_s
     ! the source cell) with the residual of the source cell integral minus the other sub-cell integrals
     ! aka a genius algorithm for accurate conservation when remapping from Robert Hallberg (@Hallberg-NOAA).
     ! Uses: i0_last_thick_cell, isrc_max, h_sub, isrc_start, isrc_end, uh_sub, u0, h0
-    ! Updates: uh_sub
+    ! Updates: uh_sub, u_sub
     do i0 = 1, i0_last_thick_cell
       i_max = isrc_max(i0)
       dh_max = h_sub(i_max)
@@ -1001,7 +995,7 @@ subroutine remap_src_to_sub_grid(n0, h0, u0, ppoly0_E, ppoly0_coefs, n1, h_sub, 
   real :: dh ! The width of the sub-cell [H]
   real :: duh ! The total amount of accumulated stuff (u*h) [A H]
   real :: dh0_eff ! Running sum of source cell thickness [H]
-  real :: u0_min(n0), u0_max(n0) !< Min/max of u0 for each source cell [A]
+  real :: u0_min(n0), u0_max(n0) ! Min/max of u0 for each source cell [A]
   ! For error checking/debugging
   logical, parameter :: adjust_thickest_subcell = .true. ! To fix round-off conservation issues
   integer :: i0_last_thick_cell

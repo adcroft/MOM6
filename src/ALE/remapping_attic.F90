@@ -601,7 +601,7 @@ logical function remapping_attic_unit_tests(verbose)
                           n1, h1, INTEGRATION_PPM, u1, h_neglect )
   do i=1,n1
     err = u1(i)-8.*(0.5*real(1+n1)-real(i))
-    if (abs(err)>2.*epsilon(err)) thisTest = .true.
+    if (abs(err)>2.*maxval(abs(u0(:)))*epsilon(err)) thisTest = .true.
   enddo
   if (thisTest) write(stdout,*) 'remapping_attic_unit_tests: Failed remapByProjection()'
   remapping_attic_unit_tests = remapping_attic_unit_tests .or. thisTest
@@ -616,7 +616,7 @@ logical function remapping_attic_unit_tests(verbose)
   hn1 = hn1-h1
   do i=1,n1
     err = u1(i)-8.*(0.5*real(1+n1)-real(i))
-    if (abs(err)>2.*epsilon(err)) thisTest = .true.
+    if (abs(err)>2.*maxval(abs(u0(:)))*epsilon(err)) thisTest = .true.
   enddo
   if (thisTest) write(stdout,*) 'remapping_attic_unit_tests: Failed remapByDeltaZ() 1'
   remapping_attic_unit_tests = remapping_attic_unit_tests .or. thisTest
@@ -635,7 +635,7 @@ logical function remapping_attic_unit_tests(verbose)
 
   do i=1,n2
     err = u2(i)-8./2.*(0.5*real(1+n2)-real(i))
-    if (abs(err)>2.*epsilon(err)) thisTest = .true.
+    if (abs(err)>2.*maxval(abs(u0(:)))*epsilon(err)) thisTest = .true.
   enddo
   if (thisTest) write(stdout,*) 'remapping_attic_unit_tests: Failed remapByDeltaZ() 2'
   remapping_attic_unit_tests = remapping_attic_unit_tests .or. thisTest

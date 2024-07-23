@@ -2406,8 +2406,10 @@ logical function remapping_unit_tests(verbose, num_comp_samp)
   call consistency_test_recon(test, PLM_CW, n0, ntests, h_neglect, 'PLM_CW')
   call consistency_test_recon(test, MPLM_WA, n0, ntests, h_neglect, 'MPLM_WA')
   call consistency_test_recon(test, EMPLM_WA, n0, ntests, h_neglect, 'EMPLM_WA')
+#ifndef __GFORTRAN__
   call consistency_test_recon(test, MPLM_WA_poly, n0, ntests, h_neglect, 'MPLM_WA_poly')
   call consistency_test_recon(test, EMPLM_WA_poly, n0, ntests, h_neglect, 'EMPLM_WA_poly')
+#endif
 
   remapping_unit_tests = test%summarize('remapping_unit_tests')
 

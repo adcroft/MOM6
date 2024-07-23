@@ -35,19 +35,29 @@ type, extends (MPLM_WA) :: MPLM_WA_poly
   real, allocatable, dimension(:,:) :: poly_coef !< Polynomial coefficients in legacy representation
 
 contains
-  !> Implementation of the PLM initialization
+  !> Implementation of the MPLM_WA_poly initialization
   procedure :: init => init
-  !> Implementation of the PLM reconstruction
+  !> Implementation of the MPLM_WA_poly reconstruction
   procedure :: reconstruct => reconstruct
-  !> Implementation of the PLM average over an interval [A]
+  !> Implementation of the MPLM_WA_poly average over an interval [A]
   procedure :: average => average
-  !> Implementation of unit tests for the PLM reconstruction
+  !> Implementation of check reconstruction for the MPLM_WA_poly reconstruction
+  procedure :: check_reconstruction => check_reconstruction
+  !> Implementation of unit tests for the MPLM_WA_poly reconstruction
   procedure :: unit_tests => unit_tests
 
   !> Duplicate interface to reconstruct()
   procedure :: init_parent => init
   !> Duplicate interface to reconstruct()
   procedure :: reconstruct_parent => reconstruct
+
+#undef USE_BASE_CLASS_REMAP
+#ifndef USE_BASE_CLASS_REMAP
+! This block is here to test whether the compiler can do better if we have local copies of
+! the remapping functions.
+  !> Remaps the column to subgrid h_sub
+  procedure :: remap_to_sub_grid => remap_to_sub_grid
+#endif
 
 end type MPLM_WA_poly
 
@@ -238,6 +248,184 @@ real function average(this, k, xa, xb)
           + this%poly_coef(k,2) * 0.5 * ( xb + xa )
 
 end function average
+
+#ifndef USE_BASE_CLASS_REMAP
+! This block is needed to enable the "bounded"  to test whether the compiler can do better if we have local copies of
+! the remapping functions.
+
+!> Remaps the column to subgrid h_sub
+!!
+!! It is assumed that h_sub is a perfect sub-grid of h0, meaning each h0 cell
+!! can be constructed by joining a contiguous set of h_sub cells. The integer
+!! indices isrc_start, isrc_end, isub_src provide this mapping, and are
+!! calculated in MOM_remapping
+subroutine remap_to_sub_grid(this, h0, u0, n1, h_sub, &
+                                   isrc_start, isrc_end, isrc_max, isub_src, &
+                                   u_sub, uh_sub, u02_err)
+  class(MPLM_WA_poly), intent(in) :: this !< 1-D reconstruction type
+  real,    intent(in)  :: h0(*)  !< Source grid widths (size n0) [H]
+  real,    intent(in)  :: u0(*)  !< Source grid widths (size n0) [H]
+  integer, intent(in)  :: n1      !< Number of cells in target grid
+  real,    intent(in)  :: h_sub(*) !< Overlapping sub-cell thicknesses, h_sub [H]
+  integer, intent(in)  :: isrc_start(*) !< Index of first sub-cell within each source cell
+  integer, intent(in)  :: isrc_end(*) !< Index of last sub-cell within each source cell
+  integer, intent(in)  :: isrc_max(*) !< Index of thickest sub-cell within each source cell
+  integer, intent(in)  :: isub_src(*) !< Index of source cell for each sub-cell
+  real,    intent(out) :: u_sub(*) !< Sub-cell cell averages (size n1) [A]
+  real,    intent(out) :: uh_sub(*) !< Sub-cell cell integrals (size n1) [A H]
+  real,    intent(out) :: u02_err !< Integrated reconstruction error estimates [A H]
+  ! Local variables
+  integer :: i_sub ! Index of sub-cell
+  integer :: i0 ! Index into h0(1:n0), source column
+  integer :: i_max ! Used to record which sub-cell is the largest contribution of a source cell
+  real :: dh_max ! Used to record which sub-cell is the largest contribution of a source cell [H]
+  real :: xa, xb ! Non-dimensional position within a source cell (0..1) [nondim]
+  real :: dh ! The width of the sub-cell [H]
+  real :: duh ! The total amount of accumulated stuff (u*h) [A H]
+  real :: dh0_eff ! Running sum of source cell thickness [H]
+  integer :: i0_last_thick_cell, n0
+  real :: u0_min(this%n), u0_max(this%n) ! Min/max of u0 for each source cell [A]
+  real :: ul, ur ! left/right edge values of cell i0
+
+  n0 = this%n
+
+  i0_last_thick_cell = 0
+  do i0 = 1, n0
+    call this%lr_edge(i0, ul, ur)
+    u0_min(i0) = min(ul, ur)
+    u0_max(i0) = max(ul, ur)
+    if (h0(i0)>0.) i0_last_thick_cell = i0
+  enddo
+
+  ! Loop over each sub-cell to calculate average/integral values within each sub-cell.
+  ! Uses: h_sub, isub_src, h0_eff
+  ! Sets: u_sub, uh_sub
+  xa = 0.
+  dh0_eff = 0.
+  u02_err = 0.
+  do i_sub = 1, n0+n1
+
+    ! Sub-cell thickness from loop above
+    dh = h_sub(i_sub)
+
+    ! Source cell
+    i0 = isub_src(i_sub)
+
+    ! Evaluate average and integral for sub-cell i_sub.
+    ! Integral is over distance dh but expressed in terms of non-dimensional
+    ! positions with source cell from xa to xb  (0 <= xa <= xb <= 1).
+    dh0_eff = dh0_eff + dh ! Cumulative thickness within the source cell
+    if (h0(i0)>0.) then
+      xb = dh0_eff / h0(i0) ! This expression yields xa <= xb <= 1.0
+      xb = min(1., xb) ! This is only needed when the total target column is wider than the source column
+      u_sub(i_sub) = this%average( i0, xa, xb )
+    else ! Vanished cell
+      xb = 1.
+      u_sub(i_sub) = u0(i0)
+    endif
+    uh_sub(i_sub) = dh * u_sub(i_sub)
+    u_sub(i_sub) = max( u_sub(i_sub), u0_min(i0) )
+    u_sub(i_sub) = min( u_sub(i_sub), u0_max(i0) )
+
+    if (isub_src(i_sub+1) /= i0) then
+      ! If the next sub-cell is in a different source cell, reset the position counters
+      dh0_eff = 0.
+      xa = 0.
+    else
+      xa = xb ! Next integral will start at end of last
+    endif
+
+  enddo
+  i_sub = n0+n1+1
+  ! Sub-cell thickness from loop above
+  dh = h_sub(i_sub)
+  ! Source cell
+  i0 = isub_src(i_sub)
+
+  ! Evaluate average and integral for sub-cell i_sub.
+  ! Integral is over distance dh but expressed in terms of non-dimensional
+  ! positions with source cell from xa to xb  (0 <= xa <= xb <= 1).
+  dh0_eff = dh0_eff + dh ! Cumulative thickness within the source cell
+  if (h0(i0)>0.) then
+    xb = dh0_eff / h0(i0) ! This expression yields xa <= xb <= 1.0
+    xb = min(1., xb) ! This is only needed when the total target column is wider than the source column
+    u_sub(i_sub) = this%average( i0, xa, xb )
+  else ! Vanished cell
+    xb = 1.
+    u_sub(i_sub) = u0(i0)
+  endif
+  u_sub(i_sub) = max( u_sub(i_sub), u0_min(i0) )
+  u_sub(i_sub) = min( u_sub(i_sub), u0_max(i0) )
+  uh_sub(i_sub) = dh * u_sub(i_sub)
+
+  ! Loop over each source cell substituting the integral/average for the thickest sub-cell (within
+  ! the source cell) with the residual of the source cell integral minus the other sub-cell integrals
+  ! aka a genius algorithm for accurate conservation when remapping from Robert Hallberg (@Hallberg-NOAA).
+  ! Uses: i0_last_thick_cell, isrc_max, h_sub, isrc_start, isrc_end, uh_sub, u0, h0
+  ! Updates: uh_sub
+  do i0 = 1, i0_last_thick_cell
+    i_max = isrc_max(i0)
+    dh_max = h_sub(i_max)
+    if (dh_max > 0.) then
+      ! duh will be the sum of sub-cell integrals within the source cell except for the thickest sub-cell.
+      duh = 0.
+      do i_sub = isrc_start(i0), isrc_end(i0)
+        if (i_sub /= i_max) duh = duh + uh_sub(i_sub)
+      enddo
+      uh_sub(i_max) = u0(i0)*h0(i0) - duh
+!     u_sub(i_max) = uh_sub(i_max) / dh_max
+      u02_err = u02_err + max( abs(uh_sub(i_max)), abs(u0(i0)*h0(i0)), abs(duh) )
+    endif
+  enddo
+
+  ! This should not generally be used
+  if (this%check) then
+    if ( this%check_reconstruction(h0, u0) ) stop 911 ! A debugger is required to understand why this failed
+  endif
+
+end subroutine remap_to_sub_grid
+#endif
+
+!> Checks the MPLM_WA_poly reconstruction for consistency
+logical function check_reconstruction(this, h, u)
+  class(MPLM_WA_poly), intent(in) :: this !< This reconstruction
+  real,           intent(in) :: h(*) !< Grid spacing (thickness) [typically H]
+  real,           intent(in) :: u(*) !< Cell mean values [A]
+  ! Local variables
+  integer :: k
+
+  check_reconstruction = .false.
+
+  do k = 1, this%n
+    if ( abs( this%u_mean(k) - u(k) ) > 0. ) check_reconstruction = .true.
+  enddo
+
+  ! Check implied curvature
+  do k = 1, this%n
+    if ( ( this%u_mean(k) - this%ul(k) ) * ( this%ur(k) - this%u_mean(k) ) < 0. ) check_reconstruction = .true.
+  enddo
+
+  ! Check bounding of right edges
+  do K = 1, this%n-1
+    if ( ( this%ur(k) - this%u_mean(k) ) * ( this%u_mean(k+1) - this%ur(k) ) < 0. ) check_reconstruction = .true.
+    if ( ( this%ur(k) - this%u_mean(k) ) * ( this%u_mean(k+1) - this%ur(k) ) < 0. ) print *,'R',K
+  enddo
+
+  ! Check bounding of left edges
+  do K = 2, this%n
+    if ( ( this%u_mean(k) - this%ul(k) ) * ( this%ul(k) - this%u_mean(k-1) ) < 0. ) check_reconstruction = .true.
+    if ( ( this%u_mean(k) - this%ul(k) ) * ( this%ul(k) - this%u_mean(k-1) ) < 0. ) print *,'L',K
+  enddo
+
+  ! Check order of u, ur, ul
+  ! Note that in OM4 implementation, we were not consistent for top and bottom layers due
+  ! extrapolation using cell means rather than edge values
+  do K = 2, this%n-2
+    if ( ( this%ur(k) - this%u_mean(k) ) * ( this%ul(k+1) - this%ur(k) ) < 0. ) check_reconstruction = .true.
+    if ( ( this%ur(k) - this%u_mean(k) ) * ( this%ul(k+1) - this%ur(k) ) < 0. ) print *,'O',K
+  enddo
+
+end function check_reconstruction
 
 !> Runs PLM reconstruction unit tests and returns True for any fails, False otherwise
 logical function unit_tests(this, verbose, stdout, stderr)

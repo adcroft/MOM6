@@ -317,7 +317,7 @@ end subroutine remap_to_sub_grid
 
 
 ! =========================================================================================
-! The following provide the function for the testing_type helper class
+! The following provide the functions for the testing_type helper class
 ! =========================================================================================
 
 !> Update the state with "test"

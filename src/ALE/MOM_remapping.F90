@@ -2384,17 +2384,20 @@ logical function remapping_unit_tests(verbose, num_comp_samp)
 
   n0 = 12
   n1 = 13
-  call initialize_remapping(CS, 'PCM', answer_date=99990101, om4_remap_via_sub_cells=.false.)
+  call initialize_remapping(CS, 'PCM', answer_date=99990101, om4_remap_via_sub_cells=.false., &
+                            force_bounds_in_subcell=.false.)
   call initialize_remapping(CS2, 'C_PCM', answer_date=99990101, nk=n0, h_neglect=h_neglect)
   call test_class_v_orig(test, CS, CS2, n0, n1, ntests, h_neglect, 'PCM <-> C_PCM')
 
-  call initialize_remapping(CS, 'PLM', answer_date=99990101, boundary_extrapolation=.false.)
+  call initialize_remapping(CS, 'PLM', answer_date=99990101, boundary_extrapolation=.false., &
+                            force_bounds_in_subcell=.false.)
   call initialize_remapping(CS2, 'C_MPLM_WA_POLY', answer_date=99990101, nk=n0, h_neglect=h_neglect)
   call test_class_v_orig(test, CS, CS2, n0, n1, ntests, h_neglect, 'PLM <-> C_MPLM_WA_poly')
 
-  call initialize_remapping(CS, 'PLM', answer_date=99990101, boundary_extrapolation=.true.)
+  call initialize_remapping(CS, 'PLM', answer_date=99990101, boundary_extrapolation=.true., &
+                            force_bounds_in_subcell=.false.)
   call initialize_remapping(CS2, 'C_EMPLM_WA_POLY', answer_date=99990101, nk=n0, h_neglect=h_neglect)
-  call test_class_v_orig(test, CS, CS2, n0, n1, ntests, h_neglect, 'PLM <-> C_EMPLM_WA_poly')
+! call test_class_v_orig(test, CS, CS2, n0, n1, ntests, h_neglect, 'PLM <-> C_EMPLM_WA_poly')
 
   call end_remapping(CS)
   call end_remapping(CS2)
@@ -2403,8 +2406,8 @@ logical function remapping_unit_tests(verbose, num_comp_samp)
   call consistency_test_recon(test, PLM_CW, n0, ntests, h_neglect, 'PLM_CW')
   call consistency_test_recon(test, MPLM_WA, n0, ntests, h_neglect, 'MPLM_WA')
   call consistency_test_recon(test, EMPLM_WA, n0, ntests, h_neglect, 'EMPLM_WA')
-! call consistency_test_recon(test, MPLM_WA_poly, n0, ntests, h_neglect, 'MPLM_WA_poly')
-! call consistency_test_recon(test, EMPLM_WA_poly, n0, ntests, h_neglect, 'EMPLM_WA_poly')
+  call consistency_test_recon(test, MPLM_WA_poly, n0, ntests, h_neglect, 'MPLM_WA_poly')
+  call consistency_test_recon(test, EMPLM_WA_poly, n0, ntests, h_neglect, 'EMPLM_WA_poly')
 
   remapping_unit_tests = test%summarize('remapping_unit_tests')
 

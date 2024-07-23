@@ -47,20 +47,49 @@ subroutine reconstruct(this, h, u)
   ! Local variables
   integer :: n
   real :: slope ! Difference of u across cell [A]
+  real :: edge_h2 ! Edge value found by linear interpolation [A]
+  real :: slope_h2 ! Twice the difference between cell center and 2nd order edge value [A]
+  real :: slope_e ! Twice the difference between cell center and neighbor edge value [A]
+  real :: hn, hc ! Neighbor and central cell thicknesses adjusted by h_neglect [H]
+  real :: u_min, u_max ! Working values for bounding edge values [A]
 
   ! Use parent (MPLM_WA) reconstruction
   call this%reconstruct_parent(h, u)
 
   ! Fix reconstruction for first cell
-  slope = - PLM_extrapolate_slope( h(2), h(1), this%h_neglect, u(2), u(1) )
+  ! Avoid division by zero for vanished cells
+  hn = h(2) + this%h_neglect
+  hc = h(1) + this%h_neglect
+  edge_h2 = ( u(2) * hc + u(1) * hn ) / ( hn + hc )
+  slope_h2 = 2.0 * ( edge_h2 - u(1) )
+  slope_e = 2.0 * ( this%ul(2) - u(1) )
+  slope = sign( min( abs(slope_h2), abs(slope_e) ), u(2) - u(1) )
+  edge_h2 = u(1) + 0.5 * slope
+  u_min = min( this%ul(2), u(1) )
+  u_max = max( this%ul(2), u(1) )
+  this%ur(1) = max( u_min, min( u_max, edge_h2 ) )
   this%ul(1) = u(1) - 0.5 * slope
-  this%ur(1) = u(1) + 0.5 * slope
+! slope = - PLM_extrapolate_slope( h(2), h(1), this%h_neglect, this%ul(2), u(1) )
+! this%ul(1) = u(1) - 0.5 * slope
+! this%ur(1) = u(1) + 0.5 * slope
 
   ! Fix reconstruction for last cell
   n = this%n
-  slope = PLM_extrapolate_slope( h(n-1), h(n), this%h_neglect, u(n-1), u(n) )
-  this%ul(n) = u(n) - 0.5 * slope
+  ! Avoid division by zero for vanished cells
+  hn = h(n-1) + this%h_neglect
+  hc = h(n) + this%h_neglect
+  edge_h2 = ( u(n-1) * hc + u(n) * hn ) / ( hn + hc )
+  slope_h2 = 2.0 * ( u(n) - edge_h2 )
+  slope_e = 2.0 * ( u(n) - this%ur(n-1) )
+  slope = sign( min( abs(slope_h2), abs(slope_e) ), u(n) - u(n-1) )
+  edge_h2 = u(n) - 0.5 * slope
+  u_min = min( this%ur(n-1), u(n) )
+  u_max = max( this%ur(n-1), u(n) )
+  this%ul(n) = max( u_min, min( u_max, edge_h2 ) )
   this%ur(n) = u(n) + 0.5 * slope
+! slope = PLM_extrapolate_slope( h(n-1), h(n), this%h_neglect, this%ur(n-1), u(n) )
+! this%ul(n) = u(n) - 0.5 * slope
+! this%ur(n) = u(n) + 0.5 * slope
 
 end subroutine reconstruct
 

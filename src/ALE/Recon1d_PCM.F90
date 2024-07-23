@@ -9,7 +9,7 @@ implicit none ; private
 
 public PCM
 
-!! PCM (piecewise constant) reconstruction
+!> PCM (piecewise constant) reconstruction
 !!
 !! The following methods are defined in the Recon1d base class:
 !!   %cell_mean()

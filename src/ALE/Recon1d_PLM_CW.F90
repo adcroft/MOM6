@@ -18,34 +18,43 @@ public PLM_CW, testing
 
 !> PLM reconstruction following Colella and Woodward, 1984
 !!
-!! The following methods are defined in the Recon1d base class:
-!!   %cell_mean()
-!!   %remap_to_sub_grid()
-!! All other methods are defined in this module.
+!! The source for the methods ultimately used by this class are:
+!!   init()                    *locally defined
+!!   reconstruct()             *locally defined
+!!   lr_edge()                 *locally defined
+!!   average()                 *locally defined
+!!   inv_f()                   *locally defined
+!!   check_reconstruction()    *locally defined
+!!   unit_tests()              *locally defined
+!!   destroy()                 *locally defined
+!!   cell_mean()            -> Recon1d%cell_mean()
+!!   remap_to_sub_grid()    -> Recon1d%remap_to_sub_grid()
+!!   init_parent()          -> init()
+!!   reconstruct_parent()   -> reconstruct()
 type, extends (Recon1d) :: PLM_CW
 
   real, allocatable :: ul(:) !< Left edge value [A]
   real, allocatable :: ur(:) !< Right edge value [A]
 
 contains
-  !> Implementation of the PLM initialization
+  !> Implementation of the PLM_CW initialization
   procedure :: init => init
-  !> Implementation of the PLM reconstruction
+  !> Implementation of the PLM_CW reconstruction
   procedure :: reconstruct => reconstruct
-  !> Implementation of function returning the PLM edge values
+  !> Implementation of function returning the PLM_CW edge values
   procedure :: lr_edge => lr_edge
-  !> Implementation of the PLM average over an interval [A]
+  !> Implementation of the PLM_CW average over an interval [A]
   procedure :: average => average
-  !> Implementation of finding the PLM position of a value
+  !> Implementation of finding the PLM_CW position of a value
   procedure :: inv_f => inv_f
-  !> Implementation of deallocation for PLM
+  !> Implementation of deallocation for PLM_CW
   procedure :: destroy => destroy
   !> Implementation of check reconstruction for the PLM_CW reconstruction
   procedure :: check_reconstruction => check_reconstruction
   !> Implementation of unit tests for the PLM_CW reconstruction
   procedure :: unit_tests => unit_tests
 
-  !> Duplicate interface to reconstruct()
+  !> Duplicate interface to init()
   procedure :: init_parent => init
   !> Duplicate interface to reconstruct()
   procedure :: reconstruct_parent => reconstruct

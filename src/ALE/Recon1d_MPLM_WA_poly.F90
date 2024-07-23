@@ -18,16 +18,19 @@ public MPLM_WA_poly, testing
 
 !> Limited Monotonic PLM reconstruction following White and Adcroft, 2008
 !!
-!! The following methods are defined in the MPLM_WA parent class:
-!!   %check_reconstruction()
-!! The following methods are defined in the PLM_CW grand-parent class (inherited via MPLM_WA):
-!!   %lr_edge()
-!!   %inv_f()
-!!   %destroy()
-!! The following methods are defined in the Recon1d base class:
-!!   %cell_mean()
-!!   %remap_to_sub_grid()
-!! All other methods are defined in this module.
+!! The source for the methods ultimately used by this class are:
+!!   init()                    *locally defined
+!!   reconstruct()             *locally defined
+!!   lr_edge()              -> MPLM_WA%lr_edge()   -> PLM_CW%lr_edge()
+!!   average()                 *locally defined
+!!   inv_f()                -> MPLM_WA%inv_f()     -> PLM_CW%inv_f()
+!!   check_reconstruction()    *locally defined
+!!   unit_tests()              *locally defined
+!!   destroy()              -> MPLM_WA%destroy()   -> PLM_CW%destroy()
+!!   cell_mean()            -> MPLM_WA%cell_mean() -> PLM_CW%cell_mean() -> Recon1d%cell_mean()
+!!   remap_to_sub_grid()       *locally defined
+!!   init_parent()          -> init()
+!!   reconstruct_parent()   -> reconstruct()
 type, extends (MPLM_WA) :: MPLM_WA_poly
 
   ! Legacy representation
@@ -46,7 +49,7 @@ contains
   !> Implementation of unit tests for the MPLM_WA_poly reconstruction
   procedure :: unit_tests => unit_tests
 
-  !> Duplicate interface to reconstruct()
+  !> Duplicate interface to init()
   procedure :: init_parent => init
   !> Duplicate interface to reconstruct()
   procedure :: reconstruct_parent => reconstruct

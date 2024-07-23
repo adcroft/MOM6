@@ -11,10 +11,19 @@ public PCM
 
 !> PCM (piecewise constant) reconstruction
 !!
-!! The following methods are defined in the Recon1d base class:
-!!   %cell_mean()
-!!   %remap_to_sub_grid()
-!! All other methods are defined in this module.
+!! The source for the methods ultimately used by this class are:
+!!   init()                    *locally defined
+!!   reconstruct()             *locally defined
+!!   lr_edge()                 *locally defined
+!!   average()                 *locally defined
+!!   inv_f()                   *locally defined
+!!   check_reconstruction()    *locally defined
+!!   unit_tests()              *locally defined
+!!   destroy()                 *locally defined
+!!   cell_mean()            -> Recon1d%cell_mean()
+!!   remap_to_sub_grid()    -> Recon1d%remap_to_sub_grid()
+!!   init_parent()          -> init()
+!!   reconstruct_parent()   -> parent()
 type, extends (Recon1d) :: PCM
 
 contains
@@ -30,7 +39,7 @@ contains
   procedure :: inv_f => inv_f
   !> Implementation of deallocation for PCM
   procedure :: destroy => destroy
-  !> Implementation of check reconstruction for the PLM reconstruction
+  !> Implementation of check reconstruction for the PCM reconstruction
   procedure :: check_reconstruction => check_reconstruction
   !> Implementation of unit tests for the PCM reconstruction
   procedure :: unit_tests => unit_tests

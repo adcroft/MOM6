@@ -15,17 +15,19 @@ public MPLM_WA, testing
 
 !> Limited Monotonic PLM reconstruction following White and Adcroft, 2008
 !!
-!! The following methods are defined in the PLM_CW parent class:
-!!   %init()
-!!   %lr_edge()
-!!   %average()
-!!   %inv_f()
-!!   %destroy()
-!!   %init_parent()
-!! The following methods are defined in the Recon1d base class:
-!!   %cell_mean()
-!!   %remap_to_sub_grid()
-!! All other methods are defined in this module.
+!! The source for the methods ultimately used by this class are:
+!!   init()                 -> PLM_CW%init()
+!!   reconstruct()             *locally defined
+!!   lr_edge()              -> PLM_CW%lr_edge()
+!!   average()              -> PLM_CW%average()
+!!   inv_f()                -> PLM_CW%inv_f()
+!!   check_reconstruction()    *locally defined
+!!   unit_tests()              *locally defined
+!!   destroy()              -> PLM_CW%destroy()
+!!   cell_mean()            -> PLM_CW%cell_mean()        -> Recon1d%cell_mean()
+!!   remap_to_sub_grid()    -> PLM_CW%remap_to_sub_grd() -> Recon1d%remap_to_sub_grid()
+!!   init_parent()          -> PLM_CW%init()
+!!   reconstruct_parent()   -> reconstruct()
 type, extends (PLM_CW) :: MPLM_WA
 
 contains

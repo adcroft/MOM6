@@ -17,21 +17,20 @@ public EMPLM_WA_poly
 
 !> Extrapolation Limited Monotonic PLM reconstruction following White and Adcroft, 2008
 !!
-!! The following methods are defined in the MPLM_WA_poly parent class:
-!!   %init()
-!!   %reconstruct_parent()
-!!   %average()
-!!   %init_parent()
-!! The following methods are defined in the MPLM_WA grand-parent class:
-!!   %check_reconstruction()
-!! The following methods are defined in the PLM_CW great-grand-parent class (inherited via MPLM_WA):
-!!   %lr_edge()
-!!   %inv_f()
-!!   %destroy()
-!! The following methods are defined in the Recon1d base class:
-!!   %cell_mean()
-!!   %remap_to_sub_grid()
-!! All other methods are defined in this module.
+!! The source for the methods ultimately used by this class are:
+!!   init()                 -> MPLM_WA_poly%init()
+!!   reconstruct()          -> MPLM_WA_poly%reconstruct()
+!!   lr_edge()              -> MPLM_WA_poly%lr_edge()   -> MPLM_WA_poly%lr_edge() -> PLM_CW%lr_edge()
+!!   average()              -> MPLM_WA_poly%average()
+!!   inv_f()                -> MPLM_WA_poly%inv_f()     -> MPLM_WA_poly%inv_f()   -> PLM_CW%inv_f()
+!!   check_reconstruction() -> MPLM_WA_poly%check_reconstruction()
+!!   unit_tests()              *locally defined
+!!   destroy()              -> MPLM_WA_poly%destroy()   -> MPLM_WA%destroy()      -> PLM_CW%destroy()
+!!   cell_mean()            -> MPLM_WA_poly%cell_mean() -> MPLM_WA%cell_mean()    -> PLM_CW%cell_mean()
+!!                                                                                                -> Recon1d%cell_mean()
+!!   remap_to_sub_grid()       *locally defined
+!!   init_parent()          -> MPLM_WA_poly%init()
+!!   reconstruct_parent()   -> MPLM_WA_poly%reconstruct()
 type, extends (MPLM_WA_poly) :: EMPLM_WA_poly
 
 contains

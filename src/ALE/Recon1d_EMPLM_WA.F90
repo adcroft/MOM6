@@ -14,19 +14,19 @@ public EMPLM_WA
 
 !> Extraplated Monotonic PLM reconstruction of White and Adcroft, 2008
 !!
-!! The following methods are defined in the MPLM_WA parent class:
-!!   %check_reconstruction()
-!! The following methods are defined in the PLM_CW grand-parent class (inherited via MPLM_WA):
-!!   %init()
-!!   %lr_edge()
-!!   %average()
-!!   %inv_f()
-!!   %destroy()
-!!   %init_parent()
-!! The following methods are defined in the Recon1d base class:
-!!   %cell_mean()
-!!   %remap_to_sub_grid()
-!! All other methods are defined in this module.
+!! The source for the methods ultimately used by this class are:
+!!   init()                 -> MPLM_WA%init()              -> PLM_CW%init()
+!!   reconstruct()             *locally defined
+!!   lr_edge()              -> MPLM_WA%lr_edge()           -> PLM_CW%lr_edge()
+!!   average()              -> MPLM_WA%average()           -> PLM_CW%average()
+!!   inv_f()                -> MPLM_WA%inv_f()             -> PLM_CW%inv_f()
+!!   check_reconstruction() -> MPLM_WA%check_reconstruction()
+!!   unit_tests()              *locally defined
+!!   destroy()              -> MPLM_WA%destroy()           -> PLM_CW%destroy()
+!!   cell_mean()            -> MPLM_WA%cell_mean()         -> PLM_CW%cell_mean()        -> Recon1d%cell_mean()
+!!   remap_to_sub_grid()    -> MPLM_WA%remap_to_sub_grid() -> PLM_CW%remap_to_sub_grd() -> Recon1d%remap_to_sub_grid()
+!!   init_parent()          -> MPLM_WA%init_parent()       -> PLM_CW%init()
+!!   reconstruct_parent()   -> MPLM_WA%reconstruct()
 type, extends (MPLM_WA) :: EMPLM_WA
 
 contains

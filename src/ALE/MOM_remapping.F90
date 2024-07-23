@@ -1757,9 +1757,12 @@ logical function remapping_unit_tests(verbose, num_comp_samp)
   ppoly0_S(:,:) = 0.0
   ppoly0_coefs(:,:) = 0.0
 
-  call edge_values_explicit_h4( n0, h0, u0, ppoly0_E, h_neglect=1e-10, answer_date=answer_date )
-  call PPM_reconstruction( n0, h0, u0, ppoly0_E, ppoly0_coefs, h_neglect, answer_date=answer_date )
-  call PPM_boundary_extrapolation( n0, h0, u0, ppoly0_E, ppoly0_coefs, h_neglect )
+  ! Edge values and poly coefficients that match the 9,3,-3,-9 profile of u0,h0
+  ppoly0_E(:,1) = (/ 12., 6.,  0.,  -6. /)
+  ppoly0_E(:,2) = (/  6., 0., -6., -12. /)
+  ppoly0_coefs(:,1) = (/ 12., 6.,  0.,  -6. /)
+  ppoly0_coefs(:,2) = (/ -6., -6., -6., -6. /)
+  ppoly0_coefs(:,3) = (/  0.,  0.,  0.,  0. /)
 
   call remap_via_sub_cells( n0, h0, u0, ppoly0_E, ppoly0_coefs, &
                             n2, h2, INTEGRATION_PPM, .false., u2, err )

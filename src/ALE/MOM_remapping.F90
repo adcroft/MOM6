@@ -283,6 +283,9 @@ subroutine remapping_core_c(CS, n0, h0, u0, n1, h1, u1)
   call intersect_src_tgt_grids( n0, h0, n1, h1, h_sub, h0_eff, &
                                 isrc_start, isrc_end, isrc_max, itgt_start, itgt_end, isub_src )
 
+  ! Adjust h_sub so that the Hallberg conservation trick works properly
+! call adjust_h_sub( n0, h0, n1, isrc_start, isrc_end, isrc_max, h_sub )
+
   ! Loop over each sub-cell to calculate average/integral values within each sub-cell.
   ! Uses: h_sub, isrc_start, isrc_end, isrc_max, isub_src
   ! Sets: u_sub, uh_sub
@@ -652,6 +655,9 @@ subroutine remap_via_sub_cells( n0, h0, u0, ppoly0_E, ppoly0_coefs, n1, h1, meth
   call intersect_src_tgt_grids( n0, h0, n1, h1, h_sub, h0_eff, &
                                 isrc_start, isrc_end, isrc_max, itgt_start, itgt_end, isub_src )
 
+  ! Adjust h_sub so that the Hallberg conservation trick works properly
+! call adjust_h_sub( n0, h0, n1, isrc_start, isrc_end, isrc_max, h_sub )
+
   ! Loop over each sub-cell to calculate average/integral values within each sub-cell.
   ! Uses: h_sub, h0_eff, isub_src
   ! Sets: u_sub, uh_sub
@@ -844,7 +850,50 @@ subroutine intersect_src_tgt_grids( n0, h0, n1, h1, h_sub, h0_eff, &
     endif
 
   enddo
+
 end subroutine intersect_src_tgt_grids
+
+!> Adjust h_sub to ensure accurate conservation
+!!
+!! Loop over each source cell substituting the thickest sub-cell (within the source cell) with the
+!! residual of the source cell thickness minus the sum of other sub-cells
+!! aka a genius algorithm for accurate conservation when remapping from Robert Hallberg (@Hallberg-NOAA).
+subroutine adjust_h_sub( n0, h0, n1, isrc_start, isrc_end, isrc_max, h_sub )
+  integer, intent(in)    :: n0      !< Number of cells in source grid
+  real,    intent(in)    :: h0(n0)  !< Source grid widths (size n0) [H]
+  integer, intent(in)    :: n1      !< Number of cells in target grid
+  integer, intent(in)    :: isrc_start(n0) !< Index of first sub-cell within each source cell
+  integer, intent(in)    :: isrc_end(n0) !< Index of last sub-cell within each source cell
+  integer, intent(in)    :: isrc_max(n0) !< Index of thickest sub-cell within each source cell
+  real,    intent(inout) :: h_sub(n0+n1+1) !< Overlapping sub-cell thicknesses, h_sub [H]
+  ! Local variables
+  integer :: i_sub ! Index of sub-cell
+  integer :: i0 ! Index into h0(1:n0), source column
+  integer :: i_max ! Used to record which sub-cell is the largest contribution of a source cell
+  real :: dh_max ! Used to record which sub-cell is the largest contribution of a source cell [H]
+  real :: dh ! The width of the sub-cell [H]
+  real :: dh0_eff ! Running sum of source cell thickness [H]
+  integer :: i0_last_thick_cell ! Last h0 cell with finite thickness
+
+  i0_last_thick_cell = 0
+  do i0 = 1, n0
+    if (h0(i0)>0.) i0_last_thick_cell = i0
+  enddo
+
+  do i0 = 1, i0_last_thick_cell
+    i_max = isrc_max(i0)
+    dh_max = h_sub(i_max)
+    if (dh_max > 0.) then
+      ! dh will be the sum of sub-cell thicknesses within the source cell except for the thickest sub-cell.
+      dh = 0.
+      do i_sub = isrc_start(i0), isrc_end(i0)
+        if (i_sub /= i_max) dh = dh + h_sub(i_sub)
+      enddo
+      h_sub(i_max) = h0(i0) - dh
+    endif
+  enddo
+
+end subroutine adjust_h_sub
 
 !> Remaps column of n0 values u0 on grid h0 to subgrid h_sub
 !!

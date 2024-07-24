@@ -2402,35 +2402,34 @@ logical function remapping_unit_tests(verbose, num_comp_samp)
   call end_remapping(CS)
   call end_remapping(CS2)
 
-  call consistency_test_recon(test, PCM, n0, ntests, h_neglect, 'PCM')
-  call consistency_test_recon(test, PLM_CW, n0, ntests, h_neglect, 'PLM_CW')
-  call consistency_test_recon(test, MPLM_WA, n0, ntests, h_neglect, 'MPLM_WA')
-  call consistency_test_recon(test, EMPLM_WA, n0, ntests, h_neglect, 'EMPLM_WA')
-#ifndef __GFORTRAN__
-  call consistency_test_recon(test, MPLM_WA_poly, n0, ntests, h_neglect, 'MPLM_WA_poly')
-  call consistency_test_recon(test, EMPLM_WA_poly, n0, ntests, h_neglect, 'EMPLM_WA_poly')
-#endif
+  call test_recon_consistency(test, 'C_PCM', n0, ntests, h_neglect)
+  call test_recon_consistency(test, 'C_PLM_CW', n0, ntests, h_neglect)
+  call test_recon_consistency(test, 'C_MPLM_WA', n0, ntests, h_neglect)
+  call test_recon_consistency(test, 'C_EMPLM_WA', n0, ntests, h_neglect)
+  call test_recon_consistency(test, 'C_MPLM_WA_poly', n0, ntests, h_neglect)
+  call test_recon_consistency(test, 'C_EMPLM_WA_poly', n0, ntests, h_neglect)
 
   remapping_unit_tests = test%summarize('remapping_unit_tests')
 
 end function remapping_unit_tests
 
 !> Test class-based remapping for internal consistency on random data
-subroutine consistency_test_recon(test, reconstruction, n0, niter, h_neglect, msg)
-  type(testing),      intent(inout) :: test  !< Unit testing convenience functions
-  class(Recon1d),     intent(inout) :: reconstruction !< Reconstruction to test
-  integer,            intent(in)    :: n0    !< Number of source cells
-  integer,            intent(in)    :: niter !< Number of randomized columns to try
+subroutine test_recon_consistency(test, scheme, n0, niter, h_neglect)
+  type(testing),      intent(inout) :: test    !< Unit testing convenience functions
+  character(len=*),   intent(in)    :: scheme  !< Name of scheme to use
+  integer,            intent(in)    :: n0      !< Number of source cells
+  integer,            intent(in)    :: niter   !< Number of randomized columns to try
   real,               intent(in)    :: h_neglect !< A negligibly small width used in cell reconstructions [H]
-  character(len=*),   intent(in)    :: msg   !< Message to label test
   ! Local
+  type(remapping_CS) :: remapCS !< Remapping control structure
   real :: h0(n0) ! Source and target grids [H but really nondim]
   real :: u0(n0) ! Source and two target values [A]
   logical :: error ! Indicates a divergence
   integer :: iter ! Loop counter
   character(len=8) :: label ! Generated label
 
-  call reconstruction%init(n0, h_neglect, check=.true.)
+  call initialize_remapping(remapCS, scheme)
+  call remapCS%reconstruction%init(n0, h_neglect, check=.true.)
 
   error = .false.
   do iter = 1, niter
@@ -2438,8 +2437,8 @@ subroutine consistency_test_recon(test, reconstruction, n0, niter, h_neglect, ms
     h0(:) = max(0., h0(:) - 0.00) ! Make 5% of values equal to zero
     call random_number( u0 ) ! In range 0-1
 
-    call reconstruction%reconstruct(h0, u0)
-    if ( reconstruction%check_reconstruction(h0, u0) ) then
+    call remapCS%reconstruction%reconstruct(h0, u0)
+    if ( remapCS%reconstruction%check_reconstruction(h0, u0) ) then
       if ( .not. error ) then ! Only dump first error
         print *,'iter=',iter
         print *,'h0',h0
@@ -2450,11 +2449,11 @@ subroutine consistency_test_recon(test, reconstruction, n0, niter, h_neglect, ms
   enddo
 
   write(label(1:8),'(i8)') niter
-  call test%test( error, trim(adjustl(label))//' consistency tests of '//msg )
+  call test%test( error, trim(adjustl(label))//' consistency tests of '//scheme )
 
-  call reconstruction%destroy()
+  call remapCS%reconstruction%destroy()
 
-end subroutine consistency_test_recon
+end subroutine test_recon_consistency
 
 !> Test class-based remapping bitwise reproduces original implementation
 subroutine test_class_v_orig(test, CS1, CS2, n0, n1, niter, h_neglect, msg)

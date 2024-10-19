@@ -131,8 +131,13 @@ subroutine remapping_set_param(CS, remapping_scheme, boundary_extrapolation,  &
 
   if (present(remapping_scheme)) then
     call setReconstructionType( remapping_scheme, CS )
-    if (index(trim(remapping_scheme),'C_')>0 .and. present(nk)) then
-      call CS%reconstruction%init(nk, h_neglect=h_neglect)
+    if (index(trim(remapping_scheme),'C_')>0) then
+      if (present(nk)) then
+        call CS%reconstruction%init(nk, h_neglect=h_neglect)
+      else
+        call MOM_error( FATAL, 'MOM_remapping, remapping_set_param: '//&
+           'Using the Recon1d class for remapping requires nk to be passed' )
+      endif
     endif
   endif
   if (present(boundary_extrapolation)) then
@@ -1845,8 +1850,8 @@ subroutine test_recon_consistency(test, scheme, n0, niter, h_neglect)
   integer :: iter ! Loop counter
   character(len=8) :: label ! Generated label
 
-  call initialize_remapping(remapCS, scheme, force_bounds_in_subcell=.false. )
-  call remapCS%reconstruction%init(n0, h_neglect, check=.false.)
+  call initialize_remapping(remapCS, scheme, nk=n0, h_neglect=h_neglect, &
+                            force_bounds_in_subcell=.false. )
 
   error = .false.
   do iter = 1, niter

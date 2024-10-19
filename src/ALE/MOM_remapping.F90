@@ -1848,10 +1848,17 @@ subroutine test_recon_consistency(test, scheme, n0, niter, h_neglect)
   real :: u0(n0) ! Source values [A]
   logical :: error ! Indicates a divergence
   integer :: iter ! Loop counter
+  integer :: seed_size ! Number of integers used by seed
+  integer, allocatable :: seed(:) ! Random number seed
   character(len=8) :: label ! Generated label
 
   call initialize_remapping(remapCS, scheme, nk=n0, h_neglect=h_neglect, &
                             force_bounds_in_subcell=.false. )
+
+  call random_seed(size=seed_size)
+  allocate( seed(seed_Size) )
+  seed(:) = 102030405 ! Repeatable sequences
+  call random_seed(put=seed)
 
   error = .false.
   do iter = 1, niter

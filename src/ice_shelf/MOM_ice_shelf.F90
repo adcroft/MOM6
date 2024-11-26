@@ -335,7 +335,7 @@ subroutine shelf_calc_flux(sfc_state_in, fluxes_in, Time, time_step_in, CS)
   real :: Sb_min, Sb_max ! Minimum and maximum boundary salinities [S ~> ppt]
   real :: dS_min, dS_max ! Minimum and maximum salinity changes [S ~> ppt]
   ! Variables used in iterating for wB_flux.
-  real :: wB_flux_new, dDwB_dwB_in
+  real :: wB_flux_new, dDwB_dwB_in, wB_flux_max
   real :: I_Gam_T, I_Gam_S
   real :: dG_dwB   ! The derivative of Gam_turb with wB [T3 Z-2 ~> s3 m-2]
   real :: taux2, tauy2 ! The squared surface stresses [R2 L2 Z2 T-4 ~> Pa2].
@@ -572,11 +572,13 @@ subroutine shelf_calc_flux(sfc_state_in, fluxes_in, Time, time_step_in, CS)
 
             wT_flux = dT_ustar * I_Gam_T
             wB_flux = dB_dS * (dS_ustar * I_Gam_S) + dB_dT * wT_flux
+            wB_flux_max = 0.
 
             if (wB_flux < 0.0) then
               ! The buoyancy flux is stabilizing and will reduce the turbulent
               ! fluxes, and iteration is required.
               n_star_term = (ZETA_N * hBL_neut * VK) / (RC * ustar_h**3)
+              wB_flux_max = 0.
               do it3 = 1,30
                ! n_star <= 1.0 is the ratio of working boundary layer thickness
                ! to the neutral thickness.
@@ -613,7 +615,13 @@ subroutine shelf_calc_flux(sfc_state_in, fluxes_in, Time, time_step_in, CS)
                 dDwB_dwB_in = dG_dwB * (dB_dS * (dS_ustar * I_Gam_S**2) + &
                                         dB_dT * (dT_ustar * I_Gam_T**2)) - 1.0
                 ! This is Newton's method without any bounds.  Should bounds be needed?
+!               wB_flux_new = min(0., wB_flux - (wB_flux_new - wB_flux) / dDwB_dwB_in)
                 wB_flux_new = wB_flux - (wB_flux_new - wB_flux) / dDwB_dwB_in
+                if (wB_flux_new >= wB_flux_max) then
+                  wB_flux_new = 0.5 * ( wB_flux + wB_flux_max ) ! Instead of over shooting we bisect
+                elseif (wB_flux_new < wB_flux_max) then
+                  wB_flux_max = wB_flux ! Use last guess as upper bound but only if it was too high
+                endif
                 ! Update wB_flux
                 if (CS%buoy_flux_itt_bug) wB_flux = wB_flux_new
               enddo !it3

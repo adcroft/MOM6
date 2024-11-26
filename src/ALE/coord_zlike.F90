@@ -104,7 +104,11 @@ subroutine build_zstar_column(CS, depth, total_thickness, zInterface, &
   ! With a rigid top boundary at eta = z0_top then
   !   z* = z0 + (z-eta) / stretching   where stretching = (H+eta)/(H+z0)
   !   z = eta + stretching * (z*-z0) * stretching
-  stretching = total_thickness / ( depth + z0_top )
+  if (depth + z0_top > 0.) then
+    stretching = total_thickness / ( depth + z0_top )
+  else
+    stretching = 0.
+  endif
 
   if (new_zstar_def) then
     ! z_star is the notional z* coordinate in absence of upper/lower topography

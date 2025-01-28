@@ -212,6 +212,8 @@ type, public :: forcing
   real :: saltFluxGlobalScl = 0.  !< scaling of restoring salt flux to zero out global net ( -1..1 ) [nondim]
   real :: netFWGlobalScl = 0.     !< scaling of net fresh water to zero out global net ( -1..1 ) [nondim]
 
+  real :: IS_adot_int_land = 0.   !< The total surface mass flux to the ice sheet,
+                                  !! area-integrated over the land grid [R Z L2 T-1 ~> kg s-1]
   logical :: fluxes_used = .true. !< If true, all of the heat, salt, and mass
                                   !! fluxes have been applied to the ocean.
   real :: dt_buoy_accum = -1.0    !< The amount of time over which the buoyancy fluxes
@@ -3827,8 +3829,7 @@ subroutine deallocate_forcing_type(fluxes)
   if (associated(fluxes%ustar_tidal))          deallocate(fluxes%ustar_tidal)
   if (associated(fluxes%ustar_shelf))          deallocate(fluxes%ustar_shelf)
   if (associated(fluxes%iceshelf_melt))        deallocate(fluxes%iceshelf_melt)
-  if (associated(fluxes%shelf_sfc_mass_flux)) &
-                                               deallocate(fluxes%shelf_sfc_mass_flux)
+  if (associated(fluxes%shelf_sfc_mass_flux))  deallocate(fluxes%shelf_sfc_mass_flux)
   if (associated(fluxes%frac_shelf_h))         deallocate(fluxes%frac_shelf_h)
   if (associated(fluxes%ustar_berg))           deallocate(fluxes%ustar_berg)
   if (associated(fluxes%area_berg))            deallocate(fluxes%area_berg)

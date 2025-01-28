@@ -36,7 +36,6 @@ type, public :: ice_shelf_state
                                !! -2 : default (out of computational boundary)
                                !! NOTE: hmask will change over time and NEEDS TO BE MAINTAINED
                                !!   otherwise the wrong nodes will be included in velocity calcs.
-
     tflux_ocn => NULL(), &     !< The downward sensible ocean heat flux at the
                                !! ocean-ice interface [Q R Z T-1 ~> W m-2].
     salt_flux => NULL(), &     !< The downward salt flux at the ocean-ice
@@ -53,6 +52,12 @@ type, public :: ice_shelf_state
     calving => NULL(), &       !< The mass flux per unit area of the ice shelf to convert to
                                !! bergs [R Z T-1 ~> kg m-2 s-1].
     calving_hflx => NULL()     !< Calving heat flux [Q R Z T-1 ~> W m-2].
+
+  real :: mass_hole      !< The surface mass flux * dt from land, integrated over land grid or modified (no hole)
+                         !! MOM grid area,  minus surface mass flux * dt on the ice-sheet, integrated over ocean
+                         !! grid area plus any flux in/out of the ice-sheet domain due to horizontal ice sheet
+                         !! advection [R Z L2 ~> kg]
+  real :: tot_flux_inout !< Total accumulated flux in/out of the domain edges (outward is positive) [Z L2 ~> m3]
 end type ice_shelf_state
 
 contains
@@ -86,6 +91,7 @@ subroutine ice_shelf_state_init(ISS, G)
 
   allocate(ISS%calving(isd:ied,jsd:jed), source=0.0 )
   allocate(ISS%calving_hflx(isd:ied,jsd:jed), source=0.0 )
+
 end subroutine ice_shelf_state_init
 
 

@@ -278,11 +278,18 @@ logical function testing_type_unit_test(verbose)
   type(testing) :: test ! The instance to be tested
   logical :: tmpflag ! Temporary for return flags
 
-  testing_type_unit_test = .false. ! Assume all is well at the outset
-  if (verbose) write(test%stdout,*) "  ===== testing_type: testing_type_unit_test ============"
+  ! This flag is the *true* state of all these tests. We want this to be .false. after all
+  ! tests are completed. We assume all is well at the outset.
+  testing_type_unit_test = .false.
+  if (verbose) then
+    write(test%stdout,*) "  =========== testing_type: testing_type_unit_test ============"
+    write(test%stdout,*) "  = Hereafter, apparent error messages can appear that        ="
+    write(test%stdout,*) "  = should be ignored until testing in testing_type_unit_test ="
+    write(test%stdout,*) "  = is complete.                                              ="
+  endif
 
   call test%set( verbose=verbose ) ! Sets the verbosity flag in test
-  call test%set( stderr=0 ) ! Sets stderr
+  call test%set( stderr=6 ) ! Redirects errors to stdout so we do not spam the error channel with tests
   call test%set( stdout=6 ) ! Sets stdout
   call test%set( stop_instantly=.false. ) ! Sets stop_instantly
   call test%set( ignore_fail=.false. ) ! Sets ignore_fail
@@ -332,7 +339,7 @@ logical function testing_type_unit_test(verbose)
     write(test%stdout,*) "   => summarize(F) passed"
   else; testing_type_unit_test = testing_type_unit_test .or. .true. ; endif
 
-  ! This following all fail
+  ! This following is testing that apparent fails are detected
   test%state = .false. ! reset
   call test%test( .true., "This should fail" )
   if (verbose .and. test%state) then
@@ -357,12 +364,26 @@ logical function testing_type_unit_test(verbose)
     write(test%stdout,*) "   => int(a,b) passed"
   else; testing_type_unit_test = testing_type_unit_test .or. .true. ; endif
 
-  tmpflag = test%summarize("This summary should have 3 fails")
+  tmpflag = test%summarize("This summary should should return true")
   if (verbose .and. tmpflag) then
     write(test%stdout,*) "   => summarize(T) passed"
   else; testing_type_unit_test = testing_type_unit_test .or. .true. ; endif
 
-  if (verbose .and. .not. testing_type_unit_test) write(test%stdout,*) "testing_type_unit_test passed"
+  if (verbose .and.  test% num_tests_failed == 4) then
+    write(test%stdout,*) "   => failed count was correct"
+  else; testing_type_unit_test = testing_type_unit_test .or. .true. ; endif
+
+  if (verbose) then
+    write(test%stdout,*) "  ======= testing_type: testing_type_unit_test complete ======="
+    write(test%stdout,*) "  ============================================================="
+    if (.not. testing_type_unit_test) write(test%stdout,*) "testing_type_unit_test passed"
+  endif
+
+  call test%set( stderr=0 ) ! Redirects errors to true stderr, in case of actual error
+  if (testing_type_unit_test) then
+    write(test%stderr,*) "testing_type_unit_test() had an unplanned fail"
+    write(test%stdout,*) "testing_type_unit_test() had an unplanned fail"
+  endif
 
 end function testing_type_unit_test
 

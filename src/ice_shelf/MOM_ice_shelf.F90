@@ -8,7 +8,7 @@ use MOM_array_transform,      only : rotate_array
 use MOM_constants, only : hlf
 use MOM_cpu_clock, only : cpu_clock_id, cpu_clock_begin, cpu_clock_end
 use MOM_cpu_clock, only : CLOCK_COMPONENT, CLOCK_ROUTINE
-use MOM_coms,                 only : num_PEs, reproducing_sum, sum_across_PEs
+use MOM_coms,                 only : num_PEs, reproducing_sum, sum_across_PEs, PE_here, broadcast
 use MOM_data_override,       only : data_override
 use MOM_diag_mediator, only    : MOM_diag_ctrl=>diag_ctrl
 use MOM_IS_diag_mediator, only : post_data=>post_IS_data, post_scalar_data=>post_IS_data_0d
@@ -208,6 +208,7 @@ type, public :: ice_shelf_CS ; private
   logical :: buoy_flux_itt_bug           !< If true, fixes buoyancy iteration bug
   logical :: salt_flux_itt_bug           !< If true, fixes salt iteration bug
   real :: buoy_flux_itt_threshold        !< Buoyancy iteration threshold for convergence
+  integer :: root_pe                     !< The root pe id. Used for mass_hole stocks.
 
   !>@{ Diagnostic handles
   integer :: id_melt = -1, id_exch_vel_s = -1, id_exch_vel_t = -1, &
@@ -1825,6 +1826,8 @@ subroutine initialize_ice_shelf(param_file, ocn_grid, Time, CS, diag, Time_init,
   call get_param(param_file, mdl, "ICE_SHELF_BUOYANCY_FLUX_ITT_THRESHOLD", CS%buoy_flux_itt_threshold, &
                  "Convergence criterion of Newton's method for ice shelf "//&
                  "buoyancy iteration.", units="nondim", default=1.0e-4)
+  if (is_root_pe()) CS%root_pe = PE_here()
+  call broadcast(CS%root_pe)
 
   if (PRESENT(sfc_state_in)) then
     ! assuming frazil is enabled in ocean. This could break some configurations?
@@ -2627,10 +2630,10 @@ function get_ice_shelf_mass_stock(CS, G, US, on_PE_only)
     integrate_over_ice_sheet_area(G, ISS, ISS%mass_shelf, unscale=US%RZ_to_kg_m2, on_PE_only=this_pe_only)
 
   if (this_pe_only) then
-      !mass_hole will only be added to the ocean root pe
-    if (is_root_pe()) get_ice_shelf_mass_stock = get_ice_shelf_mass_stock + ISS%mass_hole
+    !mass_hole will only be added to the ocean root pe
+    if (PE_here()==CS%root_pe) get_ice_shelf_mass_stock = get_ice_shelf_mass_stock + ISS%mass_hole
   else
-      get_ice_shelf_mass_stock = get_ice_shelf_mass_stock + ISS%mass_hole
+    get_ice_shelf_mass_stock = get_ice_shelf_mass_stock + ISS%mass_hole
   endif
 
 end function get_ice_shelf_mass_stock

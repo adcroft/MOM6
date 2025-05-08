@@ -28,7 +28,7 @@ use MOM_error_handler, only : callTree_showQuery
 use MOM_error_handler, only : callTree_enter, callTree_leave, callTree_waypoint
 use MOM_file_parser, only : read_param, get_param, log_param, log_version, param_file_type
 use MOM_grid, only : MOM_grid_init, ocean_grid_type
-use MOM_grid_initialize, only : set_grid_metrics, extrapolate_metric
+use MOM_grid_initialize, only : set_grid_metrics
 use MOM_hor_index,             only : hor_index_type, hor_index_init
 use MOM_hor_index,             only : rotate_hor_index
 use MOM_fixed_initialization, only : MOM_initialize_topography
@@ -92,13 +92,9 @@ type, public :: ice_shelf_CS ; private
                                                   !! structure for the ice shelves
   type(ocean_grid_type), pointer :: Grid_in => NULL() !< un-rotated input grid metric
   logical :: rotate_index = .false.   !< True if index map is rotated
-  logical :: set_grid_hole_area = .false. !< True to use areas from a second h_grid to calculate stocks
-                                          !! that account for flux into a hole in the original grid
-  logical :: debug_mass_hole = .false. !! True to output messages related to integrated surface mass flux
-                                       !! and mass in the grid hole
-  logical :: mass_hole_from_land = .true. !! Calculate hole mass using integrated surface mass flux
-                                          !! from (True) the land model or (False) the modified mom grid areas
-
+  logical :: calculate_mass_hole = .true. !! True to calculate mass in the S. Pole grid hole. Likely
+                                          !! set false unless using surface mass flux from the land model
+  logical :: debug_mass_hole = .false. !! True to output the mass_hole increment over the current time step
   integer :: turns                    !< The number of quarter turns for rotation testing.
   type(ocean_grid_type), pointer :: Grid => NULL() !< Grid for the ice-shelf model
   type(unit_scale_type), pointer :: &
@@ -113,8 +109,7 @@ type, public :: ice_shelf_CS ; private
   type(ice_shelf_dyn_CS), pointer :: dCS => NULL() !< The control structure for the ice-shelf dynamics.
 
   real, pointer, dimension(:,:) :: &
-    utide   => NULL(), &    !< An unresolved tidal velocity [L T-1 ~> m s-1]
-    areaT_lndXIS => NULL()  !< Area of ice-shelf cells when using the LndXIS mosaic that covers the S. Pole
+    utide   => NULL()  !< An unresolved tidal velocity [L T-1 ~> m s-1]
 
   real :: ustar_bg     !< A minimum value for ustar under ice shelves [Z T-1 ~> m s-1].
   real :: ustar_max    !< A maximum value for ustar under ice shelves, or a negative value to
@@ -366,10 +361,9 @@ subroutine shelf_calc_flux(sfc_state_in, fluxes_in, Time, time_step_in, CS)
   character(len=160) :: mesg  ! The text of an error message
   integer, dimension(2) :: EOSdom ! The i-computational domain for the equation of state
   integer :: i, j, is, ie, js, je, ied, jed, it1, it3
-  real :: vaf0, vaf0_A, vaf0_G !The previous volumes above floatation [Z L2 ~> m3]
-                               !for all ice sheets, Antarctica only, or Greenland only [Z L2 ~> m3]
-  real :: mass_hole_lnd !Land minus ice-sheet (regular grid) area-integrated surface mass flux
-  real :: mass_hole_IS  !Modified minus regular grid ice-sheet area-integrated surface mass flux
+  real :: vaf0, vaf0_A, vaf0_G ! The previous volumes above floatation [Z L2 ~> m3]
+                               ! for all ice sheets, Antarctica only, or Greenland only [Z L2 ~> m3]
+  real :: d_mass_hole ! Difference between area-integrated surface mass flux from land grid and ice-sheet grid
 
   if (.not. associated(CS)) call MOM_error(FATAL, "shelf_calc_flux: "// &
        "initialize_ice_shelf must be called before shelf_calc_flux.")
@@ -830,8 +824,7 @@ subroutine shelf_calc_flux(sfc_state_in, fluxes_in, Time, time_step_in, CS)
     update_ice_vel = .false.
     coupled_GL = (CS%GL_couple .and. .not. CS%solo_ice_sheet)
 
-    ! advect the ice shelf, and advance the front. Calving will be in here somewhere as well..
-    ! when we decide on how to do it
+    ! advect the ice shelf, advance the front, and do calving
     call update_ice_shelf(CS%dCS, ISS, G, US, time_step, Time, CS%calve_ice_shelf_bergs, &
                           sfc_state%ocean_mass, coupled_GL)
 
@@ -841,81 +834,30 @@ subroutine shelf_calc_flux(sfc_state_in, fluxes_in, Time, time_step_in, CS)
 
     call IS_dynamics_post_data(time_step, Time, CS%dCS, ISS, G)
 
-    !here, ISS%mass_hole is the time-and-area integrated surface mass flux from the land model that is not interpolated
-    !to the ice sheet (i.e. the adot * dt from land, integrated over the land grid area, minus adot * dt on the
-    !ice-sheet, integrated over the ocean grid area), plus any flux in/out of the ice-sheet domain due to horizontal
-    !ice sheet advection.
-    if (associated(CS%areaT_lndXIS)) then
-      adot_int_nh = integrate_over_ice_sheet_area(G, ISS, &
-                                               fluxes%shelf_sfc_mass_flux * CS%areaT_lndXIS * G%IareaT, &
-                                               US%RZ_T_to_kg_m2s, hemisphere=1)
-      if (CS%debug_mass_hole) then
-        write(mesg,*) 'Ice sheet integrated surface mass flux NH', adot_int_nh*US%RZL2_to_kg*US%s_to_T
-        call MOM_mesg("MOM6-IS: "//trim(mesg))
-      endif
-      adot_int_sh = integrate_over_ice_sheet_area(G, ISS, &
-                                               fluxes%shelf_sfc_mass_flux * CS%areaT_lndXIS * G%IareaT, &
-                                               US%RZ_T_to_kg_m2s, hemisphere=0)
-      if (CS%debug_mass_hole) then
-        write(mesg,*) 'Ice sheet integrated surface mass flux SH', adot_int_sh*US%RZL2_to_kg*US%s_to_T
-        call MOM_mesg("MOM6-IS: "//trim(mesg))
-      endif
-      adot_int_tot = integrate_over_ice_sheet_area(G, ISS, &
-                                               fluxes%shelf_sfc_mass_flux * CS%areaT_lndXIS * G%IareaT, &
-                                               US%RZ_T_to_kg_m2s)
-      if (CS%debug_mass_hole) then
-        write(mesg,*) 'Ice sheet integrated surface mass flux Tot, % error with land', &
-          adot_int_tot*US%RZL2_to_kg*US%s_to_T, 100*(adot_int_tot-fluxes%IS_adot_int_land)/fluxes%IS_adot_int_land
-        call MOM_mesg("MOM6-IS: "//trim(mesg))
-      endif
-    endif
+    ! Calculate ISS%mass_hole, the time-and-area integrated surface mass flux from the land model that is not
+    ! interpolated to the ice sheet (i.e. the adot*dt from land, integrated over the land grid area, minus adot*dt
+    ! on the ice-sheet, integrated over the ocean grid area), plus any flux in/out of the ice-sheet domain due to
+    ! horizontal ice sheet advection.
 
-    !Calculate mass in the hole:
-    !Change in thickness due to precipitation, accounting for any cells where thickness is constant
-    dh_adott = dh_adott * CS%density_ice
-    adot_intt = integrate_over_ice_sheet_area(G, ISS, dh_adott, US%RZ_T_to_kg_m2s) ![RZL2]
-    dh_adott = dh_adott / CS%density_ice
+    if (CS%calculate_mass_hole) then
+      ! Change in thickness due to precipitation, accounting for any cells where thickness is constant
+      adot_intt = integrate_over_ice_sheet_area(G, ISS, dh_adott * CS%density_ice, US%RZ_T_to_kg_m2s) ![RZL2]
 
-    mass_hole_lnd = fluxes%IS_adot_int_land * time_step - &
-                    adot_intt + ISS%tot_flux_inout * CS%density_ice
-
-    if (associated(CS%areaT_lndXIS)) then
-      mass_hole_IS  = adot_int_tot * time_step - &
+      d_mass_hole = fluxes%IS_adot_int_land * time_step - &
         adot_intt + ISS%tot_flux_inout * CS%density_ice
-    endif
 
-    if (CS%debug_mass_hole) then
-      write(mesg,*) 'd(Mass hole) using surf mass flux from land            ',&
-        mass_hole_lnd*US%RZL2_to_kg
-      call MOM_mesg("MOM6-IS: "//trim(mesg))
-      if (associated(CS%areaT_lndXIS)) then
-        write(mesg,*) 'd(Mass hole) using surf mass flux from modified-area IS',&
-          mass_hole_IS*US%RZL2_to_kg
-        call MOM_mesg("MOM6-IS: "//trim(mesg))
-        write(mesg,*) 'mass hole increment % error (IS modified compared to lnd):',&
-          100*(mass_hole_IS-mass_hole_lnd)/mass_hole_lnd
+      if (CS%debug_mass_hole) then
+        write(mesg,*) 'd(Mass hole) ',d_mass_hole*US%RZL2_to_kg
         call MOM_mesg("MOM6-IS: "//trim(mesg))
       endif
-    endif
 
-    if (associated(CS%areaT_lndXIS) .and. (.not. CS%mass_hole_from_land)) then
-      ISS%mass_hole = ISS%mass_hole + mass_hole_IS
-    else
-      ISS%mass_hole = ISS%mass_hole + mass_hole_lnd
+      ISS%mass_hole = ISS%mass_hole + d_mass_hole
     endif
   else
-    !Without active ice shelf dynamics, the ice sheet mass is constant, and ISS%mass_hole represents
-    !the integrated adot over ice sheet area:
-    if (associated(CS%areaT_lndXIS) .and. (.not. CS%mass_hole_from_land)) then
-      !integrate adot over the modified ice sheet area
-      adot_int_tot = integrate_over_ice_sheet_area(G, ISS, &
-        fluxes%shelf_sfc_mass_flux * CS%areaT_lndXIS * G%IareaT, &
-        US%RZ_T_to_kg_m2s)
-      ISS%mass_hole = ISS%mass_hole + adot_int_tot * time_step
-    else
-      !use the adot integrated over the ice sheet area from the land model
-      ISS%mass_hole = ISS%mass_hole + fluxes%IS_adot_int_land * time_step
-    endif
+    ! Without active ice shelf dynamics, the ice sheet mass is constant, and ISS%mass_hole represents
+    ! the integrated adot over ice sheet area:
+    ! use the adot integrated over the ice sheet area from the land model
+    if (CS%calculate_mass_hole) ISS%mass_hole = ISS%mass_hole + fluxes%IS_adot_int_land * time_step
   endif
 
   if (CS%shelf_mass_is_dynamic) &
@@ -1493,7 +1435,7 @@ subroutine initialize_ice_shelf(param_file, ocn_grid, Time, CS, diag, Time_init,
   real :: meltrate_conversion ! The conversion factor to use for in the melt rate diagnostic.
   real :: dz_ocean_min_float ! The minimum ocean thickness above which the ice shelf is considered
                         ! to be floating when CONST_SEA_LEVEL = True [Z ~> m].
-  real :: cdrag, drag_bg_vel, sha, nha
+  real :: cdrag, drag_bg_vel
   logical :: new_sim, save_IC
   !This include declares and sets the variable "version".
 # include "version_variable.h"
@@ -1540,25 +1482,6 @@ subroutine initialize_ice_shelf(param_file, ocn_grid, Time, CS, diag, Time_init,
                  "that corresponding points on different processors have "//&
                  "the same index. This does not work with static memory.", &
                  default=.false., layoutParam=.true.)
-
-  call get_param(param_file, mdl, "SET_GRID_HOLE_AREA", CS%set_grid_hole_area, &
-                 "If true, use a second h_grid in INPUT_lndXIS to defines extended areas for "//&
-                 "cells near any hole in the grid, used to account for surface mass flux into "//&
-                 "the hole area when calculating stocks", default=.false.)
-
-  call get_param(param_file, mdl, "DEBUG_MASS_HOLE", CS%debug_mass_hole, &
-                 "If true, output messages related to integrated surface mass flux and mass in the "//&
-                 "grid hole, for both integrated surface mass flux from the land grid and modified "//&
-                 "ocean grid.", default=.false.)
-
-  call get_param(param_file, mdl, "MASS_HOLE_FROM_LAND", CS%mass_hole_from_land, &
-                 "Calculate hole mass using integrated surface mass flux from (True) the land model "//&
-                 "or (False) the modified MOM grid areas.", default=.true.)
-
-  if ((.not. CS%mass_hole_from_land) .and. (.not. CS%set_grid_hole_area)) then
-        call MOM_error(FATAL, "MOM_ice_shelf.F90, initialize_ice_shelf: "// &
-                          "set_grid_hole_area must be true if mass_hole_from_land=false.")
-  endif
 
   ! Set up the ice-shelf domain and grid
   wd_halos(:)=0
@@ -1610,7 +1533,6 @@ subroutine initialize_ice_shelf(param_file, ocn_grid, Time, CS, diag, Time_init,
     ! Set up the bottom depth, dG%bathyT, either analytically or from file
     call MOM_initialize_topography(dG%bathyT, CS%Grid%max_depth, dG, param_file, CS%US)
     call copy_dyngrid_to_MOM_grid(dG, CS%Grid, CS%US)
-    if (CS%set_grid_hole_area) call set_grid_hole_area(CS, dG, param_file)
     call destroy_dyn_horgrid(dG)
   endif
   G => CS%Grid
@@ -1649,6 +1571,11 @@ subroutine initialize_ice_shelf(param_file, ocn_grid, Time, CS, diag, Time_init,
   call get_param(param_file, mdl, "DEBUG_IS", CS%debug, &
                  "If true, write verbose debugging messages for the ice shelf.", &
                  default=debug)
+  call get_param(param_file, mdl, "CALCULATE_MASS_HOLE", CS%calculate_mass_hole, &
+                 "If true, calculate mass in the South Pole grid hole. Likely set false unless "//&
+                 "using surace mass flux from the land model", default=.true.)
+  call get_param(param_file, mdl, "DEBUG_MASS_HOLE", CS%debug_mass_hole, &
+                 "If true, output the mass_hole increment over the current time step.", default=.false.)
   call get_param(param_file, mdl, "DYNAMIC_SHELF_MASS", CS%shelf_mass_is_dynamic, &
                  "If true, the ice sheet mass can evolve with time.", &
                  default=.false.)
@@ -1662,6 +1589,11 @@ subroutine initialize_ice_shelf(param_file, ocn_grid, Time, CS, diag, Time_init,
                  "If true, the data override feature is used to write "//&
                  "the surface mass flux deposition. This option is only "//&
                  "available for MOSAIC grid types.", default=.false.)
+    if (CS%data_override_shelf_fluxes .and. CS%calculate_mass_hole) &
+      call MOM_error(FATAL,"initialize_ice_shelf: "// &
+                     "Calculate_mass_hole should only be true if the ice sheet surface "// &
+                     "mass flux is calculated in the land model. This does not appear to be "// &
+                     "the case because data_override_shelf_fluxes is true!")
     call get_param(param_file, mdl, "GROUNDING_LINE_INTERPOLATE", CS%GL_regularize, &
                  "If true, regularize the floatation condition at the "//&
                  "grounding line as in Goldberg Holland Schoof 2009.", default=.false.)
@@ -2032,22 +1964,6 @@ subroutine initialize_ice_shelf(param_file, ocn_grid, Time, CS, diag, Time_init,
         ISS%mass_shelf(i,j) = ISS%h_shelf(i,j)*CS%density_ice
       endif
     enddo ; enddo
-
-    if (associated(CS%areaT_lndXIS)) then
-      call MOM_mesg("initialize_ice_shelf: Calculating initial ice sheet areas")
-
-      nha = integrate_over_ice_sheet_area(G, ISS, CS%areaT_lndXIS*G%IareaT, 1., hemisphere=1)
-      sha = integrate_over_ice_sheet_area(G, ISS, CS%areaT_lndXIS*G%IareaT, 1., hemisphere=0)
-      write (mesg,*) "Initial hole-adjusted ice sheet area: Northern Hemisphere", nha*US%L_to_m**2
-      call MOM_mesg("initialize_ice_shelf: "//trim(mesg))
-      write (mesg,*) "Initial hole-adjusted ice sheet area: Southern Hemisphere", sha*US%L_to_m**2
-      call MOM_mesg("initialize_ice_shelf: "//trim(mesg))
-      write (mesg,*) "Initial hole-adjusted ice sheet area: Total", (nha+sha)*US%L_to_m**2
-      call MOM_mesg("initialize_ice_shelf: "//trim(mesg))
-
-    else
-      call MOM_mesg("initialize_ice_shelf: Did not calculate initial ice sheet areas")
-    endif
 
     if (CS%debug) then
       call hchksum(ISS%mass_shelf, "IS init: mass_shelf", G%HI, haloshift=0, unscale=US%RZ_to_kg_m2)
@@ -3034,58 +2950,6 @@ subroutine process_and_post_scalar_data(CS, vaf0, vaf0_A, vaf0_G, Itime_step, dh
     endif
   endif
 end subroutine process_and_post_scalar_data
-
-!> Sets the grid metrics from a mosaic file.
-subroutine set_grid_hole_area(CS, G, param_file)
-  type(ice_shelf_CS), pointer    :: CS      !< A pointer to the ice shelf control structure
-  type(dyn_horgrid_type), intent(inout) :: G           !< The dynamic horizontal grid type
-  type(param_file_type),  intent(in)    :: param_file  !< Parameter file structure
-
-  ! Local variables
-  ! These are symmetric arrays, corresponding to the data in the mosaic file
-  real, dimension(2*G%isd-2:2*G%ied+1,2*G%jsd-2:2*G%jed+1) :: tmpT ! Areas [L2 ~> m2]
-  character(len=200) :: filename, grid_file, inputdir
-  character(len=64)  :: mdl = "set_grid_hole_area"
-  type(MOM_domain_type), pointer :: SGdom => NULL() ! Supergrid domain
-  integer :: i, j, i2, j2, ni, nj
-
-  call callTree_enter("set_grid_metrics_from_mosaic() for INPUT_lndXIS")
-
-  call get_param(param_file, mdl, "GRID_FILE", grid_file, &
-                 "Name of the file from which to read horizontal grid data.", &
-                 fail_if_missing=.true.)
-  ! call get_param(param_file,  mdl, "INPUTDIR", inputdir, default=".")
-  ! inputdir = slasher(inputdir)
-  inputdir = 'INPUT_lndXIS/'
-  filename = trim(adjustl(inputdir)) // trim(adjustl(grid_file))
-  ! call log_param(param_file, mdl, "INPUTDIR/GRID_FILE", filename)
-  if (.not.file_exists(filename)) &
-    call MOM_error(FATAL," set_grid_metrics_from_mosaic: Unable to open "//&
-                           trim(filename))
-
-  !<MISSING CODE TO READ REFINEMENT LEVEL>
-
-  call clone_MOM_domain(G%domain, SGdom, symmetric=.true., domain_name="MOM_MOSAIC_lndXIS", &
-                        refine=2, extra_halo=1)
-
-  ! Read AREA from the supergrid
-  tmpT(:,:) = 0.
-  call MOM_read_data(filename, 'area', tmpT, SGdom, scale=CS%US%m_to_L**2)
-  call pass_var(tmpT, SGdom)
-
-  call extrapolate_metric(tmpT, 2*(G%jsc-G%jsd)+2, missing=0.)
-
-  if (.not. associated(CS%areaT_lndXIS)) allocate(CS%areaT_lndXIS(G%isd:G%ied,G%jsd:G%jed))
-
-  do j=G%jsd,G%jed ; do i=G%isd,G%ied ; i2 = 2*i ; j2 = 2*j
-    CS%areaT_lndXIS(i,j) = (tmpT(i2-1,j2-1) + tmpT(i2,j2)) + &
-                   (tmpT(i2-1,j2) + tmpT(i2,j2-1))
-  enddo ; enddo
-
-  call pass_var(CS%areaT_lndXIS, G%Domain)
-  call callTree_leave("set_grid_metrics_from_mosaic() for INPUT_lndXIS")
-end subroutine set_grid_hole_area
-
 
 !> \namespace mom_ice_shelf
 !!

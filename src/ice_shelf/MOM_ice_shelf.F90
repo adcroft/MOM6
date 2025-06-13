@@ -94,7 +94,7 @@ type, public :: ice_shelf_CS ; private
   logical :: rotate_index = .false.   !< True if index map is rotated
   logical :: calculate_mass_hole = .true. !< True to calculate mass in the S. Pole grid hole. Likely
                                           !! set false unless using surface mass flux from the land model
-  logical :: debug_mass_hole = .false. !< True to write debug statements about ice-sheet mass_hole and stocks
+  logical :: debug_IS_stocks = .false. !< True to write debug statements about ice-sheet mass_hole and stocks
   integer :: turns                    !< The number of quarter turns for rotation testing.
   type(ocean_grid_type), pointer :: Grid => NULL() !< Grid for the ice-shelf model
   type(unit_scale_type), pointer :: &
@@ -452,7 +452,7 @@ subroutine shelf_calc_flux(sfc_state_in, fluxes_in, Time, time_step_in, CS)
                  unscale=US%RZ_to_kg_m2)
   endif
 
-  if (CS%debug_mass_hole) mass_start(is:ie,js:je) = ISS%mass_shelf(is:ie,js:je)
+  if (CS%debug_IS_stocks) mass_start(is:ie,js:je) = ISS%mass_shelf(is:ie,js:je)
 
   ! Calculate the friction velocity under ice shelves, using taux_shelf and tauy_shelf if possible.
   if (allocated(sfc_state%taux_shelf) .and. allocated(sfc_state%tauy_shelf)) then
@@ -807,9 +807,9 @@ subroutine shelf_calc_flux(sfc_state_in, fluxes_in, Time, time_step_in, CS)
 
     ISS%dhdt_shelf(:,:) = ISS%h_shelf(:,:)
 
-    if (CS%bmb_diag .or. CS%debug_mass_hole) dh_bdott(is:ie,js:je) = ISS%h_shelf(is:ie,js:je)
+    if (CS%bmb_diag .or. CS%debug_IS_stocks) dh_bdott(is:ie,js:je) = ISS%h_shelf(is:ie,js:je)
     call change_thickness_using_melt(CS, ISS, G, US, time_step, fluxes)
-    if (CS%bmb_diag .or. CS%debug_mass_hole) dh_bdott(is:ie,js:je) = ISS%h_shelf(is:ie,js:je) - dh_bdott(is:ie,js:je)
+    if (CS%bmb_diag .or. CS%debug_IS_stocks) dh_bdott(is:ie,js:je) = ISS%h_shelf(is:ie,js:je) - dh_bdott(is:ie,js:je)
 
     if (CS%debug) then
       call hchksum(ISS%h_shelf, "h_shelf after change thickness using melt", G%HI, haloshift=0, unscale=US%Z_to_m)
@@ -863,7 +863,7 @@ subroutine shelf_calc_flux(sfc_state_in, fluxes_in, Time, time_step_in, CS)
 
       ISS%mass_hole = ISS%mass_hole + (fluxes%IS_adot_int_land * time_step - adot_intt) - mass_ad
 
-      if (CS%debug_mass_hole) then
+      if (CS%debug_IS_stocks) then
         ! If there are no thickness or flux boundary conditions (ISS%hmask==3), this should be zero
         ! If there are flux boundaries but no thickness boundaries, this should equal -ISS%tot_flux_inout
         write(mesg,*) 'IS mass after-before advection', mass_ad * G%US%RZL2_to_kg, &
@@ -891,7 +891,7 @@ subroutine shelf_calc_flux(sfc_state_in, fluxes_in, Time, time_step_in, CS)
   ! pass on the updated ice sheet geometry (for pressure on ocean) and thermodynamic data
   call add_shelf_flux(G, US, CS, sfc_state, fluxes, time_step)
 
-  if (CS%debug_mass_hole) then
+  if (CS%debug_IS_stocks) then
     !As written, this assumes that area_shelf_h does not change over the timestep (e.g. static ice front)
     mass_stock = integrate_over_ice_sheet_area(G, ISS, ISS%mass_shelf, unscale=US%RZ_to_kg_m2) + &
       ISS%mass_hole + ISS%calving_stock
@@ -1633,8 +1633,8 @@ subroutine initialize_ice_shelf(param_file, ocn_grid, Time, CS, diag, Time_init,
   call get_param(param_file, mdl, "CALCULATE_MASS_HOLE", CS%calculate_mass_hole, &
                  "If true, calculate mass in the South Pole grid hole. Likely set false unless "//&
                  "using surace mass flux from the land model", default=.true.)
-  call get_param(param_file, mdl, "DEBUG_MASS_HOLE", CS%debug_mass_hole, &
-                 "If true, output the mass_hole increment over the current time step.", default=.false.)
+  call get_param(param_file, mdl, "DEBUG_IS_STOCKS", CS%debug_IS_stocks, &
+                 "If true, write debug statements about ice-sheet mass_hole and stocks.", default=.false.)
   call get_param(param_file, mdl, "DYNAMIC_SHELF_MASS", CS%shelf_mass_is_dynamic, &
                  "If true, the ice sheet mass can evolve with time.", &
                  default=.false.)

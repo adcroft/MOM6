@@ -914,8 +914,9 @@ subroutine shelf_calc_flux(sfc_state_in, fluxes_in, Time, time_step_in, CS)
   if (CS%id_shelf_mass > 0) call post_data(CS%id_shelf_mass, ISS%mass_shelf, CS%diag)
   if (CS%id_area_shelf_h > 0) call post_data(CS%id_area_shelf_h, ISS%area_shelf_h, CS%diag)
   if (CS%id_ustar_shelf > 0) call post_data(CS%id_ustar_shelf, fluxes%ustar_shelf, CS%diag)
-  if (CS%id_shelf_sfc_mass_flux > 0) call post_data(CS%id_shelf_sfc_mass_flux, fluxes%shelf_sfc_mass_flux, CS%diag)
-
+  if (CS%active_shelf_dynamics) then
+    if (CS%id_shelf_sfc_mass_flux > 0) call post_data(CS%id_shelf_sfc_mass_flux, fluxes%shelf_sfc_mass_flux, CS%diag)
+  endif
   if (CS%id_melt > 0) call post_data(CS%id_melt, fluxes%iceshelf_melt, CS%diag)
   if (CS%id_thermal_driving > 0) call post_data(CS%id_thermal_driving, (sfc_state%sst-ISS%tfreeze), CS%diag)
   if (CS%id_Sbdry > 0) call post_data(CS%id_Sbdry, Sbdry, CS%diag)

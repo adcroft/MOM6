@@ -348,7 +348,7 @@ subroutine diag_remap_update(remap_cs, G, GV, US, h, T, S, eqn_of_state, h_targe
     do j=js-1,je+1 ; do i=is-1,ie+1 ; if (G%mask2dT(i,j) > 0.0) then
       ! This function call can work with the last 4 arguments all in units of [Z ~> m] or [H ~> kg m-2].
       call build_zstar_column(get_zlike_CS(remap_cs%regrid_cs), &
-                              bottom_depth(i,j), h_tot(i,j), zInterfaces, zScale=Z_unit_scale)
+                              bottom_depth(i,j), h_tot(i,j), zInterfaces )
       do k=1,nz ; h_target(i,j,k) = zInterfaces(K) - zInterfaces(K+1) ; enddo
     endif ; enddo ; enddo
   elseif (remap_cs%vertical_coord == coordinateMode('SIGMA')) then

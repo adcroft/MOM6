@@ -16,6 +16,7 @@ use MOM_mixed_layer_restrat,        only : mixedlayer_restrat_unit_tests
 use MOM_neutral_diffusion,          only : neutral_diffusion_unit_tests
 use MOM_random,                     only : random_unit_tests
 use MOM_remapping,                  only : remapping_unit_tests
+use MOM_regridding,                 only : regridding_unit_tests
 use MOM_string_functions,           only : string_functions_unit_tests
 use MOM_CFC_cap,                    only : CFC_cap_unit_tests
 use MOM_EOS,                        only : EOS_unit_tests
@@ -45,6 +46,8 @@ subroutine unit_tests(verbosity)
        "MOM_unit_tests: EOS_unit_tests FAILED")
     if (remapping_unit_tests(verbose)) call MOM_error(FATAL, &
        "MOM_unit_tests: remapping_unit_tests FAILED")
+    if (regridding_unit_tests(verbose)) call MOM_error(FATAL, &
+       "MOM_unit_tests: regridding_unit_tests FAILED")
     if (intrinsic_functions_unit_tests(verbose)) call MOM_error(FATAL, &
        "MOM_unit_tests: intrinsic_functions_unit_tests FAILED")
     if (neutral_diffusion_unit_tests(verbose)) call MOM_error(FATAL, &

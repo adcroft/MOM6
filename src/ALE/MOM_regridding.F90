@@ -44,6 +44,9 @@ use coord_adapt,  only : init_coord_adapt, set_adapt_params, build_adapt_column,
 use MOM_hybgen_regrid, only : hybgen_regrid, hybgen_regrid_CS, init_hybgen_regrid, end_hybgen_regrid
 use MOM_hybgen_regrid, only : write_Hybgen_coord_file
 
+use numerical_testing_type, only : testing
+use coord_zlike,            only : coord_zlike_unit_tests
+
 implicit none ; private
 
 #include <MOM_memory.h>
@@ -165,6 +168,7 @@ public getCoordinateUnits, getCoordinateShortName, getStaticThickness
 public DEFAULT_COORDINATE_MODE
 public set_h_neglect, set_dz_neglect
 public get_zlike_CS, get_sigma_CS, get_rho_CS
+public regridding_unit_tests
 
 !> Documentation for coordinate options
 character(len=*), parameter, public :: regriddingCoordinateModeDoc = &
@@ -3047,6 +3051,22 @@ integer function rho_function1( string, rho_target )
   rho_function1 = nk
 
 end function rho_function1
+
+!> Runs unit tests on regridding functions.
+!! Should only be called from a single/root thread
+!! Returns True if a test fails, otherwise False
+logical function regridding_unit_tests(verbose)
+  logical, intent(in) :: verbose !< If true, write results to stdout
+  ! Local variables
+  type(testing) :: test ! numerical_testing_type
+
+  call test%set( verbose=.false. ) ! While invoking the submodule tests, be quiet at this level
+  call test%test( coord_zlike_unit_tests(verbose), 'Unit tests for coord_zlike')
+
+  call test%set( verbose=verbose )
+  regridding_unit_tests = test%summarize('regridding_unit_tests') ! Return true if a fail occurred
+
+end function regridding_unit_tests
 
 !> \namespace mom_regridding
 !!

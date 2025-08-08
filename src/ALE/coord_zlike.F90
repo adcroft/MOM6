@@ -6,6 +6,7 @@
 module coord_zlike
 
 use MOM_error_handler, only : MOM_error, FATAL
+use numerical_testing_type, only : testing
 
 implicit none ; private
 
@@ -24,6 +25,7 @@ type, public :: zlike_CS ; private
 end type zlike_CS
 
 public init_coord_zlike, set_zlike_params, build_zstar_column, end_coord_zlike
+public coord_zlike_unit_tests
 
 contains
 
@@ -71,6 +73,7 @@ subroutine build_zstar_column(CS, depth, total_thickness, zInterface, &
                                                    !! units as depth) [Z ~> m] or [H ~> m or kg m-2]
   real, dimension(CS%nk+1), intent(inout) :: zInterface !< Absolute positions of interfaces (in the same
                                                    !! units as depth) [Z ~> m] or [H ~> m or kg m-2]
+                                                   !! Note: incoming values are NOT used.
   real, optional,           intent(in)    :: z_rigid_top !< The height of a rigid top (positive upward in the same
                                                    !! units as depth) [Z ~> m] or [H ~> m or kg m-2]
   real, optional,           intent(in)    :: eta_orig !< The actual original height of the top (in the same
@@ -144,5 +147,173 @@ subroutine build_zstar_column(CS, depth, total_thickness, zInterface, &
   endif
 
 end subroutine build_zstar_column
+
+!> Runs unit tests and returns True for any fails, False otherwise
+logical function coord_zlike_unit_tests(verbose)
+  logical, intent(in)    :: verbose !< True, if verbose
+  ! Local variables
+  type(testing) :: test ! numerical_testing_type
+  type(zlike_CS), pointer :: CS ! Coordinate control structure
+  real :: zi(5) ! Interface positions [A]
+
+  call test%set( verbose=verbose )
+
+  call init_coord_zlike(CS, 4, [1., 3., 5., 7.]) ! Nominal z-grid, 16 deep
+
+  ! Using just "depth" and "total thickness" to generate grid acts like z* in
+  ! open ocean, and like top-down sigma-coordinates under an ice shelf.
+  !
+  ! In this mode, the nominal dz is clipped, or expanded, at the bottom depth
+  ! and then the result is stretched to have the given total thickness.
+  ! There is no clipping at the top by an ice shelf, which is why it resorts
+  ! to a sigma-coordinate like behavior in ice shelf cavities.
+
+  call build_zstar_column(CS, 16., & ! depth
+                              16., & ! total thickness
+                              zi )   ! current and future interface positions
+  call test%real_arr(5, zi, (/0., -1., -4., -9., -16./), 'zi matches nominal grid')
+
+  call build_zstar_column(CS, 16., & ! depth
+                              32., & ! total thickness
+                              zi )   ! current and future interface positions
+  call test%real_arr(5, zi, (/16., 14., 8., -2., -16./), 'Double total thickness')
+
+  call build_zstar_column(CS, 16., & ! depth
+                               8., & ! total thickness
+                              zi )   ! current and future interface positions
+  call test%real_arr(5, zi, (/-8., -8.5, -10., -12.5, -16./), 'Half total thickness')
+
+  call build_zstar_column(CS, 10., & ! depth
+                              10., & ! total thickness
+                              zi )   ! current and future interface positions
+  call test%real_arr(5, zi, (/0., -1., -4., -9., -10./), 'Shallower bottom')
+
+  call build_zstar_column(CS, 10., & ! depth
+                              20., & ! total thickness
+                              zi )   ! current and future interface positions
+  call test%real_arr(5, zi, (/10., 8., 2., -8., -10./), 'Shallower bottom, double thickness')
+
+  call build_zstar_column(CS, 18., & ! depth
+                              18., & ! total thickness
+                              zi )   ! current and future interface positions
+  call test%real_arr(5, zi, (/0., -1., -4., -9., -18./), 'Deeper bottom')
+
+  call build_zstar_column(CS, 18., & ! depth
+                              36., & ! total thickness
+                              zi )   ! current and future interface positions
+  call test%real_arr(5, zi, (/18., 16., 10., 0., -18./), 'Deeper bottom, double thickness')
+
+  ! Using just "depth", "total thickness" and "z of rigid top" to generate grid acts
+  ! like z* in the open ocean and under an ice shelf IF, AND ONLY IF, the three
+  ! parameters are consistent.
+  !
+  ! In this mode, the top is clipped as expected, BUT ONLY IF the total_thickness
+  ! is consistent, i.e. z_rigid_top = total_thickness - depth .
+  ! It is not clear why inconsistent should ever be provided.
+  ! The presence of "z_ridid_top" triggers the "new" z* calculation within
+  ! build_zstar_column().
+
+  call build_zstar_column(CS, 16., & ! depth
+                              14.5, & ! total thickness
+                              zi,  & ! current and future interface positions
+                              z_rigid_top=-1.5)
+  call test%real_arr(5, zi, (/-1.5, -1.5, -4., -9., -16./), 'Clip 1.5 upper layers')
+
+  ! This configuration is "consistent" but the thicknesses that result are not obvious,
+  ! 2.5, 3., 5. 7, to the top layer is inflated to obtain the correct total thickness
+  call build_zstar_column(CS, 16., & ! depth
+                              17.5, & ! total thickness
+                              zi,  & ! current and future interface positions
+                              z_rigid_top=1.5)
+  call test%real_arr(5, zi, (/1.5, -1., -4., -9., -16./), 'Clip 1.5 upper layers')
+
+  ! This configuration is inconsistent, the high rigid top implying a thickness of 32 instead of 8
+  ! leading to layer thicknessses of 4.25,0.75,1.25,1.75  ¯\_(ツ)_/¯
+  call build_zstar_column(CS, 16., & ! depth
+                               8., & ! total thickness
+                              zi,  & ! current and future interface positions
+                              z_rigid_top=16.)
+  call test%real_arr(5, zi, (/-8., -12.25, -13., -14.25, -16./), 'Rigid top above MSL, with half total thickness')
+
+  ! This configuration is inconsistent, the rigid top splitting the specified total thickness of 32
+  ! leads to layer thicknessses of 8,0,2,14  ¯\_(ツ)_/¯
+  call build_zstar_column(CS, 16., & ! depth
+                              32., & ! total thickness
+                              zi,  & ! current and future interface positions
+                              z_rigid_top=0.)
+  call test%real_arr(5, zi, (/16., 0., 0., -2., -16./), 'Rigid top at MSL, with double total thickness', tol=2.e-16)
+
+  ! Using just "depth", "total thickness" and "eta_orig" to generate grid
+  !
+  ! In this mode, if eta_orig = total_thickness - depth, then behaves as if eta_orig is absent.
+  ! Otherwise, it streches more like a sigma coordinate to match both eta_orig and depth.
+
+  ! Halving column thickness with eta_orig at MSL leads to a shrinking of spacing towards the top.
+  ! *** Total thickness is not preserved. ***
+  call build_zstar_column(CS, 16., & ! depth
+                              8.,  & ! total thickness
+                              zi,  & ! current and future interface positions
+                              eta_orig=0.)
+  call test%real_arr(5, zi, (/0., -0.5, -2., -4.5, -16./), 'Clip 1.5 upper layers')
+
+  ! Using all of "depth", "total thickness", "z_rigid_top" and "eta_orig" to generate grid
+  ! then clipping is as expected when depressed
+  call build_zstar_column(CS, 16., & ! depth
+                              13., & ! total thickness
+                              zi,  & ! current and future interface positions
+                              z_rigid_top=-3., &
+                              eta_orig=-3.)
+  call test%real_arr(5, zi, (/-3., -3., -4., -9., -16./), 'All args are consistent w. clipped')
+
+  ! Using all of "depth", "total thickness", "z_rigid_top" and "eta_orig" to generate grid
+  ! then surplus volume inflates only the first layer
+  call build_zstar_column(CS, 16., & ! depth
+                              24., & ! total thickness
+                              zi,  & ! current and future interface positions
+                              z_rigid_top=8., &
+                              eta_orig=8.)
+  call test%real_arr(5, zi, (/8., -1., -4., -9., -16./), 'All args are consistent w. inflation')
+
+  ! If z_rigid_top is consistent with total_thickness, eta_top changes the top
+  ! position, with nominal thicknesses apparently applied unclipped.
+  ! Yields thicknesses of 1, 3, 5, 8
+  call build_zstar_column(CS, 16., & ! depth
+                              16., & ! total thickness
+                              zi,  & ! current and future interface positions
+                              z_rigid_top=0., &
+                              eta_orig=1.)
+  call test%real_arr(5, zi, (/1., 0., -3., -8., -16./), 'Eta is inconsistent > top')
+
+  ! If z_rigid_top is consistent with total_thickness, eta_top changes the top
+  ! position, with nominal thicknesses apparently applied unclipped.
+  ! Yields thicknesses of 1, 3, 5, 6
+  call build_zstar_column(CS, 16., & ! depth
+                              16., & ! total thickness
+                              zi,  & ! current and future interface positions
+                              z_rigid_top=0., &
+                              eta_orig=-1.)
+  call test%real_arr(5, zi, (/-1., -2., -5., -10., -16./), 'Eta is inconsistent < top')
+
+  ! If eta_top is consistent with total_thickness, z_rigid_top changes the top
+  call build_zstar_column(CS, 16., & ! depth
+                              32., & ! total thickness
+                              zi,  & ! current and future interface positions
+                              z_rigid_top=0., &
+                              eta_orig=16.)
+  ! Yields thicknesses of 16, 0, 2, 14
+  call test%real_arr(5, zi, (/16., 0., 0., -2., -16./), 'rigid top is inconsistent < eta', tol=2.e-16)
+
+  ! If eta_top is consistent with total_thickness, z_rigid_top changes the top
+  call build_zstar_column(CS, 16., & ! depth
+                              16., & ! total thickness
+                              zi,  & ! current and future interface positions
+                              z_rigid_top=16., &
+                              eta_orig=0.)
+  ! Yields thicknesses of 8.5, 1.5, 2.5, 3.5
+  call test%real_arr(5, zi, (/0., -8.5, -10., -12.5, -16./), 'rigid top is inconsistent > eta')
+
+  coord_zlike_unit_tests = test%summarize('coord_zlike_unit_tests') ! Return true if a fail occurred
+
+end function coord_zlike_unit_tests
 
 end module coord_zlike

@@ -49,7 +49,7 @@ use MOM_regridding,       only : set_regrid_params, get_regrid_size
 use MOM_regridding,       only : getCoordinateInterfaces, set_h_neglect, set_dz_neglect
 use MOM_regridding,       only : get_zlike_CS, get_sigma_CS, get_rho_CS
 use regrid_consts,        only : coordinateMode
-use coord_zlike,          only : build_zstar_column
+use coord_zlike,          only : build_zstar_open_ocean_column
 use coord_sigma,          only : build_sigma_column
 use coord_rho,            only : build_rho_column
 
@@ -347,7 +347,7 @@ subroutine diag_remap_update(remap_cs, G, GV, US, h, T, S, eqn_of_state, h_targe
   if (remap_cs%vertical_coord == coordinateMode('ZSTAR')) then
     do j=js-1,je+1 ; do i=is-1,ie+1 ; if (G%mask2dT(i,j) > 0.0) then
       ! This function call can work with the last 4 arguments all in units of [Z ~> m] or [H ~> kg m-2].
-      call build_zstar_column(get_zlike_CS(remap_cs%regrid_cs), &
+      call build_zstar_open_ocean_column(get_zlike_CS(remap_cs%regrid_cs), &
                               bottom_depth(i,j), h_tot(i,j), zInterfaces )
       do k=1,nz ; h_target(i,j,k) = zInterfaces(K) - zInterfaces(K+1) ; enddo
     endif ; enddo ; enddo

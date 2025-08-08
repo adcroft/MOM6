@@ -31,16 +31,18 @@ use regrid_interp, only : interp_CS_type
 use regrid_interp, only : set_interp_scheme, set_interp_extrap, set_interp_answer_date
 
 use coord_zlike,  only : zlike_CS
-use coord_zlike,  only : init_coord_zlike, set_zlike_params, build_zstar_column, end_coord_zlike
+use coord_zlike,  only : init_coord_zlike, set_zlike_params, end_coord_zlike
+use coord_zlike,  only : build_zstar_open_ocean_column, build_zstar_column
 use coord_sigma,  only : sigma_CS
 use coord_sigma,  only : init_coord_sigma, set_sigma_params, build_sigma_column, end_coord_sigma
-use coord_rho,    only : init_coord_rho, rho_CS, set_rho_params, build_rho_column, end_coord_rho
-use coord_rho,    only : old_inflate_layers_1d
+use coord_rho,    only : rho_CS
+use coord_rho,    only : init_coord_rho, set_rho_params, build_rho_column, end_coord_rho
 use coord_hycom,  only : hycom_CS
 use coord_hycom,  only : init_coord_hycom, set_hycom_params, build_hycom1_column, end_coord_hycom
 use coord_hycom,  only : init_3d_coord_hycom
 use coord_adapt,  only : adapt_CS
 use coord_adapt,  only : init_coord_adapt, set_adapt_params, build_adapt_column, end_coord_adapt
+use coord_rho,    only : old_inflate_layers_1d
 use MOM_hybgen_regrid, only : hybgen_regrid, hybgen_regrid_CS, init_hybgen_regrid, end_hybgen_regrid
 use MOM_hybgen_regrid, only : write_Hybgen_coord_file
 
@@ -1678,13 +1680,12 @@ subroutine build_zstar_grid( CS, G, GV, h, nom_depth_H, dzInterface, frac_shelf_
       if (ice_shelf) then
         if (frac_shelf_h(i,j) > 0.) then ! under ice shelf
           call build_zstar_column(CS%zlike_CS, nominalDepth, totalThickness, zNew, &
-                                z_rigid_top=totalThickness-nominalDepth, &
-                                eta_orig=zOld(1))
+                                  totalThickness-nominalDepth, zOld(1))
         else
-          call build_zstar_column(CS%zlike_CS, nominalDepth, totalThickness, zNew)
+          call build_zstar_open_ocean_column(CS%zlike_CS, nominalDepth, totalThickness, zNew)
         endif
       else
-        call build_zstar_column(CS%zlike_CS, nominalDepth, totalThickness, zNew)
+        call build_zstar_open_ocean_column(CS%zlike_CS, nominalDepth, totalThickness, zNew)
       endif
 
       ! Calculate the final change in grid position after blending new and old grids

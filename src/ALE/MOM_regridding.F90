@@ -970,7 +970,7 @@ subroutine initialize_regridding(CS, G, GV, US, max_depth, param_file, mdl, &
   endif
 
   ! initialise coordinate-specific control structure
-  call initCoord(CS, G, GV, US, coord_mode, param_file)
+  call initCoord(CS, G, GV, US, coord_mode, param_file, z_scale=US%Z_to_m*GV%m_to_H)
 
   if (coord_is_state_dependent) then
     if (main_parameters) then
@@ -1285,10 +1285,10 @@ subroutine regridding_main( remapCS, CS, G, GV, US, h, tv, h_new, dzInterface, &
   select case ( CS%regridding_scheme )
 
     case ( REGRIDDING_ZSTAR )
-      call build_zstar_grid( CS, G, GV, h, nom_depth_H, dzInterface, frac_shelf_h, zScale=Z_to_H )
+      call build_zstar_grid( CS, G, GV, h, nom_depth_H, dzInterface, frac_shelf_h )
       call calc_h_new_by_dz(CS, G, GV, h, dzInterface, h_new)
     case ( REGRIDDING_SIGMA_SHELF_ZSTAR)
-      call build_zstar_grid( CS, G, GV, h, nom_depth_H, dzInterface, zScale=Z_to_H )
+      call build_zstar_grid( CS, G, GV, h, nom_depth_H, dzInterface )
       call calc_h_new_by_dz(CS, G, GV, h, dzInterface, h_new)
     case ( REGRIDDING_SIGMA )
       call build_sigma_grid( CS, G, GV, h, nom_depth_H, dzInterface )
@@ -1614,7 +1614,7 @@ end subroutine filtered_grid_motion
 !> Builds a z*-coordinate grid with partial steps (Adcroft and Campin, 2004).
 !! z* is defined as
 !!   z* = (z-eta)/(H+eta)*H  s.t. z*=0 when z=eta and z*=-H when z=-H .
-subroutine build_zstar_grid( CS, G, GV, h, nom_depth_H, dzInterface, frac_shelf_h, zScale)
+subroutine build_zstar_grid( CS, G, GV, h, nom_depth_H, dzInterface, frac_shelf_h)
 
   ! Arguments
   type(regridding_CS),                       intent(in)    :: CS !< Regridding control structure
@@ -1629,10 +1629,6 @@ subroutine build_zstar_grid( CS, G, GV, h, nom_depth_H, dzInterface, frac_shelf_
                                                                  !! [H ~> m or kg m-2].
   real, dimension(SZI_(G),SZJ_(G)), optional,intent(in)    :: frac_shelf_h !< Fractional
                                                                  !! ice shelf coverage [nondim].
-  real,                            optional, intent(in)    :: zScale !< Scaling factor from the target coordinate
-                                                                 !! resolution in Z to desired units for zInterface,
-                                                                 !! usually Z_to_H in which case it is in
-                                                                 !! units of [H Z-1 ~> nondim or kg m-3]
   ! Local variables
   real   :: nominalDepth, minThickness, totalThickness  ! Depths and thicknesses [H ~> m or kg m-2]
 #ifdef __DO_SAFETY_CHECKS__
@@ -1648,7 +1644,7 @@ subroutine build_zstar_grid( CS, G, GV, h, nom_depth_H, dzInterface, frac_shelf_
   ice_shelf = present(frac_shelf_h)
 
   !$OMP parallel do default(none) shared(G,GV,dzInterface,CS,nz,h,frac_shelf_h, &
-  !$OMP                                  ice_shelf,minThickness,zScale,nom_depth_H) &
+  !$OMP                                  ice_shelf,minThickness,nom_depth_H) &
   !$OMP                          private(nominalDepth,totalThickness, &
 #ifdef __DO_SAFETY_CHECKS__
   !$OMP                                  dh, &
@@ -1683,14 +1679,12 @@ subroutine build_zstar_grid( CS, G, GV, h, nom_depth_H, dzInterface, frac_shelf_
         if (frac_shelf_h(i,j) > 0.) then ! under ice shelf
           call build_zstar_column(CS%zlike_CS, nominalDepth, totalThickness, zNew, &
                                 z_rigid_top=totalThickness-nominalDepth, &
-                                eta_orig=zOld(1), zScale=zScale)
+                                eta_orig=zOld(1))
         else
-          call build_zstar_column(CS%zlike_CS, nominalDepth, totalThickness, &
-                                zNew, zScale=zScale)
+          call build_zstar_column(CS%zlike_CS, nominalDepth, totalThickness, zNew)
         endif
       else
-        call build_zstar_column(CS%zlike_CS, nominalDepth, totalThickness, &
-                                zNew, zScale=zScale)
+        call build_zstar_column(CS%zlike_CS, nominalDepth, totalThickness, zNew)
       endif
 
       ! Calculate the final change in grid position after blending new and old grids
@@ -2384,7 +2378,7 @@ end function uniformResolution
 
 !> Initialize the coordinate resolutions by calling the appropriate initialization
 !! routine for the specified coordinate mode.
-subroutine initCoord(CS, G, GV, US, coord_mode, param_file)
+subroutine initCoord(CS, G, GV, US, coord_mode, param_file, z_scale)
   type(regridding_CS),     intent(inout) :: CS !< Regridding control structure
   type(ocean_grid_type),   intent(in)    :: G  !< Ocean grid structure
   type(verticalGrid_type), intent(in)    :: GV !< Ocean vertical grid structure
@@ -2393,12 +2387,16 @@ subroutine initCoord(CS, G, GV, US, coord_mode, param_file)
                                                !! See the documentation for regrid_consts
                                                !! for the recognized values.
   type(param_file_type),   intent(in)    :: param_file !< Parameter file
+  real,          optional, intent(in)    :: z_scale !< Scaling factor from the target coordinate
+                                                    !! resolution in Z to desired units for zInterface,
+                                                    !! usually Z_to_H in which case it is in
+                                                    !! units of [H Z-1 ~> nondim or kg m-3]
 
   select case (coordinateMode(coord_mode))
   case (REGRIDDING_ZSTAR)
-    call init_coord_zlike(CS%zlike_CS, CS%nk, CS%coordinateResolution)
+    call init_coord_zlike(CS%zlike_CS, CS%nk, CS%coordinateResolution, z_scale=z_scale)
   case (REGRIDDING_SIGMA_SHELF_ZSTAR)
-    call init_coord_zlike(CS%zlike_CS, CS%nk, CS%coordinateResolution)
+    call init_coord_zlike(CS%zlike_CS, CS%nk, CS%coordinateResolution, z_scale=z_scale)
   case (REGRIDDING_SIGMA)
     call init_coord_sigma(CS%sigma_CS, CS%nk, CS%coordinateResolution)
   case (REGRIDDING_RHO)

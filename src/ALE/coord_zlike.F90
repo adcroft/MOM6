@@ -30,10 +30,13 @@ public coord_zlike_unit_tests
 contains
 
 !> Initialise a zlike_CS with pointers to parameters
-subroutine init_coord_zlike(CS, nk, coordinateResolution)
+subroutine init_coord_zlike(CS, nk, coordinateResolution, z_scale)
   type(zlike_CS),     pointer    :: CS !< Unassociated pointer to hold the control structure
   integer,            intent(in) :: nk !< Number of levels in the grid
   real, dimension(:), intent(in) :: coordinateResolution !< Target coordinate resolution [Z ~> m]
+  real, optional,     intent(in) :: z_scale !< Scaling factor from the target coordinate resolution
+                                            !! in Z to desired units for zInterface, perhaps Z_to_H,
+                                            !! often [nondim] or [H Z-1 ~> 1 or kg m-3]
 
   if (associated(CS)) call MOM_error(FATAL, "init_coord_zlike: CS already associated!")
   allocate(CS)
@@ -41,6 +44,7 @@ subroutine init_coord_zlike(CS, nk, coordinateResolution)
 
   CS%nk                   = nk
   CS%coordinateResolution = coordinateResolution
+  if (present(z_scale)) CS%coordinateResolution = CS%coordinateResolution * z_scale
 end subroutine init_coord_zlike
 
 !> Deallocates the zlike control structure
@@ -65,7 +69,7 @@ end subroutine set_zlike_params
 
 !> Builds a z* coordinate with a minimum thickness
 subroutine build_zstar_column(CS, depth, total_thickness, zInterface, &
-                              z_rigid_top, eta_orig, zScale)
+                              z_rigid_top, eta_orig)
   type(zlike_CS),           intent(in)    :: CS !< Coordinate control structure
   real,                     intent(in)    :: depth !< Depth of ocean bottom (positive downward in the
                                                    !! output units), units may be [Z ~> m] or [H ~> m or kg m-2]
@@ -78,17 +82,12 @@ subroutine build_zstar_column(CS, depth, total_thickness, zInterface, &
                                                    !! units as depth) [Z ~> m] or [H ~> m or kg m-2]
   real, optional,           intent(in)    :: eta_orig !< The actual original height of the top (in the same
                                                    !! units as depth) [Z ~> m] or [H ~> m or kg m-2]
-  real, optional,           intent(in)    :: zScale !< Scaling factor from the target coordinate resolution
-                                                    !! in Z to desired units for zInterface, perhaps Z_to_H,
-                                                    !! often [nondim] or [H Z-1 ~> 1 or kg m-3]
   ! Local variables
   real :: eta   ! Free surface height [Z ~> m] or [H ~> m or kg m-2]
   real :: stretching ! A stretching factor for the coordinate [nondim]
-  real :: dh, min_thickness, z0_top, z_star, z_scale ! Thicknesses or heights [Z ~> m] or [H ~> m or kg m-2]
+  real :: dh, min_thickness, z0_top, z_star ! Thicknesses or heights [Z ~> m] or [H ~> m or kg m-2]
   integer :: k
   logical :: new_zstar_def
-
-  z_scale = 1.0 ; if (present(zScale)) z_scale = zScale
 
   new_zstar_def = .false.
   min_thickness = min( CS%min_thickness, total_thickness/real(CS%nk) )
@@ -116,7 +115,7 @@ subroutine build_zstar_column(CS, depth, total_thickness, zInterface, &
     z_star = 0. ! z*=0 at the free-surface
     zInterface(1) = eta ! The actual position of the top of the column
     do k = 2,CS%nk
-      z_star = z_star - CS%coordinateResolution(k-1)*z_scale
+      z_star = z_star - CS%coordinateResolution(k-1)
       ! This ensures that z is below a rigid upper surface (ice shelf bottom)
       zInterface(k) = min( eta + stretching * ( z_star - z0_top ), z0_top )
       ! This ensures that the layer in inflated
@@ -132,7 +131,7 @@ subroutine build_zstar_column(CS, depth, total_thickness, zInterface, &
     ! interfaces above the rigid boundary.
     zInterface(1) = eta
     do k = 1,CS%nk
-      dh = stretching * CS%coordinateResolution(k)*z_scale ! Notional grid spacing
+      dh = stretching * CS%coordinateResolution(k) ! Notional grid spacing
       zInterface(k+1) = zInterface(k) - dh
     enddo
 

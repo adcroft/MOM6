@@ -1389,9 +1389,9 @@ subroutine step_MOM_dynamics(forces, p_surf_begin, p_surf_end, dt, dt_tr_adv, &
       call thickness_diffuse(h, CS%uhtr, CS%vhtr, CS%tv, dt, G, GV, US, &
                              CS%MEKE, CS%VarMix, CS%CDp, CS%thickness_diffuse_CSp, CS%stoch_CS)
 
-      if (CS%debug) call hchksum(h,"Post-thickness_diffuse h", G%HI, haloshift=1, unscale=GV%H_to_MKS)
       call cpu_clock_end(id_clock_thick_diff)
       call pass_var(h, G%Domain, clock=id_clock_pass, halo=max(2,CS%cont_stencil))
+      if (CS%debug) call hchksum(h,"Post-thickness_diffuse h", G%HI, haloshift=1, unscale=GV%H_to_MKS)
       if (showCallTree) call callTree_waypoint("finished thickness_diffuse (step_MOM)")
     endif
 
@@ -1967,7 +1967,8 @@ subroutine post_diabatic_halo_updates(CS, G, GV, US, u, v, h, tv)
   call create_group_pass(pass_uv_T_S_h, h, G%Domain, halo=dynamics_stencil)
   call do_group_pass(pass_uv_T_S_h, G%Domain, clock=id_clock_pass)
 
-  if ((.not.tv%frazil_was_reset) .and. CS%vertex_shear) call pass_var(tv%frazil, G%Domain, halo=1)
+  if (associated(tv%frazil) .and. (.not.tv%frazil_was_reset) .and. CS%vertex_shear) &
+    call pass_var(tv%frazil, G%Domain, halo=1)
 
   ! Update derived thermodynamic quantities.
   if (allocated(tv%SpV_avg)) then

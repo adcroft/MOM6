@@ -13,7 +13,7 @@ use MOM_unit_scaling, only : unit_scale_type
 use MOM_variables, only : thermo_var_ptrs
 use MOM_verticalGrid, only : verticalGrid_type
 use regrid_consts, only : coordinateMode, DEFAULT_COORDINATE_MODE
-use regrid_consts, only : REGRIDDING_LAYER, REGRIDDING_ZSTAR
+use regrid_consts, only : REGRIDDING_LAYER, REGRIDDING_ZSTAR, REGRIDDING_H_ZSTAR
 use regrid_consts, only : REGRIDDING_RHO, REGRIDDING_SIGMA
 
 implicit none ; private
@@ -99,7 +99,7 @@ subroutine Rossby_front_initialize_thickness(h, G, GV, US, param_file, just_read
           enddo
         enddo ; enddo
 
-      case (REGRIDDING_ZSTAR, REGRIDDING_SIGMA)
+      case (REGRIDDING_ZSTAR, REGRIDDING_SIGMA, REGRIDDING_H_ZSTAR)
         do j = G%jsc,G%jec ; do i = G%isc,G%iec
           Dml = Hml( G, G%geoLatT(i,j), max_depth )
           ! The free surface height is set so that the bottom pressure gradient is 0.

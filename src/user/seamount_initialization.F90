@@ -17,7 +17,7 @@ use MOM_unit_scaling, only : unit_scale_type
 use MOM_variables, only : thermo_var_ptrs
 use MOM_verticalGrid, only : verticalGrid_type
 use regrid_consts, only : coordinateMode, DEFAULT_COORDINATE_MODE
-use regrid_consts, only : REGRIDDING_LAYER, REGRIDDING_ZSTAR
+use regrid_consts, only : REGRIDDING_LAYER, REGRIDDING_ZSTAR, REGRIDDING_H_ZSTAR
 use regrid_consts, only : REGRIDDING_RHO, REGRIDDING_SIGMA
 
 implicit none ; private
@@ -173,7 +173,7 @@ subroutine seamount_initialize_thickness (h, depth_tot, G, GV, US, param_file, j
       enddo
     enddo ; enddo
 
-  case ( REGRIDDING_ZSTAR )                       ! Initial thicknesses for z coordinates
+  case ( REGRIDDING_ZSTAR, REGRIDDING_H_ZSTAR ) ! Initial thicknesses for z coordinates
     if (just_read) return ! All run-time parameters have been read, so return.
     do j=js,je ; do i=is,ie
       eta1D(nz+1) = -depth_tot(i,j)
@@ -279,7 +279,7 @@ subroutine seamount_initialize_temperature_salinity(T, S, h, G, GV, US, param_fi
           S(i,j,k) = frac_dense * (S_Dense - S_Light) + S_Light
         enddo ; enddo
       enddo
-    case ( REGRIDDING_SIGMA, REGRIDDING_ZSTAR, REGRIDDING_RHO ) ! All other coordinate use FV initialization
+    case ( REGRIDDING_SIGMA, REGRIDDING_ZSTAR, REGRIDDING_RHO, REGRIDDING_H_ZSTAR )! FV initialization
       if (just_read) return ! All run-time parameters have been read, so return.
       do j=js,je ; do i=is,ie
         xi0 = 0.0

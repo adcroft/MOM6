@@ -20,8 +20,9 @@ integer, parameter :: REGRIDDING_ARBITRARY = 5      !< Arbitrary coordinates ide
 integer, parameter :: REGRIDDING_HYCOM1    = 6      !< Simple HyCOM coordinates without BBL
 integer, parameter :: REGRIDDING_SIGMA_SHELF_ZSTAR = 8 !< Identifiered for z* coordinates at the bottom,
                                                     !!  sigma-near the top
-integer, parameter :: REGRIDDING_ADAPTIVE = 9       !< Adaptive coordinate mode identifier
+integer, parameter :: REGRIDDING_ADAPTIVE  = 9      !< Adaptive coordinate mode identifier
 integer, parameter :: REGRIDDING_HYBGEN    = 10     !< Hybgen coordinates identifier
+integer, parameter :: REGRIDDING_H_ZSTAR   = 11     !< z* coordinates (via h) identifier
 
 character(len=*), parameter :: REGRIDDING_LAYER_STRING = "LAYER"   !< Layer string
 character(len=*), parameter :: REGRIDDING_ZSTAR_STRING_OLD = "Z*"  !< z* string (legacy name)
@@ -31,6 +32,7 @@ character(len=*), parameter :: REGRIDDING_SIGMA_STRING = "SIGMA"   !< Sigma stri
 character(len=*), parameter :: REGRIDDING_ARBITRARY_STRING = "ARB" !< Arbitrary coordinates
 character(len=*), parameter :: REGRIDDING_HYCOM1_STRING = "HYCOM1" !< Hycom string
 character(len=*), parameter :: REGRIDDING_HYBGEN_STRING = "HYBGEN" !< Hybgen string
+character(len=*), parameter :: REGRIDDING_H_ZSTAR_STRING = "H_ZSTAR" !< z* (via h) string
 character(len=*), parameter :: REGRIDDING_SIGMA_SHELF_ZSTAR_STRING = "SIGMA_SHELF_ZSTAR" !< Hybrid z*/sigma
 character(len=*), parameter :: REGRIDDING_ADAPTIVE_STRING = "ADAPTIVE" !< Adaptive coordinate string
 character(len=*), parameter :: DEFAULT_COORDINATE_MODE = REGRIDDING_LAYER_STRING !< Default coordinate mode
@@ -62,6 +64,7 @@ function coordinateMode(string)
     case (trim(REGRIDDING_SIGMA_STRING)); coordinateMode = REGRIDDING_SIGMA
     case (trim(REGRIDDING_HYCOM1_STRING)); coordinateMode = REGRIDDING_HYCOM1
     case (trim(REGRIDDING_HYBGEN_STRING)); coordinateMode = REGRIDDING_HYBGEN
+    case (trim(REGRIDDING_H_ZSTAR_STRING)); coordinateMode = REGRIDDING_H_ZSTAR
     case (trim(REGRIDDING_ARBITRARY_STRING)); coordinateMode = REGRIDDING_ARBITRARY
     case (trim(REGRIDDING_SIGMA_SHELF_ZSTAR_STRING)); coordinateMode = REGRIDDING_SIGMA_SHELF_ZSTAR
     case (trim(REGRIDDING_ADAPTIVE_STRING)); coordinateMode = REGRIDDING_ADAPTIVE
@@ -83,6 +86,7 @@ function coordinateUnitsI(coordMode)
     case (REGRIDDING_SIGMA); coordinateUnitsI = "Non-dimensional"
     case (REGRIDDING_HYCOM1); coordinateUnitsI = "m"
     case (REGRIDDING_HYBGEN); coordinateUnitsI = "m"
+    case (REGRIDDING_H_ZSTAR); coordinateUnitsI = "m"
     case (REGRIDDING_ADAPTIVE); coordinateUnitsI = "m"
     case default ; call MOM_error(FATAL, "coordinateUnts: "//&
        "Unrecognized coordinate mode.")
@@ -118,6 +122,7 @@ logical function state_dependent_int(mode)
     case (REGRIDDING_SIGMA); state_dependent_int = .false.
     case (REGRIDDING_HYCOM1); state_dependent_int = .true.
     case (REGRIDDING_HYBGEN); state_dependent_int = .true.
+    case (REGRIDDING_H_ZSTAR); state_dependent_int = .false.
     case (REGRIDDING_ADAPTIVE); state_dependent_int = .true.
     case default ; call MOM_error(FATAL, "state_dependent: "//&
        "Unrecognized choice of coordinate.")

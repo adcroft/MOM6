@@ -26,6 +26,7 @@ end type zlike_CS
 
 public init_coord_zlike, set_zlike_params, end_coord_zlike
 public build_zstar_open_ocean_column, build_zstar_under_ice_column
+public build_zstar_column_via_h
 public coord_zlike_unit_tests
 
 contains
@@ -157,15 +158,76 @@ subroutine build_zstar_under_ice_column(CS, depth, total_thickness, zInterface, 
 
 end subroutine build_zstar_under_ice_column
 
+!> Builds a z* coordinate described by layer thicknesses and based on total
+!! thickness, and actual bottom depth. `clip_surface` indicates whether
+!! to allow for an ice shelf depressing the upper surface.
+!!
+!! Note: depth and CS%coordinateResolution are both defined assuming the nominal
+!! interface position are relative to z=0. They are coded as if we had provided
+!! a list of nk+1 interface positions starting at 0 - this is what a z-coordinate is.
+!! This not coded to allow for a displaced vertical reference frame.
+subroutine build_zstar_column_via_h(CS, depth, total_thickness, clip_surface, h)
+  type(zlike_CS), intent(in)    :: CS     !< Coordinate control structure
+  real,    intent(in)  :: depth           !< Nominal depth of ocean bottom (positive downward in the
+                                          !! output units), relative to a mean sea surface at z=0,
+                                          !! units may be [Z ~> m] or [H ~> m or kg m-2]
+  real,    intent(in)  :: total_thickness !< Total thickness [Z ~> m] or [H ~> m or kg m-2]
+  logical, intent(in)  :: clip_surface    !< If true, clip the surface to account for depression
+                                          !! by an ice shelf
+  real,    intent(out) :: h(CS%nk)        !< Layer thickness (in the same units as depth)
+                                          !! [Z ~> m] or [H ~> m or kg m-2]
+  ! Local variables
+  real :: stretching ! A stretching factor for the coordinate [nondim]
+  real :: dz_remaining ! A local measure of remaining column thickness [Z ~> m] or [H ~> m or kg m-2]
+  integer :: k
+
+  ! Sweep downward assigning the nonimal grid thickness and clip by bottom topography.
+  ! This step ignores any top-surface displacement by either the free-surface or an ice-shelf
+  dz_remaining = depth ! Initialize how much water is left below
+  do k = 1,CS%nk
+    h(k) = min( CS%coordinateResolution(k), dz_remaining ) ! This assigns zero below the bottom
+    dz_remaining = dz_remaining - h(k) ! This will be zero once the bottom is reached
+  enddo
+  ! At this stage:
+  ! - dz_remaining will be >= 0, and if non-zero it is because the nominal grid did not reach deep enough;
+  ! - h(k) is the nominal thickness clipped only by topography assuming the surface at z=0.
+
+  ! Inflate last layer if dz_remaining > 0 . This accomodates the ocean being deeper than
+  ! the nominal grid spacing.
+  h(CS%nk) = h(CS%nk) + dz_remaining
+
+  if ((clip_surface .and. total_thickness<depth) .or. depth <= 0.) then
+    ! When clipping we do not stretch the column and assume the top is wherever the column
+    ! thickness points too.
+    stretching = 1.
+  else
+    ! Open ocean, or the unusual case where the ice-shelf base is above z=0
+    stretching = total_thickness / depth
+  endif
+
+  dz_remaining = total_thickness ! Initialize how much water is left above
+  do k = CS%nk,1,-1
+    h(k) = min( stretching * h(k), dz_remaining) ! This assigns zero above z0_top
+    dz_remaining = dz_remaining - h(k) ! This will be zero once the top is reached
+  enddo
+
+  ! Inflate top layer if dz_remaining > 0, triggered only by round off
+  ! Note that dz_remaining is non-negative as a result of the preceeding loop
+  if (.not. clip_surface) h(1) = h(1) + dz_remaining
+
+end subroutine build_zstar_column_via_h
+
 !> Runs unit tests and returns True for any fails, False otherwise
 logical function coord_zlike_unit_tests(verbose)
-  logical, intent(in)    :: verbose !< True, if verbose
+  logical, intent(in) :: verbose !< True, if verbose
   ! Local variables
   type(testing) :: test ! numerical_testing_type
-  type(zlike_CS), pointer :: CS ! Coordinate control structure
+  type(zlike_CS), pointer :: CS => null() ! Coordinate control structure
   real :: zi(5) ! Interface positions [A]
+  real :: h(4) ! Layer thicknesses [A]
 
   call test%set( verbose=verbose )
+  call test%set( stop_instantly=.true. )
 
   call init_coord_zlike(CS, 4, [1., 3., 5., 7.]) ! Nominal z-grid, 16 deep
 
@@ -267,6 +329,97 @@ logical function coord_zlike_unit_tests(verbose)
                               0.)    ! eta_orig
   ! Yields thicknesses of 8.5, 1.5, 2.5, 3.5
   call test%real_arr(5, zi, (/0., -8.5, -10., -12.5, -16./), 'rigid top is inconsistent > eta')
+
+
+  ! The following tests the newer h-based grid generator
+
+  call build_zstar_column_via_h(CS, 16.,     & ! depth
+                                    16.,     & ! total thickness
+                                    .false., & ! no ice-shelf
+                                    h)
+  call test%real_arr(4, h, (/1., 3., 5., 7./), 'depth matches nominal grid, eta=0')
+
+  call build_zstar_column_via_h(CS, 24.,     & ! depth
+                                    24.,     & ! total thickness
+                                    .false., & ! no ice-shelf
+                                    h)
+  call test%real_arr(4, h, (/1., 3., 5., 15./), 'depth > nominal grid, eta=0')
+
+  call build_zstar_column_via_h(CS, 6.,      & ! depth
+                                    6.,      & ! total thickness
+                                    .false., & ! no ice-shelf
+                                    h)
+  call test%real_arr(4, h, (/1., 3., 2., 0./), 'depth < nominal grid, eta=0')
+
+  call build_zstar_column_via_h(CS, 16.,     & ! depth
+                                    32.,     & ! total thickness
+                                    .false., & ! no ice-shelf
+                                    h)
+  call test%real_arr(4, h, (/2., 6., 10., 14./), 'depth = nominal grid, eta>0')
+
+  call build_zstar_column_via_h(CS, 16.,     & ! depth
+                                    8.,      & ! total thickness
+                                    .false., & ! no ice-shelf
+                                    h)
+  call test%real_arr(4, h, (/0.5, 1.5, 2.5, 3.5/), 'depth = nominal grid, eta<0')
+
+  h(:) = [24., 0., 0., 0.]
+  call build_zstar_column_via_h(CS, 12.,     & ! depth
+                                    24.,     & ! total thickness
+                                    .false., & ! no ice-shelf
+                                    h)
+  call test%real_arr(4, h, (/2., 6., 10., 6./), 'depth < nominal grid, eta>0')
+
+  call build_zstar_column_via_h(CS, 12.,     & ! depth
+                                    6.,      & ! total thickness
+                                    .false., & ! no ice-shelf
+                                    h)
+  call test%real_arr(4, h, (/0.5, 1.5, 2.5, 1.5/), 'depth < nominal grid, eta<0')
+
+  call build_zstar_column_via_h(CS, -1.,     & ! depth
+                                    6.,      & ! total thickness
+                                    .false., & ! no ice-shelf
+                                    h)
+  call test%real_arr(4, h, (/6., 0., 0., 0./), 'depth < 0, eta>0')
+
+  call build_zstar_column_via_h(CS, 0.,      & ! depth
+                                    6.,      & ! total thickness
+                                    .false., & ! no ice-shelf
+                                    h)
+  call test%real_arr(4, h, (/6., 0., 0., 0./), 'depth < 0, eta>0')
+
+  call build_zstar_column_via_h(CS, 1.,     & ! depth
+                                    0.,      & ! total thickness
+                                    .false., & ! no ice-shelf
+                                    h)
+  call test%real_arr(4, h, (/0., 0., 0., 0./), 'net h=0')
+
+  call build_zstar_column_via_h(CS, 0.,     & ! depth
+                                    0.,      & ! total thickness
+                                    .false., & ! no ice-shelf
+                                    h)
+  call test%real_arr(4, h, (/0., 0., 0., 0./), 'depth=0, net h=0')
+
+  ! Tests with ice shelf present
+
+  h(:) = [1., 3., 5., 7.]
+  call build_zstar_column_via_h(CS, 16.,     & ! depth
+                                    16.,     & ! total thickness
+                                    .true.,  & ! ice-shelf present
+                                    h)
+  call test%real_arr(4, h, (/1., 3., 5., 7./), 'depth matches nominal grid, ice=0')
+
+  call build_zstar_column_via_h(CS, 12.,     & ! depth
+                                    9.,      & ! total thickness
+                                    .true.,  & ! ice-shelf present
+                                    h)
+  call test%real_arr(4, h, (/0., 1., 5., 3./), 'depth < nominal grid, ice<0')
+
+  call build_zstar_column_via_h(CS, 8.,      & ! depth
+                                    16.,     & ! total thickness
+                                    .true.,  & ! ice-shelf present
+                                    h)
+  call test%real_arr(4, h, (/2., 6., 8., 0./), 'depth < nominal grid, ice>0')
 
   coord_zlike_unit_tests = test%summarize('coord_zlike_unit_tests') ! Return true if a fail occurred
 

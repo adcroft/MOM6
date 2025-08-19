@@ -13,7 +13,7 @@ use MOM_unit_scaling,  only : unit_scale_type
 use MOM_variables,     only : thermo_var_ptrs
 use MOM_verticalGrid,  only : verticalGrid_type
 use regrid_consts,     only : coordinateMode, DEFAULT_COORDINATE_MODE
-use regrid_consts,     only : REGRIDDING_LAYER, REGRIDDING_ZSTAR
+use regrid_consts,     only : REGRIDDING_LAYER, REGRIDDING_ZSTAR, REGRIDDING_H_ZSTAR
 use regrid_consts,     only : REGRIDDING_RHO, REGRIDDING_SIGMA
 
 implicit none ; private
@@ -182,7 +182,7 @@ subroutine adjustment_initialize_thickness ( h, G, GV, US, param_file, just_read
         enddo
       enddo ; enddo
 
-    case ( REGRIDDING_ZSTAR, REGRIDDING_SIGMA )
+    case ( REGRIDDING_ZSTAR, REGRIDDING_SIGMA, REGRIDDING_H_ZSTAR)
       do k=1,nz+1
         eta1D(k) = -G%max_depth * (real(k-1) / real(nz))
         eta1D(k) = max(min(eta1D(k), 0.), -G%max_depth)
@@ -272,7 +272,7 @@ subroutine adjustment_initialize_temperature_salinity(T, S, h, depth_tot, G, GV,
   ! Linear salinity profile
   select case ( coordinateMode(verticalCoordinate) )
 
-    case ( REGRIDDING_ZSTAR, REGRIDDING_SIGMA )
+    case ( REGRIDDING_ZSTAR, REGRIDDING_SIGMA, REGRIDDING_H_ZSTAR )
       dSdz = -delta_S_strat / G%max_depth
       do j=js,je ; do i=is,ie
         eta1d(nz+1) = -depth_tot(i,j)

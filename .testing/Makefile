@@ -213,8 +213,10 @@ endif
 
 ## Rules
 
+.PHONY: build.tcs
+build.tcs: $(foreach b,$(EXECS),$(BUILD)/$(b))
 .PHONY: all
-all: $(foreach b,$(EXECS),$(BUILD)/$(b))
+all: build.tcs build.unit build.timing
 
 # Executable
 .PRECIOUS: $(foreach b,$(EXECS),$(BUILD)/$(b))
@@ -264,39 +266,42 @@ $(BUILD)/nuopc/Makefile: MOM_ACFLAGS += --with-driver=nuopc_cap
 $(BUILD)/unit/Makefile: MOM_ACFLAGS += --with-driver=unit_tests
 $(BUILD)/timing/Makefile: MOM_ACFLAGS += --with-driver=timing_tests
 
+# Recursive wildcard (finds all files in $1 with suffixes in $2)
+rwildcard=$(foreach d,$(wildcard $(1:=/*)),$(call rwildcard,$d,$2) $(filter $(subst *,%,$2),$d))
+ALL_SRC := $(call rwildcard,../src ../config_src, *.h *.c *.F90 *.f90)
 
 # Build executables
-.NOTPARALLEL:$(foreach e,$(UNIT_EXECS),$(BUILD)/unit/$(e))
-$(BUILD)/unit/test_%: $(BUILD)/unit/Makefile FORCE
+#$(foreach e,$(UNIT_EXECS),$(BUILD)/unit/$(e)): $(BUILD)/unit/Makefile
+$(BUILD)/unit/test_%: $(BUILD)/unit/Makefile
 	cd $(@D) && $(TIME) $(MAKE) $(@F)
 
 $(BUILD)/unit/Makefile: \
+  $(ALL_SRC) \
   $(foreach e,$(UNIT_EXECS),../config_src/drivers/unit_tests/$(e).F90)
 
-.NOTPARALLEL:$(foreach e,$(TIMING_EXECS),$(BUILD)/timing/$(e))
-$(BUILD)/timing/time_%: $(BUILD)/timing/Makefile FORCE
+#$(foreach e,$(TIMING_EXECS),$(BUILD)/timing/$(e)): $(BUILD)/timing/Makefile
+$(BUILD)/timing/time_%: $(BUILD)/timing/Makefile
 	cd $(@D) && $(TIME) $(MAKE) $(@F)
 
 $(BUILD)/timing/Makefile: \
+  $(ALL_SRC) \
   $(foreach e,$(TIMING_EXECS),../config_src/drivers/timing_tests/$(e).F90)
 
-$(BUILD)/%/MOM6: $(BUILD)/%/Makefile FORCE
+$(BUILD)/%/MOM6: $(BUILD)/%/Makefile
 	cd $(@D) && $(TIME) $(MAKE) $(@F)
 
 # Target codebase should use its own build system
-$(BUILD)/target/MOM6: $(BUILD)/target FORCE | $(TARGET_CODEBASE)
+$(BUILD)/target/MOM6: $(BUILD)/target | $(TARGET_CODEBASE)
 	$(MAKE) -C $(TARGET_CODEBASE)/.testing BUILD=build build/symmetric/MOM6
 
 $(BUILD)/target: | $(TARGET_CODEBASE)
 	ln -s $(abspath $(TARGET_CODEBASE))/.testing/build/symmetric $@
 
-$(BUILD)/opt_target/MOM6: $(BUILD)/opt_target FORCE | $(TARGET_CODEBASE)
+$(BUILD)/opt_target/MOM6: $(BUILD)/opt_target | $(TARGET_CODEBASE)
 	$(MAKE) -C $(TARGET_CODEBASE)/.testing BUILD=build build/opt/MOM6
 
 $(BUILD)/opt_target: | $(TARGET_CODEBASE)
 	ln -s $(abspath $(TARGET_CODEBASE))/.testing/build/opt $@
-
-.PHONY: FORCE
 
 
 ## Use autoconf to construct the Makefile for each target
@@ -308,7 +313,7 @@ $(BUILD)/opt_target: | $(TARGET_CODEBASE)
 .PRECIOUS: $(BUILD)/%/configure.ac
 .PRECIOUS: $(BUILD)/%/m4/
 
-$(BUILD)/%/Makefile: $(BUILD)/%/Makefile.in $(BUILD)/%/config.status
+$(BUILD)/%/Makefile: $(BUILD)/%/Makefile.in $(BUILD)/%/config.status $(ALL_SRC)
 	cd $(@D) && ./config.status
 
 $(BUILD)/%/config.status: $(BUILD)/%/configure $(DEPS)/lib/libFMS.a
@@ -671,14 +676,12 @@ test.summary:
 run.cov.unit: $(foreach t,$(UNIT_EXECS),$(BUILD)/unit/$(t).F90.gcov)
 
 .PHONY: build.unit
-.NOTPARALLEL: build.unit
 build.unit: $(foreach f, $(UNIT_EXECS), $(BUILD)/unit/$(f))
 
 .PHONY: run.unit
 run.unit: $(foreach f, $(UNIT_EXECS), work/unit/$(f).out)
 
 .PHONY: build.timing
-.NOTPARALLEL: build.timing
 build.timing: $(foreach f, $(TIMING_EXECS), $(BUILD)/timing/$(f))
 
 .PHONY: run.timing
@@ -763,7 +766,7 @@ report.cov.unit: $(foreach t,$(UNIT_EXECS),$(BUILD)/unit/$(t).F90.gcov) codecov
 	    if [ "$(REQUIRE_COVERAGE_UPLOAD)" = true ] ; then false ; fi ; \
 	  }
 
-$(WORK)/timing/%.out: $(BUILD)/timing/% FORCE
+$(WORK)/timing/%.out: $(BUILD)/timing/%
 	@mkdir -p $(@D)
 	@echo Running $< in $(@D)
 	@cd $(@D) ; $(TIME) $(MPIRUN) -n 1 $(abspath $<) 2> $*.err > $*.out

@@ -200,22 +200,13 @@ type, public :: ice_shelf_CS ; private
   real    :: dTFr_dp                     !< Partial derivative of freezing temperature with
                                          !! pressure [C T2 R-1 L-2 ~> degC Pa-1]
   real    :: Zeta_N                      !< The stability constant xi_N = 0.052 from Holland & Jenkins '99
-<<<<<<< HEAD
-                                         !! divided by the von Karman constant VK. Was 1/8.
-  real :: Vk                             !< Von Karman's constant - dimensionless
-  real :: Rc                             !< critical flux Richardson number.
-  logical :: buoy_flux_itt_bug           !< If true, fixes buoyancy iteration bug
-  logical :: salt_flux_itt_bug           !< If true, fixes salt iteration bug
-  real :: buoy_flux_itt_threshold        !< Buoyancy iteration threshold for convergence
   integer :: root_pe                     !< The root pe id. Used for mass_hole stocks.
-=======
                                          !! divided by the von Karman constant VK [nondim]. Was 1/8.
   real :: Vk                             !< Von Karman's constant [nondim]
   real :: Rc                             !< critical flux Richardson number [nondim]
   logical :: buoy_flux_itt_bugfix        !< If true, fixes buoyancy iteration bug
   logical :: salt_flux_itt_bugfix        !< If true, fixes salt iteration bug
   real :: buoy_flux_tol                  !< Fractional buoyancy iteration tolerance for convergence [nondim]
->>>>>>> 4622d6a0f (+*Fix 3-equation ice-ocean flux iteration (#972))
 
   !>@{ Diagnostic handles
   integer :: id_melt = -1, id_exch_vel_s = -1, id_exch_vel_t = -1, &
@@ -383,15 +374,11 @@ subroutine shelf_calc_flux(sfc_state_in, fluxes_in, Time, time_step_in, CS)
   integer, dimension(2) :: EOSdom ! The i-computational domain for the equation of state
   integer :: i, j, is, ie, js, je, ied, jed, it1, it3
   real :: vaf0, vaf0_A, vaf0_G ! The previous volumes above floatation [Z L2 ~> m3]
-<<<<<<< HEAD
                                ! for all ice sheets, Antarctica only, or Greenland only [Z L2 ~> m3]
   real :: mass_hole_start ! Mass_hole at the start of the time step [R Z L2 ~> kg]
   real :: mass_ad ! Area-integrated ice sheet mass after - before advection [R Z L2 ~> kg]
   real :: mass_anom ! Change in ice-sheet mass that cannot be accounted for by surface fluxes [R Z L2 ~> kg]
   real :: mass_stock ! Ice-sheet mass stock [R Z L2 ~> kg]
-=======
-                               ! for all ice sheets, Antarctica only, or Greenland only
->>>>>>> 4622d6a0f (+*Fix 3-equation ice-ocean flux iteration (#972))
 
   if (.not. associated(CS)) call MOM_error(FATAL, "shelf_calc_flux: "// &
        "initialize_ice_shelf must be called before shelf_calc_flux.")
@@ -1621,13 +1608,8 @@ subroutine initialize_ice_shelf(param_file, ocn_grid, Time, CS, diag, Time_init,
   real    :: utide  ! A tidal velocity [L T-1 ~> m s-1]
   real    :: col_thick_melt_thresh ! An ocean column thickness below which iceshelf melting
                                    ! does not occur [Z ~> m]
-<<<<<<< HEAD
   real, allocatable, dimension(:,:) :: tmp2d ! Temporary array for storing ice shelf input data
   character(len=240) :: mesg  ! The text of an error message
-=======
-  real, allocatable, dimension(:,:) :: tmp2d ! Temporary array for ice shelf input data [L T-1 ~> m s-1]
-
->>>>>>> 4622d6a0f (+*Fix 3-equation ice-ocean flux iteration (#972))
   type(surface), pointer :: sfc_state => NULL()
   type(vardesc) :: u_desc, v_desc
 
@@ -2630,7 +2612,6 @@ subroutine change_thickness_using_precip(CS, ISS, G, US, fluxes, time_step, Time
 
   ! locals
   integer :: i, j
-<<<<<<< HEAD
   integer :: count ! number of ice sheet cells with enough melt to to melt entirely
   real ::I_rho_ice
   character(len=160) :: mesg  ! The text of an error message
@@ -2638,19 +2619,6 @@ subroutine change_thickness_using_precip(CS, ISS, G, US, fluxes, time_step, Time
   I_rho_ice = 1.0 / CS%density_ice
 
   count=0
-=======
-  real :: I_rho_ice ! The specific volume of ice [R-1 ~> m3 kg-1]
-
-  I_rho_ice = 1.0 / CS%density_ice
-
-  !update time
-!  CS%Time = Time
-
-!    CS%time_step = time_step
-    ! update surface mass flux  rate
-!    if (CS%surf_mass_flux_from_file) call update_surf_mass_flux(G, US, CS, ISS, Time)
-
->>>>>>> 4622d6a0f (+*Fix 3-equation ice-ocean flux iteration (#972))
   do j=G%jsc,G%jec ; do i=G%isc,G%iec
     if ((ISS%hmask(i,j) == 1) .or. (ISS%hmask(i,j) == 2 .and. ISS%h_shelf(i,j) > 0)) then
 

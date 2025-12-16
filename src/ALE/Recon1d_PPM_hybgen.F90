@@ -129,7 +129,7 @@ subroutine reconstruct(this, h, u)
   this%ur(n) = u(n) ! PCM
   this%ul(n) = u(n) ! PCM
 
-  do K = 2, n ! K=2 is interface between cells 1 and 2
+  do K = 2, n-1 ! K=2 is interface between cells 1 and 2
     u0 = u(k-1)
     u1 = u(k)
     u2 = u(k+1)

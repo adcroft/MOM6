@@ -414,7 +414,6 @@ subroutine InitializeP0(gcomp, importState, exportState, clock, rc)
     geomtype = ESMF_GEOMTYPE_GRID
   endif
 
-  use_cdeps_inline = .false.
   call NUOPC_CompAttributeGet(gcomp, name="use_cdeps_inline", value=value, &
        isPresent=isPresent, isSet=isSet, rc=rc)
   if (ChkErr(rc,__LINE__,u_FILE_u)) return

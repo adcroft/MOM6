@@ -190,9 +190,22 @@ type, public :: VarMix_CS
   type(wave_speed_CS) :: wave_speed !< Wave speed control structure
   type(group_pass_type) :: pass_cg1 !< For group halo pass
   logical :: debug      !< If true, write out checksums of data for debugging
+
+  ! Fields used to communicate between VarMix_params (Phase 1) and VarMix_alloc (Phase 2).
+  ! These are scalars so their memory impact is negligible.
+  real    :: absurdly_small_freq    !< A miniscule frequency used to avoid division by 0 [T-1 ~> s-1]
+  real    :: N2_filter_depth        !< Depth below which N2 is monotonized for EBT structure [H ~> m or kg m-2]
+  real    :: oneOrTwo               !< 1 or 2 depending on which equatorial deformation radius definition [nondim]
+  integer :: remap_answer_date      !< Vintage of remapping arithmetic for wave speed [nondim]
+  real    :: wave_speed_tol         !< Fractional tolerance for wave speed iterations [nondim]
+  real    :: wave_speed_min         !< Floor for first mode speed [L T-1 ~> m s-1]
+  logical :: better_speed_est       !< If true, use a more robust starting estimate for wave speed iterations
+  logical :: om4_remap_via_sub_cells !< If true, use OM4-era subcell algorithm for EBT structure remapping
+  real    :: Leith_Lap_const        !< Non-dimensional Laplacian Leith constant [nondim]
+  logical :: use_L2_arrays          !< If true, allocate L2u/L2v (i.e. KhTr_Slope_Cff>0 or KhTh_Slope_Cff>0)
 end type VarMix_CS
 
-public VarMix_init, VarMix_end, calc_slope_functions, calc_resoln_function
+public VarMix_params, VarMix_alloc, VarMix_init, VarMix_end, calc_slope_functions, calc_resoln_function
 public calc_QG_slopes, calc_QG_Leith_viscosity, calc_depth_function, calc_sqg_struct
 
 contains
@@ -1512,14 +1525,12 @@ subroutine calc_QG_Leith_viscosity(CS, G, GV, US, h, dz, k, div_xx_dx, div_xx_dy
 
 end subroutine calc_QG_Leith_viscosity
 
-!> Initializes the variables mixing coefficients container
-subroutine VarMix_init(Time, G, GV, US, param_file, diag, CS)
-  type(time_type),            intent(in) :: Time !< Current model time
-  type(ocean_grid_type),      intent(in) :: G    !< Ocean grid structure
-  type(verticalGrid_type),    intent(in) :: GV   !< The ocean's vertical grid structure
-  type(unit_scale_type),      intent(in) :: US   !< A dimensional unit scaling type
-  type(param_file_type),      intent(in) :: param_file !< Parameter file handles
-  type(diag_ctrl), target, intent(inout) :: diag !< Diagnostics control structure
+!> Phase 1 initialization for variable mixing: reads and stores all parameters.
+!! Call this before VarMix_alloc. Does not allocate any working arrays.
+subroutine VarMix_params(param_file, GV, US, CS)
+  type(param_file_type),   intent(in)    :: param_file !< Parameter file handles
+  type(verticalGrid_type), intent(in)    :: GV   !< The ocean's vertical grid structure
+  type(unit_scale_type),   intent(in)    :: US   !< A dimensional unit scaling type
   type(VarMix_CS),         intent(inout) :: CS   !< Variable mixing coefficients
 
   ! Local variables
@@ -1527,60 +1538,38 @@ subroutine VarMix_init(Time, G, GV, US, param_file, diag, CS)
                          ! for the epipycnal tracer diffusivity [nondim]
   real :: KhTh_Slope_Cff ! The nondimensional coefficient in the Visbeck formula
                          ! for the interface depth diffusivity [nondim]
-  real :: oneOrTwo ! A variable that may be 1 or 2, depending on which form
-                   ! of the equatorial deformation radius us used [nondim]
-  real :: N2_filter_depth  ! A depth below which stratification is treated as monotonic when
-                           ! calculating the first-mode wave speed [H ~> m or kg m-2]
   real :: KhTr_passivity_coeff ! Coefficient setting the ratio between along-isopycnal tracer
                                ! mixing and interface height mixing [nondim]
-  real :: absurdly_small_freq  ! A miniscule frequency that is used to avoid division by 0 [T-1 ~> s-1].  The
-             ! default value is roughly (pi / (the age of the universe)).
-  logical :: Gill_equatorial_Ld, use_FGNV_streamfn, use_MEKE, in_use
-  integer :: default_answer_date  ! The default setting for the various ANSWER_DATE flags.
-  integer :: remap_answer_date    ! The vintage of the order of arithmetic and expressions to use
-                                  ! for remapping.  Values below 20190101 recover the remapping
-                                  ! answers from 2018, while higher values use more robust
-                                  ! forms of the same remapping expressions.
-  real :: MLE_front_length        ! The frontal-length scale used to calculate the upscaling of
-                                  ! buoyancy gradients in boundary layer parameterizations [L ~> m]
-  real :: Leith_Lap_const      ! The non-dimensional coefficient in the Leith viscosity [nondim]
-  real :: grid_sp_u2, grid_sp_v2 ! Intermediate quantities for Leith metrics [L2 ~> m2]
-  real :: grid_sp_u3, grid_sp_v3 ! Intermediate quantities for Leith metrics [L3 ~> m3]
-  real :: wave_speed_min      ! A floor in the first mode speed below which 0 is returned [L T-1 ~> m s-1]
-  real :: wave_speed_tol      ! The fractional tolerance for finding the wave speeds [nondim]
-  logical :: Resoln_scaled_MEKE_visc ! If true, the viscosity contribution from MEKE is
-                                  ! scaled by the resolution function.
-  logical :: better_speed_est ! If true, use a more robust estimate of the first
-                              ! mode wave speed as the starting point for iterations.
+  real :: MLE_front_length ! The frontal-length scale [L ~> m]
   real :: Stanley_coeff    ! Coefficient relating the temperature gradient and sub-gridscale
                            ! temperature variance [nondim]
-  logical :: use_SQG       ! This is true if the SQG structure will be used for any parameterizations.
-  logical :: om4_remap_via_sub_cells ! Use the OM4-era remap_via_sub_cells for calculating the EBT structure
-  logical :: enable_bugs   ! If true, the defaults for recently added bug-fix flags are set to
-                           ! recreate the bugs, or if false bugs are only used if actively selected.
-  logical :: mixing_coefs_OBC_bug ! If false, use only interior data for thickness weighting in
-                           ! lateral mixing coefficient calculations and to calculate stratification
-                           ! and other fields at open boundary condition faces.
+  logical :: Gill_equatorial_Ld, use_FGNV_streamfn, use_MEKE
+  logical :: Resoln_scaled_MEKE_visc
+  logical :: use_SQG
+  logical :: enable_bugs, mixing_coefs_OBC_bug
+  integer :: default_answer_date, number_of_OBC_segments
   ! This include declares and sets the variable "version".
 # include "version_variable.h"
   character(len=40)  :: mdl = "MOM_lateral_mixing_coeffs" ! This module's name.
-  integer :: number_of_OBC_segments
-  integer :: is, ie, js, je, Isq, Ieq, Jsq, Jeq, i, j
-  integer :: isd, ied, jsd, jed, IsdB, IedB, JsdB, JedB
-  is = G%isc ; ie = G%iec ; js = G%jsc ; je = G%jec
-  Isq = G%IscB ; Ieq = G%IecB ; Jsq = G%JscB ; Jeq = G%JecB
-  isd = G%isd ; ied = G%ied ; jsd = G%jsd ; jed = G%jed
-  IsdB = G%IsdB ; IedB = G%IedB ; JsdB = G%JsdB ; JedB = G%JedB
 
   CS%initialized = .true.
-  in_use = .false. ! Set to true to avoid deallocating
-  CS%diag => diag ! Diagnostics pointer
   CS%calculate_cg1 = .false.
   CS%calculate_Rd_dx = .false.
   CS%calculate_res_fns = .false.
   CS%use_simpler_Eady_growth_rate  = .false.
   CS%full_depth_Eady_growth_rate = .false.
   CS%calculate_depth_fns = .false.
+  ! Initialize Phase 1 -> Phase 2 communication fields to safe defaults
+  CS%absurdly_small_freq = 1.0e-17 * US%T_to_s  ! will be overwritten by get_param below
+  CS%N2_filter_depth = -1.0 * GV%m_to_H  ! negative = disabled
+  CS%oneOrTwo = 1.0
+  CS%remap_answer_date = 99991231
+  CS%wave_speed_tol = 0.001
+  CS%wave_speed_min = 0.0
+  CS%better_speed_est = .true.
+  CS%om4_remap_via_sub_cells = .true.
+  CS%Leith_Lap_const = 0.0
+  CS%use_L2_arrays = .false.
   ! Read all relevant parameters and write them to the model log.
   call log_version(param_file, mdl, version, "")
   call get_param(param_file, mdl, "USE_VARIABLE_MIXING", CS%use_variable_mixing,&
@@ -1662,7 +1651,7 @@ subroutine VarMix_init(Time, G, GV, US, param_file, diag, CS)
                  "stored for re-use. This uses more memory but avoids calling "//&
                  "the equation of state more times than should be necessary.", &
                  default=.false.)
-  call get_param(param_file, mdl, "VERY_SMALL_FREQUENCY", absurdly_small_freq, &
+  call get_param(param_file, mdl, "VERY_SMALL_FREQUENCY", CS%absurdly_small_freq, &
                  "A miniscule frequency that is used to avoid division by 0.  The default "//&
                  "value is roughly (pi / (the age of the universe)).", &
                  default=1.0e-17, units="s-1", scale=US%T_to_s)
@@ -1707,16 +1696,16 @@ subroutine VarMix_init(Time, G, GV, US, param_file, diag, CS)
                  "open boundary condition faces and vertices.", &
                  default=enable_bugs, do_not_log=(number_of_OBC_segments<=0))
 
-  if (CS%Resoln_use_ebt .or. CS%khth_use_ebt_struct .or. CS%kdgl90_use_ebt_struct &
-      .or. CS%BS_EBT_power>0. .or. CS%khtr_use_ebt_struct) then
-    in_use = .true.
-    call get_param(param_file, mdl, "RESOLN_N2_FILTER_DEPTH", N2_filter_depth, &
-                 "The depth below which N2 is monotonized to avoid stratification "//&
-                 "artifacts from altering the equivalent barotropic mode structure.  "//&
-                 "This monotonzization is disabled if this parameter is negative.", &
-                 units="m", default=-1.0, scale=GV%m_to_H)
-    allocate(CS%ebt_struct(isd:ied,jsd:jed,GV%ke), source=0.0)
-  endif
+  ! Read N2_filter_depth unconditionally; store in CS for VarMix_alloc.
+  ! Negative default means "disabled"; allocation happens in VarMix_alloc.
+  call get_param(param_file, mdl, "RESOLN_N2_FILTER_DEPTH", CS%N2_filter_depth, &
+               "The depth below which N2 is monotonized to avoid stratification "//&
+               "artifacts from altering the equivalent barotropic mode structure.  "//&
+               "This monotonzization is disabled if this parameter is negative.", &
+               units="m", default=-1.0, scale=GV%m_to_H, &
+               do_not_log=.not.(CS%Resoln_use_ebt .or. CS%khth_use_ebt_struct .or. &
+                                CS%kdgl90_use_ebt_struct .or. CS%BS_EBT_power>0. .or. &
+                                CS%khtr_use_ebt_struct))
 
   use_SQG = CS%BS_use_sqg_struct .or. CS%khth_use_sqg_struct .or. CS%khtr_use_sqg_struct .or. &
             CS%kdgl90_use_sqg_struct
@@ -1731,36 +1720,11 @@ subroutine VarMix_init(Time, G, GV, US, param_file, diag, CS)
                  default=.true., do_not_log=.not.use_SQG)
                  !### Consider changing the default for INTERPOLATED_SQG_STRUCTURE to false.
 
-  if ((CS%BS_EBT_power>0.) .and. CS%BS_use_sqg_struct) call MOM_error(FATAL, &
-    "calc_resoln_function: BS_EBT_POWER>0. and BS_USE_SQG=True cannot be set together")
-
-  if (CS%khth_use_ebt_struct .and. CS%khth_use_sqg_struct) call MOM_error(FATAL, &
-    "calc_resoln_function: Only one of KHTH_USE_EBT_STRUCT and KHTH_USE_SQG_STRUCT can be true")
-
-  if (CS%khtr_use_ebt_struct .and. CS%khtr_use_sqg_struct) call MOM_error(FATAL, &
-    "calc_resoln_function: Only one of KHTR_USE_EBT_STRUCT and KHTR_USE_SQG_STRUCT can be true")
-
-  if (CS%kdgl90_use_ebt_struct .and. CS%kdgl90_use_sqg_struct) call MOM_error(FATAL, &
-    "calc_resoln_function: Only one of KD_GL90_USE_EBT_STRUCT and KD_GL90_USE_SQG_STRUCT can be true")
-
-  if (CS%BS_EBT_power>0. .or. CS%BS_use_sqg_struct) then
-    allocate(CS%BS_struct(isd:ied,jsd:jed,GV%ke), source=0.0)
-  endif
-
-  if (CS%khth_use_ebt_struct .or. CS%khth_use_sqg_struct) then
-    allocate(CS%khth_struct(isd:ied, jsd:jed, gv%ke), source=0.0)
-  endif
-
-  if (CS%khtr_use_ebt_struct .or. CS%khtr_use_sqg_struct) then
-    allocate(CS%khtr_struct(isd:ied, jsd:jed, gv%ke), source=0.0)
-  endif
-
-  if (CS%kdgl90_use_ebt_struct .or. CS%kdgl90_use_sqg_struct) then
-    allocate(CS%kdgl90_struct(isd:ied, jsd:jed, gv%ke), source=0.0)
-  endif
+  ! Store use_L2_arrays flag based on Visbeck slope coefficients
+  CS%use_L2_arrays = (KhTr_Slope_Cff > 0.) .or. (KhTh_Slope_Cff > 0.)
 
   if (CS%use_stored_slopes) then
-    if (KhTr_Slope_Cff>0. .or. KhTh_Slope_Cff>0.) then
+    if (CS%use_L2_arrays) then
       call get_param(param_file, mdl, "VISBECK_MAX_SLOPE", CS%Visbeck_S_max, &
             "If non-zero, is an upper bound on slopes used in the "//&
             "Visbeck formula for diffusivity. This does not affect the "//&
@@ -1771,17 +1735,220 @@ subroutine VarMix_init(Time, G, GV, US, param_file, diag, CS)
     endif
   endif
 
+  ! KD_SMOOTH: logged when stored slopes or interpolated SQG structure is in use
+  call get_param(param_file, mdl, "KD_SMOOTH", CS%kappa_smooth, &
+                 "A diapycnal diffusivity that is used to interpolate "//&
+                 "more sensible values of T & S into thin layers.", &
+                 units="m2 s-1", default=1.0e-6, scale=GV%m2_s_to_HZ_T, &
+                 do_not_log=.not.(CS%use_stored_slopes .or. &
+                                  (CS%interpolated_sqg_struct .and. (CS%sqg_expo>0.0))))
+
+  ! All Eady growth rate parameters read unconditionally; allocations/diags in VarMix_alloc.
+  call get_param(param_file, mdl, "USE_SIMPLER_EADY_GROWTH_RATE", CS%use_simpler_Eady_growth_rate, &
+                 "If true, use a simpler method to calculate the Eady growth rate "//&
+                 "that avoids division by layer thickness. Recommended.", default=.false., &
+                 do_not_log=.not.CS%calculate_Eady_growth_rate)
+  call get_param(param_file, mdl, "EADY_GROWTH_RATE_D_SCALE", CS%Eady_GR_D_scale, &
+                 "The depth from surface over which to average SN when calculating "//&
+                 "a 2D Eady growth rate. Zero mean use full depth.", &
+                 units="m", default=0., scale=US%m_to_Z, &
+                 do_not_log=.not.CS%use_simpler_Eady_growth_rate)
+  call get_param(param_file, mdl, "EADY_GROWTH_RATE_CROPPING_DISTANCE", CS%cropping_distance, &
+                 "Distance from surface or bottom to filter out outcropped or "//&
+                 "incropped interfaces for the Eady growth rate calc. "//&
+                 "Negative values disables cropping.", units="m", default=0., scale=US%m_to_Z, &
+                 do_not_log=.not.CS%use_simpler_Eady_growth_rate)
+  call get_param(param_file, mdl, "VARMIX_KTOP", CS%VarMix_Ktop, &
+                 "The layer number at which to start vertical integration "//&
+                 "of S*N for purposes of finding the Eady growth rate.", &
+                 units="nondim", default=2, &
+                 do_not_log=(CS%use_simpler_Eady_growth_rate .or. .not.CS%calculate_Eady_growth_rate))
+  call get_param(param_file, mdl, "MIN_DZ_FOR_SLOPE_N2", CS%h_min_N2, &
+                 "The minimum vertical distance to use in the denominator of the "//&
+                 "bouyancy frequency used in the slope calculation.", &
+                 units="m", default=1.0, scale=GV%m_to_H, &
+                 do_not_log=(CS%use_stored_slopes .or. CS%use_simpler_Eady_growth_rate .or. &
+                             .not.CS%calculate_Eady_growth_rate))
+  call get_param(param_file, mdl, "FULL_DEPTH_EADY_GROWTH_RATE", CS%full_depth_Eady_growth_rate, &
+               "If true, calculate the Eady growth rate based on average slope times "//&
+               "stratification that includes contributions from sea-level changes "//&
+               "in its denominator, rather than just the nominal depth of the bathymetry.  "//&
+               "This only applies when using the model interface heights as a proxy for "//&
+               "isopycnal slopes.", default=.not.(GV%Boussinesq.or.GV%semi_Boussinesq), &
+               do_not_log=(CS%use_stored_slopes .or. CS%use_simpler_Eady_growth_rate .or. &
+                           .not.CS%calculate_Eady_growth_rate))
+
+  ! Visbeck L-scale parameter: logged only when L2 arrays are needed; alloc in VarMix_alloc.
+  call get_param(param_file, mdl, "VISBECK_L_SCALE", CS%Visbeck_L_scale, &
+               "The fixed length scale in the Visbeck formula, or if negative a nondimensional "//&
+               "scaling factor relating this length scale squared to the cell areas.", &
+               units="m or nondim", default=0.0, scale=US%m_to_L, &
+               do_not_log=.not.CS%use_L2_arrays)
+  ! (L2u/L2v allocation, initialization, and diag registration happen in VarMix_alloc)
+
+  ! Resolution scaling parameters
+  CS%Resoln_scaling_used = CS%Resoln_scaled_Kh .or. CS%Resoln_scaled_KhTh .or. &
+                           CS%Resoln_scaled_KhTr .or. Resoln_scaled_MEKE_visc
+  if (CS%Resoln_scaling_used) then
+    CS%calculate_Rd_dx = .true.
+    CS%calculate_res_fns = .true.
+  endif
+  ! (All Res_fn_* and f2/beta_dx2 allocations and grid loops happen in VarMix_alloc)
+  ! Resolution-function parameters: read unconditionally; log only when in use.
+  call get_param(param_file, mdl, "KH_RES_SCALE_COEF", CS%Res_coef_khth, &
+               "A coefficient that determines how KhTh is scaled away if "//&
+               "RESOLN_SCALED_... is true, as "//&
+               "F = 1 / (1 + (KH_RES_SCALE_COEF*Rd/dx)^KH_RES_FN_POWER).", &
+               units="nondim", default=1.0, do_not_log=.not.CS%Resoln_scaling_used)
+  call get_param(param_file, mdl, "KH_RES_FN_POWER", CS%Res_fn_power_khth, &
+               "The power of dx/Ld in the Kh resolution function.  Any "//&
+               "positive integer may be used, although even integers "//&
+               "are more efficient to calculate.  Setting this greater "//&
+               "than 100 results in a step-function being used.", &
+               default=2, do_not_log=.not.CS%Resoln_scaling_used)
+  call get_param(param_file, mdl, "VISC_RES_SCALE_COEF", CS%Res_coef_visc, &
+               "A coefficient that determines how Kh is scaled away if "//&
+               "RESOLN_SCALED_... is true, as "//&
+               "F = 1 / (1 + (KH_RES_SCALE_COEF*Rd/dx)^KH_RES_FN_POWER). "//&
+               "This function affects lateral viscosity, Kh, and not KhTh.", &
+               units="nondim", default=CS%Res_coef_khth, do_not_log=.not.CS%Resoln_scaling_used)
+  call get_param(param_file, mdl, "VISC_RES_FN_POWER", CS%Res_fn_power_visc, &
+               "The power of dx/Ld in the Kh resolution function.  Any "//&
+               "positive integer may be used, although even integers "//&
+               "are more efficient to calculate.  Setting this greater "//&
+               "than 100 results in a step-function being used. "//&
+               "This function affects lateral viscosity, Kh, and not KhTh.", &
+               default=CS%Res_fn_power_khth, do_not_log=.not.CS%Resoln_scaling_used)
+  call get_param(param_file, mdl, "INTERPOLATE_RES_FN", CS%interpolate_Res_fn, &
+               "If true, interpolate the resolution function to the "//&
+               "velocity points from the thickness points; otherwise "//&
+               "interpolate the wave speed and calculate the resolution "//&
+               "function independently at each point.", default=.false., &
+               do_not_log=.not.CS%Resoln_scaling_used)
+  call get_param(param_file, mdl, "GILL_EQUATORIAL_LD", Gill_equatorial_Ld, &
+               "If true, uses Gill's definition of the baroclinic "//&
+               "equatorial deformation radius, otherwise, if false, use "//&
+               "Pedlosky's definition. These definitions differ by a factor "//&
+               "of 2 in front of the beta term in the denominator. Gill's "//&
+               "is the more appropriate definition.", default=.true., &
+               do_not_log=.not.CS%Resoln_scaling_used)
+  if (Gill_equatorial_Ld) CS%oneOrTwo = 2.0  ! Store for VarMix_alloc grid loops
+
+  ! Depth-scaling parameters: read unconditionally; log only when in use.
+  call get_param(param_file, mdl, "DEPTH_SCALED_KHTH_H0", CS%depth_scaled_khth_h0, &
+                 "The depth above which KHTH is scaled away.", &
+                 units="m", scale=US%m_to_Z, default=1000., &
+                 do_not_log=.not.CS%Depth_scaled_KhTh)
+  call get_param(param_file, mdl, "DEPTH_SCALED_KHTH_EXP", CS%depth_scaled_khth_exp, &
+                 "The exponent used in the depth dependent scaling function for KHTH.", &
+                 units="nondim", default=3.0, do_not_log=.not.CS%Depth_scaled_KhTh)
+  ! (Depth_fn_u/v allocation and Rd_dx registration happen in VarMix_alloc)
+
+  ! Wave-speed parameters: read unconditionally; log only when cg1 will be calculated.
+  call get_param(param_file, mdl, "DEFAULT_ANSWER_DATE", default_answer_date, &
+               "This sets the default value for the various _ANSWER_DATE parameters.", &
+               default=99991231, do_not_log=.not.CS%calculate_cg1)
+  call get_param(param_file, mdl, "REMAPPING_ANSWER_DATE", CS%remap_answer_date, &
+               "The vintage of the expressions and order of arithmetic to use for remapping.  "//&
+               "Values below 20190101 result in the use of older, less accurate expressions "//&
+               "that were in use at the end of 2018.  Higher values result in the use of more "//&
+               "robust and accurate forms of mathematically equivalent expressions.", &
+               default=default_answer_date, &
+               do_not_log=(.not.CS%calculate_cg1 .or. .not.GV%Boussinesq))
+  if (.not.GV%Boussinesq) CS%remap_answer_date = max(CS%remap_answer_date, 20230701)
+  !### Set defaults so that wave_speed_min*wave_speed_tol >= 1e-9 m s-1
+  call get_param(param_file, mdl, "INTERNAL_WAVE_SPEED_TOL", CS%wave_speed_tol, &
+               "The fractional tolerance for finding the wave speeds.", &
+               units="nondim", default=0.001, do_not_log=.not.CS%calculate_cg1)
+  call get_param(param_file, mdl, "INTERNAL_WAVE_SPEED_MIN", CS%wave_speed_min, &
+               "A floor in the first mode speed below which 0 used instead.", &
+               units="m s-1", default=0.0, scale=US%m_s_to_L_T, &
+               do_not_log=.not.CS%calculate_cg1)
+  call get_param(param_file, mdl, "INTERNAL_WAVE_SPEED_BETTER_EST", CS%better_speed_est, &
+               "If true, use a more robust estimate of the first mode wave speed as the "//&
+               "starting point for iterations.", default=.true., &
+               do_not_log=.not.CS%calculate_cg1)
+  call get_param(param_file, mdl, "REMAPPING_USE_OM4_SUBCELLS", CS%om4_remap_via_sub_cells, &
+                 do_not_log=.true., default=.true.)
+  call get_param(param_file, mdl, "EBT_REMAPPING_USE_OM4_SUBCELLS", CS%om4_remap_via_sub_cells, &
+               "If true, use the OM4 remapping-via-subcells algorithm for calculating EBT structure. "//&
+               "See REMAPPING_USE_OM4_SUBCELLS for details. "//&
+               "We recommend setting this option to false.", default=CS%om4_remap_via_sub_cells, &
+               do_not_log=.not.CS%calculate_cg1)
+  ! (cg1 allocation and wave_speed_init call happen in VarMix_alloc)
+
+  ! QG Leith parameters: read unconditionally; log only when Leith is active.
+  call get_param(param_file, mdl, "USE_QG_LEITH_GM", CS%use_QG_Leith_GM, &
+               "If true, use the QG Leith viscosity as the GM coefficient.", &
+               default=.false.)
+  call get_param(param_file, mdl, "LEITH_LAP_CONST", CS%Leith_Lap_const, &
+               "The nondimensional Laplacian Leith constant, \n"//&
+               "often set to 1.0", units="nondim", default=0.0, &
+               do_not_log=.not.CS%use_QG_Leith_GM)
+  call get_param(param_file, mdl, "USE_BETA_IN_LEITH", CS%use_beta_in_QG_Leith, &
+               "If true, include the beta term in the Leith nonlinear eddy viscosity.", &
+               default=.true., do_not_log=.not.CS%use_QG_Leith_GM)
+  ! (Leith allocations, diag registration, and grid loops happen in VarMix_alloc)
+
+end subroutine VarMix_params
+
+!> Phase 2 initialization for variable mixing: allocates working arrays and registers diagnostics.
+!! Call after VarMix_params. Does not read any parameters.
+subroutine VarMix_alloc(Time, G, GV, US, diag, CS)
+  type(time_type),            intent(in)    :: Time !< Current model time
+  type(ocean_grid_type),      intent(in)    :: G    !< Ocean grid structure
+  type(verticalGrid_type),    intent(in)    :: GV   !< The ocean's vertical grid structure
+  type(unit_scale_type),      intent(in)    :: US   !< A dimensional unit scaling type
+  type(diag_ctrl), target,    intent(inout) :: diag !< Diagnostics control structure
+  type(VarMix_CS),            intent(inout) :: CS   !< Variable mixing coefficients
+
+  ! Local variables
+  logical :: in_use  ! If true, at least one array has been allocated
+  real    :: grid_sp_u2, grid_sp_v2 ! Intermediate Leith metrics [L2 ~> m2]
+  real    :: grid_sp_u3, grid_sp_v3 ! Intermediate Leith metrics [L3 ~> m3]
+  integer :: is, ie, js, je, Isq, Ieq, Jsq, Jeq, i, j
+  integer :: isd, ied, jsd, jed, IsdB, IedB, JsdB, JedB
+  is = G%isc ; ie = G%iec ; js = G%jsc ; je = G%jec
+  Isq = G%IscB ; Ieq = G%IecB ; Jsq = G%JscB ; Jeq = G%JecB
+  isd = G%isd ; ied = G%ied ; jsd = G%jsd ; jed = G%jed
+  IsdB = G%IsdB ; IedB = G%IedB ; JsdB = G%JsdB ; JedB = G%JedB
+
+  in_use = .false.
+  CS%diag => diag
+
+  ! --- EBT / SQG struct arrays ---
+  if (CS%Resoln_use_ebt .or. CS%khth_use_ebt_struct .or. CS%kdgl90_use_ebt_struct &
+      .or. CS%BS_EBT_power>0. .or. CS%khtr_use_ebt_struct) then
+    in_use = .true.
+    allocate(CS%ebt_struct(isd:ied,jsd:jed,GV%ke), source=0.0)
+  endif
+
+  if ((CS%BS_EBT_power>0.) .and. CS%BS_use_sqg_struct) call MOM_error(FATAL, &
+    "calc_resoln_function: BS_EBT_POWER>0. and BS_USE_SQG=True cannot be set together")
+  if (CS%khth_use_ebt_struct .and. CS%khth_use_sqg_struct) call MOM_error(FATAL, &
+    "calc_resoln_function: Only one of KHTH_USE_EBT_STRUCT and KHTH_USE_SQG_STRUCT can be true")
+  if (CS%khtr_use_ebt_struct .and. CS%khtr_use_sqg_struct) call MOM_error(FATAL, &
+    "calc_resoln_function: Only one of KHTR_USE_EBT_STRUCT and KHTR_USE_SQG_STRUCT can be true")
+  if (CS%kdgl90_use_ebt_struct .and. CS%kdgl90_use_sqg_struct) call MOM_error(FATAL, &
+    "calc_resoln_function: Only one of KD_GL90_USE_EBT_STRUCT and KD_GL90_USE_SQG_STRUCT can be true")
+
+  if (CS%BS_EBT_power>0. .or. CS%BS_use_sqg_struct) &
+    allocate(CS%BS_struct(isd:ied,jsd:jed,GV%ke), source=0.0)
+  if (CS%khth_use_ebt_struct .or. CS%khth_use_sqg_struct) &
+    allocate(CS%khth_struct(isd:ied, jsd:jed, GV%ke), source=0.0)
+  if (CS%khtr_use_ebt_struct .or. CS%khtr_use_sqg_struct) &
+    allocate(CS%khtr_struct(isd:ied, jsd:jed, GV%ke), source=0.0)
+  if (CS%kdgl90_use_ebt_struct .or. CS%kdgl90_use_sqg_struct) &
+    allocate(CS%kdgl90_struct(isd:ied, jsd:jed, GV%ke), source=0.0)
+
+  ! --- Stored slopes ---
   if (CS%use_stored_slopes .or. (CS%interpolated_sqg_struct .and. (CS%sqg_expo>0.0))) then
-    ! CS%calculate_Eady_growth_rate=.true.
     in_use = .true.
     allocate(CS%slope_x(IsdB:IedB,jsd:jed,GV%ke+1), source=0.0)
     allocate(CS%slope_y(isd:ied,JsdB:JedB,GV%ke+1), source=0.0)
-    call get_param(param_file, mdl, "KD_SMOOTH", CS%kappa_smooth, &
-                 "A diapycnal diffusivity that is used to interpolate "//&
-                 "more sensible values of T & S into thin layers.", &
-                 units="m2 s-1", default=1.0e-6, scale=GV%m2_s_to_HZ_T)
   endif
 
+  ! --- Eady growth rate arrays and diagnostics ---
   if (CS%calculate_Eady_growth_rate) then
     in_use = .true.
     allocate(CS%SN_u(IsdB:IedB,jsd:jed), source=0.0)
@@ -1790,50 +1957,17 @@ subroutine VarMix_init(Time, G, GV, US, param_file, diag, CS)
        'Inverse eddy time-scale, S*N, at u-points', 's-1', conversion=US%s_to_T)
     CS%id_SN_v = register_diag_field('ocean_model', 'SN_v', diag%axesCv1, Time, &
        'Inverse eddy time-scale, S*N, at v-points', 's-1', conversion=US%s_to_T)
-    call get_param(param_file, mdl, "USE_SIMPLER_EADY_GROWTH_RATE", CS%use_simpler_Eady_growth_rate, &
-                   "If true, use a simpler method to calculate the Eady growth rate "//&
-                   "that avoids division by layer thickness. Recommended.", default=.false.)
-    if (CS%use_simpler_Eady_growth_rate) then
-      if (.not. CS%use_stored_slopes) call MOM_error(FATAL, &
-           "MOM_lateral_mixing_coeffs.F90, VarMix_init:"//&
-           "When USE_SIMPLER_EADY_GROWTH_RATE=True, USE_STORED_SLOPES must also be True.")
-      call get_param(param_file, mdl, "EADY_GROWTH_RATE_D_SCALE", CS%Eady_GR_D_scale, &
-                     "The depth from surface over which to average SN when calculating "//&
-                     "a 2D Eady growth rate. Zero mean use full depth.", &
-                      units="m", default=0., scale=US%m_to_Z)
-      call get_param(param_file, mdl, "EADY_GROWTH_RATE_CROPPING_DISTANCE", CS%cropping_distance, &
-                     "Distance from surface or bottom to filter out outcropped or "//&
-                     "incropped interfaces for the Eady growth rate calc. "//&
-                     "Negative values disables cropping.", units="m", default=0., scale=US%m_to_Z)
-    else
-      call get_param(param_file, mdl, "VARMIX_KTOP", CS%VarMix_Ktop, &
-                     "The layer number at which to start vertical integration "//&
-                     "of S*N for purposes of finding the Eady growth rate.", &
-                     units="nondim", default=2)
-      call get_param(param_file, mdl, "MIN_DZ_FOR_SLOPE_N2", CS%h_min_N2, &
-                     "The minimum vertical distance to use in the denominator of the "//&
-                     "bouyancy frequency used in the slope calculation.", &
-                     units="m", default=1.0, scale=GV%m_to_H, do_not_log=CS%use_stored_slopes)
-
-      call get_param(param_file, mdl, "FULL_DEPTH_EADY_GROWTH_RATE", CS%full_depth_Eady_growth_rate, &
-                   "If true, calculate the Eady growth rate based on average slope times "//&
-                   "stratification that includes contributions from sea-level changes "//&
-                   "in its denominator, rather than just the nominal depth of the bathymetry.  "//&
-                   "This only applies when using the model interface heights as a proxy for "//&
-                   "isopycnal slopes.", default=.not.(GV%Boussinesq.or.GV%semi_Boussinesq), &
-                   do_not_log=CS%use_stored_slopes)
-    endif
+    if (CS%use_simpler_Eady_growth_rate .and. .not.CS%use_stored_slopes) call MOM_error(FATAL, &
+         "MOM_lateral_mixing_coeffs.F90, VarMix_alloc: "//&
+         "When USE_SIMPLER_EADY_GROWTH_RATE=True, USE_STORED_SLOPES must also be True.")
   endif
 
-  if (KhTr_Slope_Cff>0. .or. KhTh_Slope_Cff>0.) then
+  ! --- Visbeck length-scale arrays ---
+  if (CS%use_L2_arrays) then
     in_use = .true.
-    call get_param(param_file, mdl, "VISBECK_L_SCALE", CS%Visbeck_L_scale, &
-                 "The fixed length scale in the Visbeck formula, or if negative a nondimensional "//&
-                 "scaling factor relating this length scale squared to the cell areas.", &
-                 units="m or nondim", default=0.0, scale=US%m_to_L)
     allocate(CS%L2u(IsdB:IedB,jsd:jed), source=0.0)
     allocate(CS%L2v(isd:ied,JsdB:JedB), source=0.0)
-    if (CS%Visbeck_L_scale<0) then
+    if (CS%Visbeck_L_scale < 0.) then
       ! Undo the rescaling of CS%Visbeck_L_scale.
       do j=js,je ; do I=is-1,Ieq
         CS%L2u(I,j) = (US%L_to_m*CS%Visbeck_L_scale)**2 * G%areaCu(I,j)
@@ -1845,7 +1979,6 @@ subroutine VarMix_init(Time, G, GV, US, param_file, diag, CS)
       CS%L2u(:,:) = CS%Visbeck_L_scale**2
       CS%L2v(:,:) = CS%Visbeck_L_scale**2
     endif
-
     CS%id_L2u = register_diag_field('ocean_model', 'L2u', diag%axesCu1, Time, &
        'Length scale squared for mixing coefficient, at u-points', &
        'm2', conversion=US%L_to_m**2)
@@ -1854,31 +1987,25 @@ subroutine VarMix_init(Time, G, GV, US, param_file, diag, CS)
        'm2', conversion=US%L_to_m**2)
   endif
 
+  ! --- SQG and structural diagnostics ---
   CS%id_sqg_struct = register_diag_field('ocean_model', 'sqg_struct', diag%axesTl, Time, &
             'Vertical structure of SQG mode', 'nondim')
   if (CS%BS_use_sqg_struct .or. CS%khth_use_sqg_struct .or. CS%khtr_use_sqg_struct &
-      .or. CS%kdgl90_use_sqg_struct .or. CS%id_sqg_struct>0) then
+      .or. CS%kdgl90_use_sqg_struct .or. CS%id_sqg_struct>0) &
     allocate(CS%sqg_struct(isd:ied,jsd:jed,GV%ke), source=0.0)
-  endif
-
-  if (CS%BS_EBT_power>0. .or. CS%BS_use_sqg_struct) then
+  if (CS%BS_EBT_power>0. .or. CS%BS_use_sqg_struct) &
     CS%id_BS_struct = register_diag_field('ocean_model', 'BS_struct', diag%axesTl, Time, &
               'Vertical structure of backscatter', 'nondim')
-  endif
-  if (CS%khth_use_ebt_struct .or. CS%khth_use_sqg_struct) then
+  if (CS%khth_use_ebt_struct .or. CS%khth_use_sqg_struct) &
     CS%id_khth_struct = register_diag_field('ocean_model', 'khth_struct', diag%axesTl, Time, &
             'Vertical structure of thickness diffusivity', 'nondim')
-  endif
-  if (CS%khtr_use_ebt_struct .or. CS%khtr_use_sqg_struct) then
+  if (CS%khtr_use_ebt_struct .or. CS%khtr_use_sqg_struct) &
     CS%id_khtr_struct = register_diag_field('ocean_model', 'khtr_struct', diag%axesTl, Time, &
             'Vertical structure of tracer diffusivity', 'nondim')
-  endif
-  if (CS%kdgl90_use_ebt_struct .or. CS%kdgl90_use_sqg_struct) then
+  if (CS%kdgl90_use_ebt_struct .or. CS%kdgl90_use_sqg_struct) &
     CS%id_kdgl90_struct = register_diag_field('ocean_model', 'kdgl90_struct', diag%axesTl, Time, &
             'Vertical structure of GL90 diffusivity', 'nondim')
-  endif
-
-  if ((CS%calculate_Eady_growth_rate .and. CS%use_stored_slopes) ) then
+  if (CS%calculate_Eady_growth_rate .and. CS%use_stored_slopes) then
     CS%id_N2_u = register_diag_field('ocean_model', 'N2_u', diag%axesCui, Time, &
          'Square of Brunt-Vaisala frequency, N^2, at u-points, as used in Visbeck et al.', &
          's-2', conversion=(US%L_to_Z*US%s_to_T)**2)
@@ -1887,18 +2014,18 @@ subroutine VarMix_init(Time, G, GV, US, param_file, diag, CS)
          's-2', conversion=(US%L_to_Z*US%s_to_T)**2)
   endif
   if (CS%use_simpler_Eady_growth_rate) then
-    CS%id_dzu = register_diag_field('ocean_model', 'dzu_Visbeck', diag%axesCui, Time, &
+    CS%id_dzu   = register_diag_field('ocean_model', 'dzu_Visbeck', diag%axesCui, Time, &
          'dz at u-points, used in calculating Eady growth rate in Visbeck et al..', &
          'm', conversion=US%Z_to_m)
-    CS%id_dzv = register_diag_field('ocean_model', 'dzv_Visbeck', diag%axesCvi, Time, &
+    CS%id_dzv   = register_diag_field('ocean_model', 'dzv_Visbeck', diag%axesCvi, Time, &
          'dz at v-points, used in calculating Eady growth rate in Visbeck et al..', &
          'm', conversion=US%Z_to_m)
     CS%id_dzSxN = register_diag_field('ocean_model', 'dzSxN', diag%axesCui, Time, &
-         'dz * |slope_x| * N, used in calculating Eady growth rate in '//&
-         'Visbeck et al..', 'm s-1', conversion=US%Z_to_m*US%s_to_T)
+         'dz * |slope_x| * N, used in calculating Eady growth rate in Visbeck et al..', &
+         'm s-1', conversion=US%Z_to_m*US%s_to_T)
     CS%id_dzSyN = register_diag_field('ocean_model', 'dzSyN', diag%axesCvi, Time, &
-         'dz * |slope_y| * N, used in calculating Eady growth rate in '//&
-         'Visbeck et al..', 'm s-1', conversion=US%Z_to_m*US%s_to_T)
+         'dz * |slope_y| * N, used in calculating Eady growth rate in Visbeck et al..', &
+         'm s-1', conversion=US%Z_to_m*US%s_to_T)
   endif
   if (CS%use_stored_slopes) then
     CS%id_S2_u = register_diag_field('ocean_model', 'S2_u', diag%axesCu1, Time, &
@@ -1909,12 +2036,8 @@ subroutine VarMix_init(Time, G, GV, US, param_file, diag, CS)
          'nondim', conversion=US%Z_to_L**2)
   endif
 
-  oneOrTwo = 1.0
-  CS%Resoln_scaling_used = CS%Resoln_scaled_Kh .or. CS%Resoln_scaled_KhTh .or. &
-                           CS%Resoln_scaled_KhTr .or. Resoln_scaled_MEKE_visc
+  ! --- Resolution scaling arrays and grid-constant initialization ---
   if (CS%Resoln_scaling_used) then
-    CS%calculate_Rd_dx = .true.
-    CS%calculate_res_fns = .true.
     allocate(CS%Res_fn_h(isd:ied,jsd:jed), source=0.0)
     allocate(CS%Res_fn_q(IsdB:IedB,JsdB:JedB), source=0.0)
     allocate(CS%Res_fn_u(IsdB:IedB,jsd:jed), source=0.0)
@@ -1929,106 +2052,59 @@ subroutine VarMix_init(Time, G, GV, US, param_file, diag, CS)
     CS%id_Res_fn = register_diag_field('ocean_model', 'Res_fn', diag%axesT1, Time, &
        'Resolution function for scaling diffusivities', 'nondim')
 
-    call get_param(param_file, mdl, "KH_RES_SCALE_COEF", CS%Res_coef_khth, &
-                 "A coefficient that determines how KhTh is scaled away if "//&
-                 "RESOLN_SCALED_... is true, as "//&
-                 "F = 1 / (1 + (KH_RES_SCALE_COEF*Rd/dx)^KH_RES_FN_POWER).", &
-                 units="nondim", default=1.0)
-    call get_param(param_file, mdl, "KH_RES_FN_POWER", CS%Res_fn_power_khth, &
-                 "The power of dx/Ld in the Kh resolution function.  Any "//&
-                 "positive integer may be used, although even integers "//&
-                 "are more efficient to calculate.  Setting this greater "//&
-                 "than 100 results in a step-function being used.", &
-                 default=2)
-    call get_param(param_file, mdl, "VISC_RES_SCALE_COEF", CS%Res_coef_visc, &
-                 "A coefficient that determines how Kh is scaled away if "//&
-                 "RESOLN_SCALED_... is true, as "//&
-                 "F = 1 / (1 + (KH_RES_SCALE_COEF*Rd/dx)^KH_RES_FN_POWER). "//&
-                 "This function affects lateral viscosity, Kh, and not KhTh.", &
-                 units="nondim", default=CS%Res_coef_khth)
-    call get_param(param_file, mdl, "VISC_RES_FN_POWER", CS%Res_fn_power_visc, &
-                 "The power of dx/Ld in the Kh resolution function.  Any "//&
-                 "positive integer may be used, although even integers "//&
-                 "are more efficient to calculate.  Setting this greater "//&
-                 "than 100 results in a step-function being used. "//&
-                 "This function affects lateral viscosity, Kh, and not KhTh.", &
-                 default=CS%Res_fn_power_khth)
-    call get_param(param_file, mdl, "INTERPOLATE_RES_FN", CS%interpolate_Res_fn, &
-                 "If true, interpolate the resolution function to the "//&
-                 "velocity points from the thickness points; otherwise "//&
-                 "interpolate the wave speed and calculate the resolution "//&
-                 "function independently at each point.", default=.false.)
     if (CS%interpolate_Res_fn) then
       if (CS%Res_coef_visc /= CS%Res_coef_khth) call MOM_error(FATAL, &
-           "MOM_lateral_mixing_coeffs.F90, VarMix_init:"//&
+           "MOM_lateral_mixing_coeffs.F90, VarMix_alloc: "//&
            "When INTERPOLATE_RES_FN=True, VISC_RES_FN_POWER must equal KH_RES_SCALE_COEF.")
       if (CS%Res_fn_power_visc /= CS%Res_fn_power_khth) call MOM_error(FATAL, &
-           "MOM_lateral_mixing_coeffs.F90, VarMix_init:"//&
+           "MOM_lateral_mixing_coeffs.F90, VarMix_alloc: "//&
            "When INTERPOLATE_RES_FN=True, VISC_RES_FN_POWER must equal KH_RES_FN_POWER.")
-    endif
-    call get_param(param_file, mdl, "GILL_EQUATORIAL_LD", Gill_equatorial_Ld, &
-                 "If true, uses Gill's definition of the baroclinic "//&
-                 "equatorial deformation radius, otherwise, if false, use "//&
-                 "Pedlosky's definition. These definitions differ by a factor "//&
-                 "of 2 in front of the beta term in the denominator. Gill's "//&
-                 "is the more appropriate definition.", default=.true.)
-    if (Gill_equatorial_Ld) then
-      oneOrTwo = 2.0
     endif
 
     do J=js-1,Jeq ; do I=is-1,Ieq
       CS%f2_dx2_q(I,J) = ((G%dxBu(I,J)**2) + (G%dyBu(I,J)**2)) * &
-                         max(G%Coriolis2Bu(I,J), absurdly_small_freq**2)
-      CS%beta_dx2_q(I,J) = oneOrTwo * ((G%dxBu(I,J)**2) + (G%dyBu(I,J)**2)) * (sqrt(0.5 * &
+                         max(G%Coriolis2Bu(I,J), CS%absurdly_small_freq**2)
+      CS%beta_dx2_q(I,J) = CS%oneOrTwo * ((G%dxBu(I,J)**2) + (G%dyBu(I,J)**2)) * (sqrt(0.5 * &
           ( ((((G%CoriolisBu(I,J)-G%CoriolisBu(I-1,J)) * G%IdxCv(i,J))**2) + &
              (((G%CoriolisBu(I+1,J)-G%CoriolisBu(I,J)) * G%IdxCv(i+1,J))**2)) + &
             ((((G%CoriolisBu(I,J)-G%CoriolisBu(I,J-1)) * G%IdyCu(I,j))**2) + &
              (((G%CoriolisBu(I,J+1)-G%CoriolisBu(I,J)) * G%IdyCu(I,j+1))**2)) ) ))
     enddo ; enddo
-
     do j=js,je ; do I=is-1,Ieq
       CS%f2_dx2_u(I,j) = ((G%dxCu(I,j)**2) + (G%dyCu(I,j)**2)) * &
-          max(0.5* (G%Coriolis2Bu(I,J)+G%Coriolis2Bu(I,J-1)), absurdly_small_freq**2)
-      CS%beta_dx2_u(I,j) = oneOrTwo * ((G%dxCu(I,j)**2) + (G%dyCu(I,j)**2)) * (sqrt( &
+          max(0.5*(G%Coriolis2Bu(I,J)+G%Coriolis2Bu(I,J-1)), CS%absurdly_small_freq**2)
+      CS%beta_dx2_u(I,j) = CS%oneOrTwo * ((G%dxCu(I,j)**2) + (G%dyCu(I,j)**2)) * (sqrt( &
           ((G%CoriolisBu(I,J)-G%CoriolisBu(I,J-1)) * G%IdyCu(I,j))**2 + &
           0.25*( ((((G%CoriolisBu(I,J-1)-G%CoriolisBu(I-1,J-1)) * G%IdxCv(i,J-1))**2) + &
                   (((G%CoriolisBu(I+1,J)-G%CoriolisBu(I,J)) * G%IdxCv(i+1,J))**2)) + &
                  ((((G%CoriolisBu(I+1,J-1)-G%CoriolisBu(I,J-1)) * G%IdxCv(i+1,J-1))**2) + &
                   (((G%CoriolisBu(I,J)-G%CoriolisBu(I-1,J)) * G%IdxCv(i,J))**2)) ) ))
     enddo ; enddo
-
     do J=js-1,Jeq ; do i=is,ie
       CS%f2_dx2_v(i,J) = ((G%dxCv(i,J)**2) + (G%dyCv(i,J)**2)) * &
-          max(0.5*(G%Coriolis2Bu(I,J)+G%Coriolis2Bu(I-1,J)), absurdly_small_freq**2)
-      CS%beta_dx2_v(i,J) = oneOrTwo * ((G%dxCv(i,J)**2) + (G%dyCv(i,J)**2)) * (sqrt( &
+          max(0.5*(G%Coriolis2Bu(I,J)+G%Coriolis2Bu(I-1,J)), CS%absurdly_small_freq**2)
+      CS%beta_dx2_v(i,J) = CS%oneOrTwo * ((G%dxCv(i,J)**2) + (G%dyCv(i,J)**2)) * (sqrt( &
           ((G%CoriolisBu(I,J)-G%CoriolisBu(I-1,J)) * G%IdxCv(i,J))**2 + &
           0.25*( ((((G%CoriolisBu(I,J)-G%CoriolisBu(I,J-1)) * G%IdyCu(I,j))**2) + &
                   (((G%CoriolisBu(I-1,J+1)-G%CoriolisBu(I-1,J)) * G%IdyCu(I-1,j+1))**2)) + &
                  ((((G%CoriolisBu(I,J+1)-G%CoriolisBu(I,J)) * G%IdyCu(I,j+1))**2) + &
                   (((G%CoriolisBu(I-1,J)-G%CoriolisBu(I-1,J-1)) * G%IdyCu(I-1,j))**2)) ) ))
     enddo ; enddo
-
   endif
 
+  ! --- Depth-scaling arrays ---
   if (CS%Depth_scaled_KhTh) then
     CS%calculate_depth_fns = .true.
     allocate(CS%Depth_fn_u(IsdB:IedB,jsd:jed), source=0.0)
     allocate(CS%Depth_fn_v(isd:ied,JsdB:JedB), source=0.0)
-    call get_param(param_file, mdl, "DEPTH_SCALED_KHTH_H0", CS%depth_scaled_khth_h0, &
-                   "The depth above which KHTH is scaled away.", &
-                   units="m", scale=US%m_to_Z, default=1000.)
-    call get_param(param_file, mdl, "DEPTH_SCALED_KHTH_EXP", CS%depth_scaled_khth_exp, &
-                   "The exponent used in the depth dependent scaling function for KHTH.", &
-                   units="nondim", default=3.0)
   endif
 
-  ! Resolution %Rd_dx_h
+  ! --- Rd_dx diagnostic and associated arrays ---
   CS%id_Rd_dx = register_diag_field('ocean_model', 'Rd_dx', diag%axesT1, Time, &
        'Ratio between deformation radius and grid spacing', 'm m-1')
-  CS%calculate_Rd_dx = CS%calculate_Rd_dx .or. (CS%id_Rd_dx>0)
-
+  CS%calculate_Rd_dx = CS%calculate_Rd_dx .or. (CS%id_Rd_dx > 0)
   if (CS%calculate_Rd_dx) then
-    CS%calculate_cg1 = .true. ! We will need %cg1
+    CS%calculate_cg1 = .true.
     allocate(CS%Rd_dx_h(isd:ied,jsd:jed), source=0.0)
     allocate(CS%beta_dx2_h(isd:ied,jsd:jed), source=0.0)
     allocate(CS%f2_dx2_h(isd:ied,jsd:jed), source=0.0)
@@ -2036,8 +2112,8 @@ subroutine VarMix_init(Time, G, GV, US, param_file, diag, CS)
       CS%f2_dx2_h(i,j) = ((G%dxT(i,j)**2) + (G%dyT(i,j)**2)) * &
           max(0.25 * ((G%Coriolis2Bu(I,J) + G%Coriolis2Bu(I-1,J-1)) + &
                       (G%Coriolis2Bu(I-1,J) + G%Coriolis2Bu(I,J-1))), &
-              absurdly_small_freq**2)
-      CS%beta_dx2_h(i,j) = oneOrTwo * ((G%dxT(i,j)**2) + (G%dyT(i,j)**2)) * (sqrt(0.5 * &
+              CS%absurdly_small_freq**2)
+      CS%beta_dx2_h(i,j) = CS%oneOrTwo * ((G%dxT(i,j)**2) + (G%dyT(i,j)**2)) * (sqrt(0.5 * &
           ( ((((G%CoriolisBu(I,J)-G%CoriolisBu(I-1,J)) * G%IdxCv(i,J))**2) + &
              (((G%CoriolisBu(I,J-1)-G%CoriolisBu(I-1,J-1)) * G%IdxCv(i,J-1))**2)) + &
             ((((G%CoriolisBu(I,J)-G%CoriolisBu(I,J-1)) * G%IdyCu(I,j))**2) + &
@@ -2045,87 +2121,64 @@ subroutine VarMix_init(Time, G, GV, US, param_file, diag, CS)
     enddo ; enddo
   endif
 
+  ! --- Wave speed and cg1 array ---
   if (CS%calculate_cg1) then
     in_use = .true.
     allocate(CS%cg1(isd:ied,jsd:jed), source=0.0)
-    call get_param(param_file, mdl, "DEFAULT_ANSWER_DATE", default_answer_date, &
-                 "This sets the default value for the various _ANSWER_DATE parameters.", &
-                 default=99991231)
-    call get_param(param_file, mdl, "REMAPPING_ANSWER_DATE", remap_answer_date, &
-                 "The vintage of the expressions and order of arithmetic to use for remapping.  "//&
-                 "Values below 20190101 result in the use of older, less accurate expressions "//&
-                 "that were in use at the end of 2018.  Higher values result in the use of more "//&
-                 "robust and accurate forms of mathematically equivalent expressions.", &
-                 default=default_answer_date, do_not_log=.not.GV%Boussinesq)
-  if (.not.GV%Boussinesq) remap_answer_date = max(remap_answer_date, 20230701)
-
-    call get_param(param_file, mdl, "INTERNAL_WAVE_SPEED_TOL", wave_speed_tol, &
-                 "The fractional tolerance for finding the wave speeds.", &
-                 units="nondim", default=0.001)
-    !### Set defaults so that wave_speed_min*wave_speed_tol >= 1e-9 m s-1
-    call get_param(param_file, mdl, "INTERNAL_WAVE_SPEED_MIN", wave_speed_min, &
-                 "A floor in the first mode speed below which 0 used instead.", &
-                 units="m s-1", default=0.0, scale=US%m_s_to_L_T)
-    call get_param(param_file, mdl, "INTERNAL_WAVE_SPEED_BETTER_EST", better_speed_est, &
-                 "If true, use a more robust estimate of the first mode wave speed as the "//&
-                 "starting point for iterations.", default=.true.)
-    call get_param(param_file, mdl, "REMAPPING_USE_OM4_SUBCELLS", om4_remap_via_sub_cells, &
-                   do_not_log=.true., default=.true.)
-    call get_param(param_file, mdl, "EBT_REMAPPING_USE_OM4_SUBCELLS", om4_remap_via_sub_cells, &
-                 "If true, use the OM4 remapping-via-subcells algorithm for calculating EBT structure. "//&
-                 "See REMAPPING_USE_OM4_SUBCELLS for details. "//&
-                 "We recommend setting this option to false.", default=om4_remap_via_sub_cells)
     call wave_speed_init(CS%wave_speed, GV, use_ebt_mode=CS%Resoln_use_ebt, &
-                         mono_N2_depth=N2_filter_depth, remap_answer_date=remap_answer_date, &
-                         better_speed_est=better_speed_est, min_speed=wave_speed_min, &
-                         om4_remap_via_sub_cells=om4_remap_via_sub_cells, wave_speed_tol=wave_speed_tol)
+                         mono_N2_depth=CS%N2_filter_depth, &
+                         remap_answer_date=CS%remap_answer_date, &
+                         better_speed_est=CS%better_speed_est, &
+                         min_speed=CS%wave_speed_min, &
+                         om4_remap_via_sub_cells=CS%om4_remap_via_sub_cells, &
+                         wave_speed_tol=CS%wave_speed_tol)
   endif
 
-  ! Leith parameters
-  call get_param(param_file, mdl, "USE_QG_LEITH_GM", CS%use_QG_Leith_GM, &
-               "If true, use the QG Leith viscosity as the GM coefficient.", &
-               default=.false.)
-
-  if (CS%Use_QG_Leith_GM) then
-    call get_param(param_file, mdl, "LEITH_LAP_CONST", Leith_Lap_const, &
-               "The nondimensional Laplacian Leith constant, \n"//&
-               "often set to 1.0", units="nondim", default=0.0)
-
-    call get_param(param_file, mdl, "USE_BETA_IN_LEITH", CS%use_beta_in_QG_Leith, &
-               "If true, include the beta term in the Leith nonlinear eddy viscosity.", &
-               default=.true.)
-
+  ! --- QG Leith arrays, diagnostics, and grid initialization ---
+  if (CS%use_QG_Leith_GM) then
     allocate(CS%Laplac3_const_u(IsdB:IedB,jsd:jed), source=0.0)
     allocate(CS%Laplac3_const_v(isd:ied,JsdB:JedB), source=0.0)
     allocate(CS%KH_u_QG(IsdB:IedB,jsd:jed,GV%ke), source=0.0)
     allocate(CS%KH_v_QG(isd:ied,JsdB:JedB,GV%ke), source=0.0)
-
-    ! register diagnostics
     CS%id_KH_u_QG = register_diag_field('ocean_model', 'KH_u_QG', diag%axesCuL, Time, &
        'Horizontal viscosity from Leith QG, at u-points', 'm2 s-1', conversion=US%L_to_m**2*US%s_to_T)
     CS%id_KH_v_QG = register_diag_field('ocean_model', 'KH_v_QG', diag%axesCvL, Time, &
        'Horizontal viscosity from Leith QG, at v-points', 'm2 s-1', conversion=US%L_to_m**2*US%s_to_T)
-
     do j=Jsq,Jeq+1 ; do I=is-1,Ieq
-      ! Static factors in the Leith schemes
       grid_sp_u2 = G%dyCu(I,j)*G%dxCu(I,j)
       grid_sp_u3 = grid_sp_u2*sqrt(grid_sp_u2)
-      CS%Laplac3_const_u(I,j) = Leith_Lap_const * grid_sp_u3
+      CS%Laplac3_const_u(I,j) = CS%Leith_Lap_const * grid_sp_u3
     enddo ; enddo
     do j=js-1,Jeq ; do I=Isq,Ieq+1
-      ! Static factors in the Leith schemes
       grid_sp_v2 = G%dyCv(i,J)*G%dxCv(i,J)
       grid_sp_v3 = grid_sp_v2*sqrt(grid_sp_v2)
-      CS%Laplac3_const_v(i,J) = Leith_Lap_const * grid_sp_v3
+      CS%Laplac3_const_v(i,J) = CS%Leith_Lap_const * grid_sp_v3
     enddo ; enddo
-
-    if (.not. CS%use_stored_slopes) call MOM_error(FATAL, &
-           "MOM_lateral_mixing_coeffs.F90, VarMix_init:"//&
-           "USE_STORED_SLOPES must be True when using QG Leith.")
+    if (.not.CS%use_stored_slopes) call MOM_error(FATAL, &
+         "MOM_lateral_mixing_coeffs.F90, VarMix_alloc: "//&
+         "USE_STORED_SLOPES must be True when using QG Leith.")
   endif
 
-  ! Re-enable variable mixing if one of the schemes was enabled
+  ! Re-enable variable mixing if any scheme allocated arrays
   CS%use_variable_mixing = in_use .or. CS%use_variable_mixing
+
+end subroutine VarMix_alloc
+
+!> Initializes the variable mixing coefficients container (backward-compatible shim).
+!! Calls VarMix_params then VarMix_alloc in sequence.
+!! New code should call VarMix_params and VarMix_alloc explicitly to enable phased init.
+subroutine VarMix_init(Time, G, GV, US, param_file, diag, CS)
+  type(time_type),            intent(in)    :: Time       !< Current model time
+  type(ocean_grid_type),      intent(in)    :: G          !< Ocean grid structure
+  type(verticalGrid_type),    intent(in)    :: GV         !< The ocean's vertical grid structure
+  type(unit_scale_type),      intent(in)    :: US         !< A dimensional unit scaling type
+  type(param_file_type),      intent(in)    :: param_file !< Parameter file handles
+  type(diag_ctrl), target,    intent(inout) :: diag       !< Diagnostics control structure
+  type(VarMix_CS),            intent(inout) :: CS         !< Variable mixing coefficients
+
+  call VarMix_params(param_file, GV, US, CS)
+  call VarMix_alloc(Time, G, GV, US, diag, CS)
+
 end subroutine VarMix_init
 
 !> Destructor for VarMix control structure

@@ -127,7 +127,7 @@ type, public :: ALE_CS ; private
 end type
 
 ! Publicly available functions
-public ALE_init
+public ALE_params, ALE_alloc, ALE_init
 public ALE_end
 public ALE_regrid
 public ALE_offline_inputs
@@ -163,11 +163,10 @@ public ALE_set_extrap_boundaries
 
 contains
 
-!> This routine is typically called (from initialize_MOM in file MOM.F90)
-!! before the main time integration loop to initialize the regridding stuff.
-!! We read the MOM_input file to register the values of different
-!! regridding/remapping parameters.
-subroutine ALE_init( param_file, G, GV, US, max_depth, CS)
+!> Read parameters for the ALE module.
+!! Phase 1 of ALE initialization: reads and stores all parameters, with no
+!! allocation of working arrays, diagnostic registration, or state initialization.
+subroutine ALE_params(param_file, G, GV, US, max_depth, CS)
   type(param_file_type),   intent(in) :: param_file !< Parameter file
   type(ocean_grid_type),   intent(in) :: G          !< Grid structure
   type(verticalGrid_type), intent(in) :: GV         !< Ocean vertical grid structure
@@ -192,14 +191,14 @@ subroutine ALE_init( param_file, G, GV, US, max_depth, CS)
   real :: h_neglect, h_neglect_edge ! small thicknesses [H ~> m or kg m-2]
 
   if (associated(CS)) then
-    call MOM_error(WARNING, "ALE_init called with an associated "// &
+    call MOM_error(WARNING, "ALE_params called with an associated "// &
                             "control structure.")
     return
   endif
   allocate(CS)
 
   CS%show_call_tree = callTree_showQuery()
-  if (CS%show_call_tree) call callTree_enter("ALE_init(), MOM_ALE.F90")
+  if (CS%show_call_tree) call callTree_enter("ALE_params(), MOM_ALE.F90")
 
   call get_param(param_file, mdl, "REMAP_UV_USING_OLD_ALG", CS%remap_uv_using_old_alg, &
                  "If true, uses the old remapping-via-a-delta-z method for "//&
@@ -344,7 +343,21 @@ subroutine ALE_init( param_file, G, GV, US, max_depth, CS)
   ! Keep a record of values for subsequent queries
   CS%nk = GV%ke
 
-  if (CS%show_call_tree) call callTree_leave("ALE_init()")
+  if (CS%show_call_tree) call callTree_leave("ALE_params()")
+end subroutine ALE_params
+
+!> Initialize the ALE module.
+!! This is a backward-compatible shim that calls ALE_params.
+!! Prefer calling ALE_params directly for new code.
+subroutine ALE_init(param_file, G, GV, US, max_depth, CS)
+  type(param_file_type),   intent(in) :: param_file !< Parameter file
+  type(ocean_grid_type),   intent(in) :: G          !< Grid structure
+  type(verticalGrid_type), intent(in) :: GV         !< Ocean vertical grid structure
+  type(unit_scale_type),   intent(in) :: US         !< A dimensional unit scaling type
+  real,                    intent(in) :: max_depth  !< The maximum depth of the ocean [Z ~> m].
+  type(ALE_CS),            pointer    :: CS         !< Module control structure
+
+  call ALE_params(param_file, G, GV, US, max_depth, CS)
 end subroutine ALE_init
 
 !> Sets the boundary extrapolation set for the remapping type.
@@ -374,8 +387,9 @@ subroutine ALE_set_OM4_remap_algorithm( CS, om4_remap_via_sub_cells )
 
 end subroutine ALE_set_OM4_remap_algorithm
 
-!> Initialize diagnostics for the ALE module.
-subroutine ALE_register_diags(Time, G, GV, US, diag, CS)
+!> Allocate memory and register diagnostics for the ALE module.
+!! Phase 2 of ALE initialization: registers diagnostic fields. Must be called after ALE_params.
+subroutine ALE_alloc(Time, G, GV, US, diag, CS)
   type(time_type),target,     intent(in)  :: Time  !< Time structure
   type(ocean_grid_type),      intent(in)  :: G     !< Grid structure
   type(unit_scale_type),      intent(in)  :: US    !< A dimensional unit scaling type
@@ -425,6 +439,20 @@ subroutine ALE_register_diags(Time, G, GV, US, diag, CS)
       ' this measures the change before the KE-conserving correction is applied.', &
       'W m-2', conversion=GV%H_to_kg_m2 * US%L_T_to_m_s**2 * US%s_to_T)
 
+end subroutine ALE_alloc
+
+!> Initialize diagnostics for the ALE module.
+!! This is a backward-compatible shim that calls ALE_alloc.
+!! Prefer calling ALE_alloc directly for new code.
+subroutine ALE_register_diags(Time, G, GV, US, diag, CS)
+  type(time_type),target,     intent(in)  :: Time  !< Time structure
+  type(ocean_grid_type),      intent(in)  :: G     !< Grid structure
+  type(unit_scale_type),      intent(in)  :: US    !< A dimensional unit scaling type
+  type(verticalGrid_type),    intent(in)  :: GV    !< Ocean vertical grid structure
+  type(diag_ctrl), target,    intent(in)  :: diag  !< Diagnostics control structure
+  type(ALE_CS), pointer                   :: CS    !< Module control structure
+
+  call ALE_alloc(Time, G, GV, US, diag, CS)
 end subroutine ALE_register_diags
 
 !> Crudely adjust (initial) grid for integrity.

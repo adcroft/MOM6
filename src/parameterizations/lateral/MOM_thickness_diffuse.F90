@@ -26,8 +26,8 @@ implicit none ; private
 
 #include <MOM_memory.h>
 
-public thickness_diffuse, thickness_diffuse_init, thickness_diffuse_end
-public thickness_diffuse_get_KH
+public thickness_diffuse, thickness_diffuse_params, thickness_diffuse_alloc, thickness_diffuse_init
+public thickness_diffuse_end, thickness_diffuse_get_KH
 
 ! A note on unit descriptions in comments: MOM6 uses units that can be rescaled for dimensional
 ! consistency testing. These are noted in comments with units like Z, H, L, and T, along with
@@ -102,6 +102,9 @@ type, public :: thickness_diffuse_CS ; private
                                  !! Negative values disable the scheme. [nondim]
   logical :: read_khth           !< If true, read a file containing the spatially varying horizontal
                                  !! isopycnal height diffusivity
+  character(len=200) :: khth_filepath !< Full path to the khth input file (set in thickness_diffuse_params,
+                                 !! used in thickness_diffuse_alloc), only meaningful when read_khth=.true.
+  character(len=200) :: khth_varname  !< Variable name in the khth input file, only meaningful when read_khth=.true.
   logical :: use_stanley_gm      !< If true, also use the Stanley parameterization in MOM_thickness_diffuse
 
   type(diag_ctrl), pointer :: diag => NULL() !< structure used to regulate timing of diagnostics
@@ -2161,22 +2164,20 @@ subroutine add_detangling_Kh(h, e, Kh_u, Kh_v, KH_u_CFL, KH_v_CFL, tv, dt, G, GV
 end subroutine add_detangling_Kh
 
 !> Initialize the isopycnal height diffusion module and its control structure
-subroutine thickness_diffuse_init(Time, G, GV, US, param_file, diag, CDp, CS)
-  type(time_type),         intent(in) :: Time    !< Current model time
-  type(ocean_grid_type),   intent(in) :: G       !< Ocean grid structure
-  type(verticalGrid_type), intent(in) :: GV      !< Vertical grid structure
-  type(unit_scale_type),   intent(in) :: US      !< A dimensional unit scaling type
-  type(param_file_type),   intent(in) :: param_file !< Parameter file handles
-  type(diag_ctrl), target, intent(inout) :: diag !< Diagnostics control structure
-  type(cont_diag_ptrs),    intent(inout) :: CDp  !< Continuity equation diagnostics
-  type(thickness_diffuse_CS), intent(inout) :: CS !< Control structure for thickness_diffuse
+!> Read and store parameters for the thickness diffusion module.
+!! Phase 1 of thickness diffusion initialization: reads all parameters into CS with no
+!! allocation of working arrays, diagnostic registration, or state initialization.
+subroutine thickness_diffuse_params(GV, US, param_file, CS)
+  type(verticalGrid_type), intent(in)    :: GV      !< Vertical grid structure
+  type(unit_scale_type),   intent(in)    :: US      !< A dimensional unit scaling type
+  type(param_file_type),   intent(in)    :: param_file !< Parameter file handles
+  type(thickness_diffuse_CS), intent(inout) :: CS   !< Control structure for thickness_diffuse
 
   ! Local variables
   character(len=40)  :: mdl = "MOM_thickness_diffuse" ! This module's name.
-  character(len=200) :: khth_file, inputdir, khth_varname
+  character(len=200) :: khth_file, inputdir
   ! This include declares and sets the variable "version".
 # include "version_variable.h"
-  real :: grid_sp      ! The local grid spacing [L ~> m]
   real :: omega        ! The Earth's rotation rate [T-1 ~> s-1]
   real :: strat_floor  ! A floor for buoyancy frequency in the Ferrari et al. 2010,
                        ! streamfunction formulation, expressed as a fraction of planetary
@@ -2189,10 +2190,8 @@ subroutine thickness_diffuse_init(Time, G, GV, US, param_file, diag, CDp, CS)
                                  ! available.
   logical :: use_meke = .false. ! If true, use the MEKE formulation for the thickness diffusivity.
   integer :: default_answer_date ! The default setting for the various ANSWER_DATE flags.
-  integer :: i, j
 
   CS%initialized = .true.
-  CS%diag => diag
 
   ! Read all relevant parameters and write them to the model log.
   call log_version(param_file, mdl, version, "")
@@ -2208,7 +2207,7 @@ subroutine thickness_diffuse_init(Time, G, GV, US, param_file, diag, CDp, CS)
                  default=.false.)
   if (CS%read_khth) then
     if (CS%Khth > 0) then
-        call MOM_error(FATAL, "thickness_diffuse_init: KHTH > 0 is not "// &
+        call MOM_error(FATAL, "thickness_diffuse_params: KHTH > 0 is not "// &
               "compatible with READ_KHTH = TRUE. ")
     endif
     call get_param(param_file, mdl, "INPUTDIR", inputdir, &
@@ -2218,15 +2217,11 @@ subroutine thickness_diffuse_init(Time, G, GV, US, param_file, diag, CDp, CS)
     call get_param(param_file, mdl, "KHTH_FILE", khth_file, &
                  "The file containing the spatially varying horizontal "//&
                  "isopycnal height diffusivity.", default="khth.nc")
-    call get_param(param_file, mdl, "KHTH_VARIABLE", khth_varname, &
+    call get_param(param_file, mdl, "KHTH_VARIABLE", CS%khth_varname, &
                  "The name of the isopycnal height diffusivity variable to read "//&
                  "from KHTH_FILE.", &
                  default="khth")
-    khth_file = trim(inputdir) // trim(khth_file)
-
-    allocate(CS%khth2d(G%isd:G%ied, G%jsd:G%jed), source=0.0)
-    call MOM_read_data(khth_file, khth_varname, CS%khth2d(:,:), G%domain, scale=US%m_to_L**2*US%T_to_s)
-    call pass_var(CS%khth2d, G%domain)
+    CS%khth_filepath = trim(inputdir) // trim(khth_file)
   endif
   call get_param(param_file, mdl, "KHTH_SLOPE_CFF", CS%KHTH_Slope_Cff, &
                  "The nondimensional coefficient in the Visbeck formula for "//&
@@ -2266,19 +2261,6 @@ subroutine thickness_diffuse_init(Time, G, GV, US, param_file, diag, CDp, CS)
                  "to the horizontal diffusivity of the interface heights (without considering "//&
                  "the layer density structure).", &
                  default=0.0, units="m s-1", scale=US%m_to_L*US%T_to_s)
-
-  if ((CS%Kh_eta_bg > 0.0) .or. (CS%Kh_eta_vel > 0.0)) then
-    allocate(CS%Kh_eta_u(G%IsdB:G%IedB, G%jsd:G%jed), source=0.)
-    allocate(CS%Kh_eta_v(G%isd:G%ied, G%JsdB:G%JedB), source=0.)
-    do j=G%jsc,G%jec ; do I=G%isc-1,G%iec
-      grid_sp = sqrt((2.0*G%dxCu(I,j)**2 * G%dyCu(I,j)**2) / ((G%dxCu(I,j)**2) + (G%dyCu(I,j)**2)))
-      CS%Kh_eta_u(I,j) = G%OBCmaskCu(I,j) * MAX(0.0, CS%Kh_eta_bg + CS%Kh_eta_vel * grid_sp)
-    enddo ; enddo
-    do J=G%jsc-1,G%jec ; do i=G%isc,G%iec
-      grid_sp = sqrt((2.0*G%dxCv(i,J)**2 * G%dyCv(i,J)**2) / ((G%dxCv(i,J)**2) + (G%dyCv(i,J)**2)))
-      CS%Kh_eta_v(i,J) = G%OBCmaskCv(i,J) * MAX(0.0, CS%Kh_eta_bg + CS%Kh_eta_vel * grid_sp)
-    enddo ; enddo
-  endif
 
   if (CS%max_Khth_CFL < 0.0) CS%max_Khth_CFL = 0.0
   call get_param(param_file, mdl, "DETANGLE_INTERFACES", CS%detangle_interfaces, &
@@ -2393,6 +2375,45 @@ subroutine thickness_diffuse_init(Time, G, GV, US, param_file, diag, CDp, CS)
                  "with the incorrect sign, for legacy reproducibility.", &
                  default=.false.)
 
+end subroutine thickness_diffuse_params
+
+!> Allocate memory and register diagnostics for the thickness diffusion module.
+!! Phase 2 of thickness diffusion initialization: allocates working arrays and registers
+!! diagnostic fields. Must be called after thickness_diffuse_params.
+subroutine thickness_diffuse_alloc(Time, G, GV, US, diag, CDp, CS)
+  type(time_type),         intent(in) :: Time    !< Current model time
+  type(ocean_grid_type),   intent(in) :: G       !< Ocean grid structure
+  type(verticalGrid_type), intent(in) :: GV      !< Vertical grid structure
+  type(unit_scale_type),   intent(in) :: US      !< A dimensional unit scaling type
+  type(diag_ctrl), target, intent(inout) :: diag !< Diagnostics control structure
+  type(cont_diag_ptrs),    intent(inout) :: CDp  !< Continuity equation diagnostics
+  type(thickness_diffuse_CS), intent(inout) :: CS !< Control structure for thickness_diffuse
+
+  integer :: i, j
+  real :: grid_sp  ! The local grid spacing [L ~> m]
+
+  CS%diag => diag
+
+  if (CS%read_khth) then
+    allocate(CS%khth2d(G%isd:G%ied, G%jsd:G%jed), source=0.0)
+    call MOM_read_data(CS%khth_filepath, CS%khth_varname, CS%khth2d(:,:), G%domain, &
+                       scale=US%m_to_L**2*US%T_to_s)
+    call pass_var(CS%khth2d, G%domain)
+  endif
+
+  if ((CS%Kh_eta_bg > 0.0) .or. (CS%Kh_eta_vel > 0.0)) then
+    allocate(CS%Kh_eta_u(G%IsdB:G%IedB, G%jsd:G%jed), source=0.)
+    allocate(CS%Kh_eta_v(G%isd:G%ied, G%JsdB:G%JedB), source=0.)
+    do j=G%jsc,G%jec ; do I=G%isc-1,G%iec
+      grid_sp = sqrt((2.0*G%dxCu(I,j)**2 * G%dyCu(I,j)**2) / ((G%dxCu(I,j)**2) + (G%dyCu(I,j)**2)))
+      CS%Kh_eta_u(I,j) = G%OBCmaskCu(I,j) * MAX(0.0, CS%Kh_eta_bg + CS%Kh_eta_vel * grid_sp)
+    enddo ; enddo
+    do J=G%jsc-1,G%jec ; do i=G%isc,G%iec
+      grid_sp = sqrt((2.0*G%dxCv(i,J)**2 * G%dyCv(i,J)**2) / ((G%dxCv(i,J)**2) + (G%dyCv(i,J)**2)))
+      CS%Kh_eta_v(i,J) = G%OBCmaskCv(i,J) * MAX(0.0, CS%Kh_eta_bg + CS%Kh_eta_vel * grid_sp)
+    enddo ; enddo
+  endif
+
   if (CS%use_GME_thickness_diffuse) then
     allocate(CS%KH_u_GME(G%IsdB:G%IedB, G%jsd:G%jed, GV%ke+1), source=0.)
     allocate(CS%KH_v_GME(G%isd:G%ied, G%JsdB:G%JedB, GV%ke+1), source=0.)
@@ -2463,6 +2484,23 @@ subroutine thickness_diffuse_init(Time, G, GV, US, param_file, diag, CDp, CS)
            'Parameterized Meridional Overturning Streamfunction before limiting/smoothing', &
            'm3 s-1', conversion=US%Z_to_m*US%L_to_m**2*US%s_to_T)
 
+end subroutine thickness_diffuse_alloc
+
+!> Initialize the thickness diffusion module.
+!! This is a backward-compatible shim that calls thickness_diffuse_params then thickness_diffuse_alloc.
+!! Prefer calling thickness_diffuse_params and thickness_diffuse_alloc directly for new code.
+subroutine thickness_diffuse_init(Time, G, GV, US, param_file, diag, CDp, CS)
+  type(time_type),         intent(in) :: Time    !< Current model time
+  type(ocean_grid_type),   intent(in) :: G       !< Ocean grid structure
+  type(verticalGrid_type), intent(in) :: GV      !< Vertical grid structure
+  type(unit_scale_type),   intent(in) :: US      !< A dimensional unit scaling type
+  type(param_file_type),   intent(in) :: param_file !< Parameter file handles
+  type(diag_ctrl), target, intent(inout) :: diag !< Diagnostics control structure
+  type(cont_diag_ptrs),    intent(inout) :: CDp  !< Continuity equation diagnostics
+  type(thickness_diffuse_CS), intent(inout) :: CS !< Control structure for thickness_diffuse
+
+  call thickness_diffuse_params(GV, US, param_file, CS)
+  call thickness_diffuse_alloc(Time, G, GV, US, diag, CDp, CS)
 end subroutine thickness_diffuse_init
 
 !> Copies KH_u_GME and KH_v_GME from private type into arrays provided as arguments

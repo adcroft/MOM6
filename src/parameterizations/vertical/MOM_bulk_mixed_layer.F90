@@ -23,7 +23,7 @@ implicit none ; private
 
 #include <MOM_memory.h>
 
-public bulkmixedlayer, bulkmixedlayer_init
+public bulkmixedlayer, bulkmixedlayer_params, bulkmixedlayer_alloc, bulkmixedlayer_init
 
 ! A note on unit descriptions in comments: MOM6 uses units that can be rescaled for dimensional
 ! consistency testing. These are noted in comments with units like Z, H, L, and T, along with
@@ -111,10 +111,10 @@ type, public :: bulkmixedlayer_CS ; private
   real    :: rivermix_depth = 0.0  !< The depth of mixing if do_rivermix is true [H ~> m or kg m-2].
   logical :: limit_det       !< If true, limit the extent of buffer layer
                              !! detrainment to be consistent with neighbors.
-  real    :: lim_det_dH_sfc  !< The fractional limit in the change between grid
+  real    :: lim_det_dH_sfc = 0.5  !< The fractional limit in the change between grid
                              !! points of the surface region (mixed & buffer
                              !! layer) thickness [nondim].  0.5 by default.
-  real    :: lim_det_dH_bathy !< The fraction of the total depth by which the
+  real    :: lim_det_dH_bathy = 0.2 !< The fraction of the total depth by which the
                              !! thickness of the surface region (mixed & buffer layers) is allowed
                              !! to change between grid points [nondim].  0.2 by default.
   logical :: use_river_heat_content !< If true, use the fluxes%runoff_Hflx field
@@ -3944,15 +3944,15 @@ subroutine mixedlayer_detrain_1(h, T, S, R0, SpV0, Rcv, RcvTgt, dt, dt_diag, d_e
 end subroutine mixedlayer_detrain_1
 
 !> This subroutine initializes the MOM bulk mixed layer module.
-subroutine bulkmixedlayer_init(Time, G, GV, US, param_file, diag, CS)
-  type(time_type), target, intent(in)    :: Time !< The model's clock with the current time.
+!> Read and store parameters for the bulk mixed layer module.
+!! Phase 1 of bulk mixed layer initialization: reads all parameters into CS with no
+!! allocation of working arrays, diagnostic registration, or state initialization.
+subroutine bulkmixedlayer_params(G, GV, US, param_file, CS)
   type(ocean_grid_type),   intent(in)    :: G    !< The ocean's grid structure.
   type(verticalGrid_type), intent(in)    :: GV   !< The ocean's vertical grid structure.
   type(unit_scale_type),   intent(in)    :: US   !< A dimensional unit scaling type
   type(param_file_type),   intent(in)    :: param_file !< A structure to parse for run-time
                                                  !! parameters.
-  type(diag_ctrl), target, intent(inout) :: diag !< A structure that is used to regulate diagnostic
-                                                 !! output.
   type(bulkmixedlayer_CS), intent(inout) :: CS   !< Bulk mixed layer control structure
 
   ! This include declares and sets the variable "version".
@@ -3961,13 +3961,9 @@ subroutine bulkmixedlayer_init(Time, G, GV, US, param_file, diag, CS)
   real :: omega_frac_dflt  ! The default value for ML_OMEGA_FRAC [nondim]
   real :: ustar_min_dflt   ! The default value for BML_USTAR_MIN [Z T-1 ~> m s-1]
   real :: Hmix_min_z       ! HMIX_MIN in units of vertical extent [Z ~> m], used to set other defaults
-  integer :: isd, ied, jsd, jed
   logical :: use_temperature, use_omega
-  isd = G%isd ; ied = G%ied ; jsd = G%jsd ; jed = G%jed
 
   CS%initialized = .true.
-  CS%diag => diag
-  CS%Time => Time
 
   if (GV%nkml < 1) return
 
@@ -4145,6 +4141,48 @@ subroutine bulkmixedlayer_init(Time, G, GV, US, param_file, diag, CS)
                  "If true, use code with a bug that causes a loss of momentum conservation "//&
                  "during mixedlayer convection.", default=.false.)
 
+  if (CS%limit_det) then
+    call get_param(param_file, mdl, "LIMIT_BUFFER_DET_DH_SFC", CS%lim_det_dH_sfc, &
+                 "The fractional limit in the change between grid points "//&
+                 "of the surface region (mixed & buffer layer) thickness.", &
+                 units="nondim", default=0.5)
+    call get_param(param_file, mdl, "LIMIT_BUFFER_DET_DH_BATHY", CS%lim_det_dH_bathy, &
+                 "The fraction of the total depth by which the thickness "//&
+                 "of the surface region (mixed & buffer layer) is allowed "//&
+                 "to change between grid points.", units="nondim", default=0.2)
+  endif
+
+  call get_param(param_file, mdl, "ENABLE_THERMODYNAMICS", use_temperature, &
+                 "If true, temperature and salinity are used as state "//&
+                 "variables.", default=.true.)
+  CS%nsw = 0
+  if (use_temperature) then
+    call get_param(param_file, mdl, "PEN_SW_NBANDS", CS%nsw, default=1)
+  endif
+
+end subroutine bulkmixedlayer_params
+
+!> Allocate memory and register diagnostics for the bulk mixed layer module.
+!! Phase 2 of bulk mixed layer initialization: allocates working arrays and registers
+!! diagnostic fields. Must be called after bulkmixedlayer_params.
+subroutine bulkmixedlayer_alloc(Time, G, GV, US, diag, CS)
+  type(time_type), target, intent(in)    :: Time !< The model's clock with the current time.
+  type(ocean_grid_type),   intent(in)    :: G    !< The ocean's grid structure.
+  type(verticalGrid_type), intent(in)    :: GV   !< The ocean's vertical grid structure.
+  type(unit_scale_type),   intent(in)    :: US   !< A dimensional unit scaling type
+  type(diag_ctrl), target, intent(inout) :: diag !< A structure that is used to regulate diagnostic
+                                                 !! output.
+  type(bulkmixedlayer_CS), intent(inout) :: CS   !< Bulk mixed layer control structure
+
+  integer :: isd, ied, jsd, jed
+
+  CS%diag => diag
+  CS%Time => Time
+
+  if (GV%nkml < 1) return
+
+  isd = G%isd ; ied = G%ied ; jsd = G%jsd ; jed = G%jed
+
   CS%id_ML_depth = register_diag_field('ocean_model', 'h_ML', diag%axesT1, &
       Time, 'Surface mixed layer depth', 'm', conversion=GV%H_to_m)
   CS%id_TKE_wind = register_diag_field('ocean_model', 'TKE_wind', diag%axesT1, &
@@ -4185,26 +4223,6 @@ subroutine bulkmixedlayer_init(Time, G, GV, US, param_file, diag, CS)
       Time, 'Maximum surface region thickness', 'm', conversion=GV%H_to_m)
   CS%id_Hsfc_min = register_diag_field('ocean_model', 'Hs_min', diag%axesT1, &
       Time, 'Minimum surface region thickness', 'm', conversion=GV%H_to_m)
- !CS%lim_det_dH_sfc = 0.5 ; CS%lim_det_dH_bathy = 0.2 ! Technically these should not get used if limit_det is false?
-  if (CS%limit_det .or. (CS%id_Hsfc_min > 0)) then
-    call get_param(param_file, mdl, "LIMIT_BUFFER_DET_DH_SFC", CS%lim_det_dH_sfc, &
-                 "The fractional limit in the change between grid points "//&
-                 "of the surface region (mixed & buffer layer) thickness.", &
-                 units="nondim", default=0.5)
-    call get_param(param_file, mdl, "LIMIT_BUFFER_DET_DH_BATHY", CS%lim_det_dH_bathy, &
-                 "The fraction of the total depth by which the thickness "//&
-                 "of the surface region (mixed & buffer layer) is allowed "//&
-                 "to change between grid points.", units="nondim", default=0.2)
-  endif
-
-  call get_param(param_file, mdl, "ENABLE_THERMODYNAMICS", use_temperature, &
-                 "If true, temperature and salinity are used as state "//&
-                 "variables.", default=.true.)
-  CS%nsw = 0
-  if (use_temperature) then
-    call get_param(param_file, mdl, "PEN_SW_NBANDS", CS%nsw, default=1)
-  endif
-
 
   if (max(CS%id_TKE_wind, CS%id_TKE_RiBulk, CS%id_TKE_conv, CS%id_TKE_mixing, &
           CS%id_TKE_pen_SW, CS%id_TKE_mech_decay, CS%id_TKE_conv_decay) > 0) then
@@ -4226,6 +4244,24 @@ subroutine bulkmixedlayer_init(Time, G, GV, US, param_file, diag, CS)
   if (CS%limit_det .or. (CS%id_Hsfc_min > 0)) &
     id_clock_pass = cpu_clock_id('(Ocean mixed layer halo updates)', grain=CLOCK_ROUTINE)
 
+end subroutine bulkmixedlayer_alloc
+
+!> Initialize the bulk mixed layer module.
+!! This is a backward-compatible shim that calls bulkmixedlayer_params then bulkmixedlayer_alloc.
+!! Prefer calling bulkmixedlayer_params and bulkmixedlayer_alloc directly for new code.
+subroutine bulkmixedlayer_init(Time, G, GV, US, param_file, diag, CS)
+  type(time_type), target, intent(in)    :: Time !< The model's clock with the current time.
+  type(ocean_grid_type),   intent(in)    :: G    !< The ocean's grid structure.
+  type(verticalGrid_type), intent(in)    :: GV   !< The ocean's vertical grid structure.
+  type(unit_scale_type),   intent(in)    :: US   !< A dimensional unit scaling type
+  type(param_file_type),   intent(in)    :: param_file !< A structure to parse for run-time
+                                                 !! parameters.
+  type(diag_ctrl), target, intent(inout) :: diag !< A structure that is used to regulate diagnostic
+                                                 !! output.
+  type(bulkmixedlayer_CS), intent(inout) :: CS   !< Bulk mixed layer control structure
+
+  call bulkmixedlayer_params(G, GV, US, param_file, CS)
+  call bulkmixedlayer_alloc(Time, G, GV, US, diag, CS)
 end subroutine bulkmixedlayer_init
 
 !> This subroutine returns an approximation to the integral

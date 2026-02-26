@@ -48,6 +48,8 @@ implicit none ; private
 
 public set_diffusivity
 public set_BBL_TKE
+public set_diffusivity_params
+public set_diffusivity_alloc
 public set_diffusivity_init
 public set_diffusivity_end
 
@@ -2266,27 +2268,14 @@ subroutine set_density_ratios(h, tv, kb, G, GV, US, CS, j, ds_dsp1, rho_0)
 
 end subroutine set_density_ratios
 
-subroutine set_diffusivity_init(Time, G, GV, US, param_file, diag, CS, int_tide_CSp, halo_TS, &
-                                double_diffuse, physical_OBL_scheme)
-  type(time_type),          intent(in)    :: Time !< The current model time
-  type(ocean_grid_type),    intent(inout) :: G    !< The ocean's grid structure.
+!> Read parameters for set_diffusivity from the parameter file.
+subroutine set_diffusivity_params(GV, US, param_file, CS)
   type(verticalGrid_type),  intent(in)    :: GV   !< The ocean's vertical grid structure.
   type(unit_scale_type),    intent(in)    :: US   !< A dimensional unit scaling type
   type(param_file_type),    intent(in)    :: param_file !< A structure to parse for run-time
                                                   !! parameters.
-  type(diag_ctrl), target,  intent(inout) :: diag !< A structure used to regulate diagnostic output.
   type(set_diffusivity_CS), pointer       :: CS   !< pointer set to point to the module control
                                                   !! structure.
-  type(int_tide_CS),        pointer       :: int_tide_CSp !< Internal tide control structure
-  integer,                  intent(out)   :: halo_TS !< The halo size of tracer points that must be
-                                                  !! valid for the calculations in set_diffusivity.
-  logical,                  intent(out)   :: double_diffuse !< This indicates whether some version
-                                                  !! of double diffusion is being used.
-  logical,                  intent(in)    :: physical_OBL_scheme !< If true, a physically based
-                                                  !! parameterization (like KPP or ePBL or a bulk mixed
-                                                  !! layer) is used outside of set_diffusivity to
-                                                  !! specify the mixing that occurs in the ocean's
-                                                  !! surface boundary layer.
 
   ! Local variables
   real :: decay_length     ! The maximum decay scale for the BBL diffusion [H ~> m or kg m-2]
@@ -2301,13 +2290,6 @@ subroutine set_diffusivity_init(Time, G, GV, US, param_file, diag, CS, int_tide_
   real    :: omega_frac_dflt ! The default value for the fraction of the absolute rotation rate
                              ! that is used in place of the absolute value of the local Coriolis
                              ! parameter in the denominator of some expressions [nondim]
-  logical :: Bryan_Lewis_diffusivity ! If true, the background diapycnal diffusivity uses
-                                     ! the Bryan-Lewis (1979) style tanh profile.
-  logical :: use_regridding  ! If true, use the ALE algorithm rather than layered
-                             ! isopycnal or stacked shallow water mode.
-  logical :: TKE_to_Kd_used  ! If true, TKE_to_Kd and maxTKE need to be calculated.
-  integer :: is, ie, js, je
-  integer :: isd, ied, jsd, jed
 
   if (associated(CS)) then
     call MOM_error(WARNING, "diabatic_entrain_init called with an associated "// &
@@ -2317,12 +2299,6 @@ subroutine set_diffusivity_init(Time, G, GV, US, param_file, diag, CS, int_tide_
   allocate(CS)
 
   CS%initialized = .true.
-
-  is  = G%isc ; ie  = G%iec ; js  = G%jsc ; je  = G%jec
-  isd = G%isd ; ied = G%ied ; jsd = G%jsd ; jed = G%jed
-
-  CS%diag => diag
-  CS%int_tide_CSp  => int_tide_CSp
 
   ! These default values always need to be set.
   CS%BBL_mixing_as_max = .true.
@@ -2353,10 +2329,6 @@ subroutine set_diffusivity_init(Time, G, GV, US, param_file, diag, CS, int_tide_
                "generated diffusivity when USE_LOTW_BBL_DIFFUSIVITY is false.", &
                default=default_answer_date, do_not_log=.not.GV%Boussinesq)
   if (.not.GV%Boussinesq) CS%answer_date = max(CS%answer_date, 20230701)
-
-  ! CS%use_tidal_mixing is set to True if an internal tidal dissipation scheme is to be used.
-  CS%use_tidal_mixing = tidal_mixing_init(Time, G, GV, US, param_file, &
-                                          CS%int_tide_CSp, diag, CS%tidal_mixing)
 
   call get_param(param_file, mdl, "ML_RADIATION", CS%ML_radiation, &
                  "If true, allow a fraction of TKE available from wind "//&
@@ -2473,28 +2445,13 @@ subroutine set_diffusivity_init(Time, G, GV, US, param_file, diag, CS, int_tide_
                "generated diffusivity when USE_LOTW_BBL_DIFFUSIVITY is false. ", &
                default=CS%answer_date, do_not_log=CS%use_LOTW_BBL_diffusivity.or.(CS%BBL_effic<=0.0))
 
-  CS%id_Kd_BBL = register_diag_field('ocean_model', 'Kd_BBL', diag%axesTi, Time, &
-                 'Bottom Boundary Layer Diffusivity', 'm2 s-1', conversion=GV%HZ_T_to_m2_s)
-
   call get_param(param_file, mdl, "DZ_BBL_AVG_MIN", CS%dz_BBL_avg_min, &
                  "A minimal distance over which to average to determine the average bottom "//&
                  "boundary layer density.", units="m", default=0.0, scale=US%m_to_Z)
 
-  TKE_to_Kd_used = (CS%use_tidal_mixing .or. CS%ML_radiation .or. &
-                   (CS%bottomdraglaw .and. .not.CS%use_LOTW_BBL_diffusivity))
-  call get_param(param_file, mdl, "SIMPLE_TKE_TO_KD", CS%simple_TKE_to_Kd, &
-                 "If true, uses a simple estimate of Kd/TKE that will "//&
-                 "work for arbitrary vertical coordinates. If false, "//&
-                 "calculates Kd/TKE and bounds based on exact energetics "//&
-                 "for an isopycnal layer-formulation.", &
-                 default=.false., do_not_log=.not.TKE_to_Kd_used)
-
    call get_param(param_file, mdl, "INTERNAL_TIDES", CS%use_int_tides, &
                  "If true, use the code that advances a separate set of "//&
                  "equations for the internal tide energy density.", default=.false.)
-
-  ! set parameters related to the background mixing
-  call bkgnd_mixing_init(Time, G, GV, US, param_file, CS%diag, CS%bkgnd_mixing_csp, physical_OBL_scheme)
 
   call get_param(param_file, mdl, "KV", CS%Kv, &
                  "The background kinematic viscosity in the interior. "//&
@@ -2513,14 +2470,6 @@ subroutine set_diffusivity_init(Time, G, GV, US, param_file, diag, CS, int_tide_
                  "The maximum permitted increment for the diapycnal "//&
                  "diffusivity from TKE-based parameterizations, or a negative "//&
                  "value for no limit.", units="m2 s-1", default=-1.0, scale=GV%m2_s_to_HZ_T)
-  if (CS%simple_TKE_to_Kd) then
-    if (CS%Kd_max<=0.) call MOM_error(FATAL, &
-         "set_diffusivity_init: To use SIMPLE_TKE_TO_KD, KD_MAX must be set to >0.")
-    call get_param(param_file, mdl, "USE_REGRIDDING", use_regridding, &
-                 do_not_log=.true., default=.false.)
-    if (use_regridding) call MOM_error(WARNING, &
-         "set_diffusivity_init: SIMPLE_TKE_TO_KD can not be used reliably with USE_REGRIDDING.")
-  endif
 
   call get_param(param_file, mdl, "KD_ADD", CS%Kd_add, &
                  "A uniform diapycnal diffusivity that is added "//&
@@ -2564,6 +2513,81 @@ subroutine set_diffusivity_init(Time, G, GV, US, param_file, diag, CS, int_tide_
   CS%dissip_N2 = 0.0
   if (CS%FluxRi_max > 0.0) &
     CS%dissip_N2 = CS%dissip_Kd_min * GV%H_to_RZ / CS%FluxRi_max
+
+  call get_param(param_file, mdl, "DOUBLE_DIFFUSION", CS%double_diffusion, &
+                 "If true, increase diffusivites for temperature or salinity based on the "//&
+                 "double-diffusive parameterization described in Large et al. (1994).", &
+                 default=.false.)
+
+  if (CS%double_diffusion) then
+    call get_param(param_file, mdl, "MAX_RRHO_SALT_FINGERS", CS%Max_Rrho_salt_fingers, &
+                 "Maximum density ratio for salt fingering regime.", &
+                 default=1.9, units="nondim")
+    call get_param(param_file, mdl, "MAX_SALT_DIFF_SALT_FINGERS", CS%Max_salt_diff_salt_fingers, &
+                 "Maximum salt diffusivity for salt fingering regime.", &
+                 default=1.e-4, units="m2 s-1", scale=GV%m2_s_to_HZ_T)
+    call get_param(param_file, mdl, "KV_MOLECULAR", CS%Kv_molecular, &
+                 "Molecular viscosity for calculation of fluxes under double-diffusive "//&
+                 "convection.", default=1.5e-6, units="m2 s-1", scale=GV%m2_s_to_HZ_T)
+    ! The default molecular viscosity follows the CCSM4.0 and MOM4p1 defaults.
+  endif ! old double-diffusion
+
+  CS%Vertex_Shear = kappa_shear_at_vertex(param_file)
+
+end subroutine set_diffusivity_params
+
+!> Allocate memory and register diagnostics for MOM_set_diffusivity.
+subroutine set_diffusivity_alloc(Time, G, GV, US, param_file, diag, CS, int_tide_CSp, physical_OBL_scheme)
+  type(time_type),          intent(in)    :: Time !< The current model time
+  type(ocean_grid_type),    intent(inout) :: G    !< The ocean's grid structure.
+  type(verticalGrid_type),  intent(in)    :: GV   !< The ocean's vertical grid structure.
+  type(unit_scale_type),    intent(in)    :: US   !< A dimensional unit scaling type
+  type(param_file_type),    intent(in)    :: param_file !< A structure to parse for run-time
+                                                  !! parameters.
+  type(diag_ctrl), target,  intent(inout) :: diag !< A structure used to regulate diagnostic output.
+  type(set_diffusivity_CS), pointer       :: CS   !< pointer set to point to the module control
+                                                  !! structure.
+  type(int_tide_CS),        pointer       :: int_tide_CSp !< Internal tide control structure
+  logical,                  intent(in)    :: physical_OBL_scheme !< If true, a physically based
+                                                  !! parameterization (like KPP or ePBL or a bulk
+                                                  !! mixed layer) is used outside of set_diffusivity.
+
+  ! Local variables
+  logical :: TKE_to_Kd_used  ! If true, TKE_to_Kd and maxTKE need to be calculated.
+  logical :: Bryan_Lewis_diffusivity ! If true, background diffusivity uses Bryan-Lewis tanh profile.
+  logical :: use_regridding  ! If true, use the ALE algorithm rather than layered isopycnal mode.
+  character(len=40)  :: mdl = "MOM_set_diffusivity"  ! This module's name.
+
+  CS%diag => diag
+  CS%int_tide_CSp  => int_tide_CSp
+
+  ! CS%use_tidal_mixing is set to True if an internal tidal dissipation scheme is to be used.
+  CS%use_tidal_mixing = tidal_mixing_init(Time, G, GV, US, param_file, &
+                                          CS%int_tide_CSp, diag, CS%tidal_mixing)
+
+  TKE_to_Kd_used = (CS%use_tidal_mixing .or. CS%ML_radiation .or. &
+                   (CS%bottomdraglaw .and. .not.CS%use_LOTW_BBL_diffusivity))
+  call get_param(param_file, mdl, "SIMPLE_TKE_TO_KD", CS%simple_TKE_to_Kd, &
+                 "If true, uses a simple estimate of Kd/TKE that will "//&
+                 "work for arbitrary vertical coordinates. If false, "//&
+                 "calculates Kd/TKE and bounds based on exact energetics "//&
+                 "for an isopycnal layer-formulation.", &
+                 default=.false., do_not_log=.not.TKE_to_Kd_used)
+
+  ! set parameters related to the background mixing
+  call bkgnd_mixing_init(Time, G, GV, US, param_file, CS%diag, CS%bkgnd_mixing_csp, physical_OBL_scheme)
+
+  CS%id_Kd_BBL = register_diag_field('ocean_model', 'Kd_BBL', diag%axesTi, Time, &
+                 'Bottom Boundary Layer Diffusivity', 'm2 s-1', conversion=GV%HZ_T_to_m2_s)
+
+  if (CS%simple_TKE_to_Kd) then
+    if (CS%Kd_max<=0.) call MOM_error(FATAL, &
+         "set_diffusivity_init: To use SIMPLE_TKE_TO_KD, KD_MAX must be set to >0.")
+    call get_param(param_file, mdl, "USE_REGRIDDING", use_regridding, &
+                 do_not_log=.true., default=.false.)
+    if (use_regridding) call MOM_error(WARNING, &
+         "set_diffusivity_init: SIMPLE_TKE_TO_KD can not be used reliably with USE_REGRIDDING.")
+  endif
 
   CS%id_Kd_bkgnd = register_diag_field('ocean_model', 'Kd_bkgnd', diag%axesTi, Time, &
       'Background diffusivity added by MOM_bkgnd_mixing module', 'm2/s', conversion=GV%HZ_T_to_m2_s)
@@ -2619,24 +2643,6 @@ subroutine set_diffusivity_init(Time, G, GV, US, param_file, diag, CS, int_tide_
     CS%id_Kd_user = register_diag_field('ocean_model', 'Kd_user', diag%axesTi, Time, &
          'User-specified Extra Diffusivity', 'm2 s-1', conversion=GV%HZ_T_to_m2_s)
 
-  call get_param(param_file, mdl, "DOUBLE_DIFFUSION", CS%double_diffusion, &
-                 "If true, increase diffusivites for temperature or salinity based on the "//&
-                 "double-diffusive parameterization described in Large et al. (1994).", &
-                 default=.false.)
-
-  if (CS%double_diffusion) then
-    call get_param(param_file, mdl, "MAX_RRHO_SALT_FINGERS", CS%Max_Rrho_salt_fingers, &
-                 "Maximum density ratio for salt fingering regime.", &
-                 default=1.9, units="nondim")
-    call get_param(param_file, mdl, "MAX_SALT_DIFF_SALT_FINGERS", CS%Max_salt_diff_salt_fingers, &
-                 "Maximum salt diffusivity for salt fingering regime.", &
-                 default=1.e-4, units="m2 s-1", scale=GV%m2_s_to_HZ_T)
-    call get_param(param_file, mdl, "KV_MOLECULAR", CS%Kv_molecular, &
-                 "Molecular viscosity for calculation of fluxes under double-diffusive "//&
-                 "convection.", default=1.5e-6, units="m2 s-1", scale=GV%m2_s_to_HZ_T)
-    ! The default molecular viscosity follows the CCSM4.0 and MOM4p1 defaults.
-  endif ! old double-diffusion
-
   if (CS%user_change_diff) then
     call user_change_diff_init(Time, G, GV, US, param_file, diag, CS%user_change_diff_CSp)
   endif
@@ -2650,7 +2656,6 @@ subroutine set_diffusivity_init(Time, G, GV, US, param_file, diag, CS, int_tide_
          "Bryan-Lewis and internal tidal dissipation are both enabled. Choose one.")
 
   CS%useKappaShear = kappa_shear_init(Time, G, GV, US, param_file, CS%diag, CS%kappaShear_CSp)
-  CS%Vertex_Shear = kappa_shear_at_vertex(param_file)
 
   if (CS%useKappaShear) &
     id_clock_kappaShear = cpu_clock_id('(Ocean kappa_shear)', grain=CLOCK_MODULE)
@@ -2679,6 +2684,34 @@ subroutine set_diffusivity_init(Time, G, GV, US, param_file, diag, CS, int_tide_
     CS%id_R_rho = register_diag_field('ocean_model', 'R_rho', diag%axesTi, Time, &
          'Double-diffusion density ratio', 'nondim')
   endif
+
+end subroutine set_diffusivity_alloc
+
+subroutine set_diffusivity_init(Time, G, GV, US, param_file, diag, CS, int_tide_CSp, halo_TS, &
+                                double_diffuse, physical_OBL_scheme)
+  type(time_type),          intent(in)    :: Time !< The current model time
+  type(ocean_grid_type),    intent(inout) :: G    !< The ocean's grid structure.
+  type(verticalGrid_type),  intent(in)    :: GV   !< The ocean's vertical grid structure.
+  type(unit_scale_type),    intent(in)    :: US   !< A dimensional unit scaling type
+  type(param_file_type),    intent(in)    :: param_file !< A structure to parse for run-time
+                                                  !! parameters.
+  type(diag_ctrl), target,  intent(inout) :: diag !< A structure used to regulate diagnostic output.
+  type(set_diffusivity_CS), pointer       :: CS   !< pointer set to point to the module control
+                                                  !! structure.
+  type(int_tide_CS),        pointer       :: int_tide_CSp !< Internal tide control structure
+  integer,                  intent(out)   :: halo_TS !< The halo size of tracer points that must be
+                                                  !! valid for the calculations in set_diffusivity.
+  logical,                  intent(out)   :: double_diffuse !< This indicates whether some version
+                                                  !! of double diffusion is being used.
+  logical,                  intent(in)    :: physical_OBL_scheme !< If true, a physically based
+                                                  !! parameterization (like KPP or ePBL or a bulk mixed
+                                                  !! layer) is used outside of set_diffusivity to
+                                                  !! specify the mixing that occurs in the ocean's
+                                                  !! surface boundary layer.
+
+
+  call set_diffusivity_params(GV, US, param_file, CS)
+  call set_diffusivity_alloc(Time, G, GV, US, param_file, diag, CS, int_tide_CSp, physical_OBL_scheme)
 
   halo_TS = 0
   if (CS%Vertex_Shear) halo_TS = 1

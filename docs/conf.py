@@ -22,6 +22,41 @@ from subprocess import check_output
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #sys.path.insert(0, os.path.abspath('.'))
 
+# -- Patch breathe to handle Fortran derived types ---------------------------
+# Breathe was designed for C/C++ and crashes on Fortran-specific doxygen
+# compound kinds.  We apply two patches:
+#   1. Add "type" to DomainDirectiveFactory.cpp_classes (Fortran derived types)
+#   2. Replace handle_declaration assertions with graceful fallbacks
+try:
+    from breathe.renderer.sphinxrenderer import DomainDirectiveFactory, SphinxRenderer
+    from sphinx import addnodes as _addnodes
+
+    # Patch 1: Map Fortran "type" kind to C++ struct directive
+    if "type" not in DomainDirectiveFactory.cpp_classes:
+        DomainDirectiveFactory.cpp_classes["type"] = DomainDirectiveFactory.cpp_classes["struct"]
+
+    # Patch 2: Replace handle_declaration to avoid assertion on node types.
+    # Sphinx 8+ changed node structure; breathe asserts desc_sig_keyword as
+    # first child of declarators, but Fortran compounds may produce different
+    # node types.  We replace the assertions with conditional checks.
+    _orig_handle_declaration = SphinxRenderer.handle_declaration
+
+    def _patched_handle_declaration(self, node, declaration, *args, **kwargs):
+        try:
+            return _orig_handle_declaration(self, node, declaration, *args, **kwargs)
+        except AssertionError:
+            # Fall back: skip the display_obj_type replacement that caused
+            # the assertion and try again without it.
+            display_obj_type = kwargs.get('display_obj_type')
+            if display_obj_type is not None:
+                kwargs['display_obj_type'] = None
+                return _orig_handle_declaration(self, node, declaration, *args, **kwargs)
+            raise
+
+    SphinxRenderer.handle_declaration = _patched_handle_declaration
+except Exception:
+    pass
+
 # -- Custom configuration values and roles -----------------------------------
 from docutils import nodes
 
@@ -126,6 +161,40 @@ print("Running: %s" % (doxygenize))
 return_code = subprocess.call(doxygenize, shell=True)
 if return_code != 0: sys.exit(return_code)
 
+# -- Generate breathe RST files from doxygen XML --------------------------
+# breathe's doxygenindex crashes on Fortran 'type' compounds, so we generate
+# individual directive calls for namespaces and pages from the XML index.
+
+import xml.etree.ElementTree as ET
+
+if os.path.isfile("xml/index.xml"):
+    _tree = ET.parse("xml/index.xml")
+    _root = _tree.getroot()
+
+    os.makedirs("api/generated", exist_ok=True)
+
+    # Generate namespace (Fortran module) pages
+    _namespaces = sorted(
+        c.findtext("name", "")
+        for c in _root.findall('compound')
+        if c.get("kind") == "namespace"
+    )
+    with open("api/generated/namespaces.rst", "w") as _f:
+        for _ns in _namespaces:
+            _f.write(".. doxygennamespace:: %s\n" % _ns)
+            _f.write("   :project: MOM6\n\n")
+
+    # Generate page entries
+    _pages = sorted(
+        c.findtext("name", "")
+        for c in _root.findall('compound')
+        if c.get("kind") == "page"
+    )
+    with open("api/generated/pages.rst", "w") as _f:
+        for _pg in _pages:
+            _f.write(".. doxygenpage:: %s\n" % _pg)
+            _f.write("   :project: MOM6\n\n")
+
 # -- General configuration (sphinx) ---------------------------------------
 
 # If your documentation needs a minimal Sphinx version, state it here.
@@ -137,13 +206,12 @@ if return_code != 0: sys.exit(return_code)
 extensions = [
         'sphinxcontrib.bibtex',
         'sphinx.ext.ifconfig',
-        'sphinxcontrib.autodoc_doxygen',
-        'sphinxfortran.fortran_domain',
+        'breathe',
 ]
 bibtex_bibfiles = ['ocean.bib', 'references.bib', 'zotero.bib']
 
-autosummary_generate = ['api/modules.rst', 'api/pages.rst']
-doxygen_xml = 'xml'
+breathe_projects = {"MOM6": "xml"}
+breathe_default_project = "MOM6"
 
 # Add any paths that contain templates here, relative to this directory.
 templates_path = ['_templates']

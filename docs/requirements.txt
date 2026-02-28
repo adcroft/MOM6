@@ -1,4 +1,4 @@
-sphinx<9
+sphinx
 breathe
 sphinx-rtd-theme
 sphinxcontrib-bibtex

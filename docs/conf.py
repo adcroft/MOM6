@@ -35,7 +35,7 @@ def latexPassthru(name, rawtext, text, lineno, inliner, options={}, content=[]):
     return [node],[]
 
 # -- Auto detect runs on readthedocs.org -------------------------------------
-running_on_rtd = False
+running_on_rtd = os.environ.get('READTHEDOCS') == 'True'
 
 # Get current doxygen version
 # (there may not be one in the system $PATH)
@@ -46,14 +46,6 @@ try:
 except:
     print("No doxygen found in system $PATH")
     pass
-
-# Detect if we are running on readthedocs.org
-out = check_output(["pwd"])
-out = out.strip().decode('utf-8')
-# On RTD you would see something like:
-# /home/docs/checkouts/readthedocs.org/user_builds/mom6devesmgnew/checkouts/latest/docsNew
-if out.find('readthedocs.org') >= 0:
-    running_on_rtd = True
 
 # -- Clean out generated content ---------------------------------------------
 
@@ -103,11 +95,13 @@ print("Sphinx-build mode: %s" % (sphinx_build_mode))
 doxygen_bin = 'doxygen'
 doxygen_conf = 'Doxyfile_rtd'
 
+# Use locally-built doxygen if available (not needed on RTD where
+# doxygen is installed via apt_packages in .readthedocs.yml)
+if not running_on_rtd and os.path.exists('./doxygen/bin/doxygen'):
+    doxygen_bin = './doxygen/bin/doxygen'
+
 if os.environ.get('NCAR_FORK'):
     doxygen_conf = 'ncar/Doxyfile_ncar_rtd'
-
-if os.path.exists('./doxygen/bin/doxygen'):
-    doxygen_bin = './doxygen/bin/doxygen'
 
 # User specified binary and configuration file
 if os.environ.get('DOXYGEN_BIN'):

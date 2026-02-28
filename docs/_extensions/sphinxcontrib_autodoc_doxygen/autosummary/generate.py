@@ -2,23 +2,101 @@ import codecs
 import os
 import re
 import sys
-# add
-import datetime
 
 from jinja2 import FileSystemLoader
 from jinja2.sandbox import SandboxedEnvironment
 from sphinx.jinja2glue import BuiltinTemplateLoader
 from sphinx.util.osutil import ensuredir
 
-#from . import import_by_name
-# add
 from . import import_by_name, get_doxygen_root
-from ..xmlutils import format_xml_paragraph
+from ..xmlutils import format_xml_paragraph, flatten
 
-# add
+
 def is_type(node):
     def_node = get_doxygen_root().find('./compounddef[@id="%s"]' % node.get('refid'))
     return def_node.get('kind') == 'type'
+
+
+def extract_method_info(memberdef, build_mode):
+    """Extract documentation for a single function/subroutine from its XML memberdef."""
+    name = memberdef.find('name').text
+    definition = memberdef.find('definition').text or ''
+    argsstring = memberdef.find('argsstring').text or ''
+
+    # Determine directive type and format name
+    typefield = ' '.join(definition.split()[:-1])
+    if 'subroutine' in typefield:
+        directive = 'subroutine'
+    else:
+        directive = 'function'
+
+    if 'function' in typefield:
+        m = re.search(r'(\S+)\s+function', typefield)
+        rtype = m.group(0) if m else 'function'
+    elif 'subroutine' in typefield:
+        rtype = 'subroutine'
+    else:
+        rtype = typefield or 'unknown'
+
+    signame = rtype + ' ' + name
+
+    # Get brief description
+    brief = format_xml_paragraph(memberdef.find('briefdescription'), build_mode)
+
+    # Get detailed description
+    detailed = format_xml_paragraph(memberdef.find('detaileddescription'), build_mode)
+
+    return {
+        'name': name,
+        'directive': directive,
+        'signame': signame,
+        'argsstring': argsstring,
+        'brief': brief,
+        'detailed': detailed,
+    }
+
+
+def extract_type_info(class_obj, build_mode):
+    """Extract documentation for a type/derived type from its XML compounddef."""
+    fullname = class_obj.find('compoundname').text
+    parts = fullname.rsplit('::', 1)
+    name = parts[-1] if len(parts) > 1 else fullname
+
+    # Brief description
+    brief = format_xml_paragraph(class_obj.find('briefdescription'), build_mode)
+
+    # Member fields
+    fields = []
+    for member in class_obj.findall('./sectiondef/memberdef'):
+        attribs = flatten(member.find('type')).strip().split(', ')
+        mname = member.find('name').text
+        shape = ''
+
+        for word in attribs:
+            if word.startswith('dimension'):
+                shape = word[len('dimension'):].replace(':', r'\:')
+
+        extras = [w for w in attribs[1:] if not w.startswith('dimension')]
+        if member.get('prot') == 'private':
+            extras.append('private')
+        rest = ''
+        if len(extras):
+            rest = ' [' + ', '.join(extras) + ']'
+
+        field = ':typefield %s%s %s%s:' % (attribs[0], shape, mname, rest)
+
+        mbrief = member.find('briefdescription/para')
+        if mbrief is not None and mbrief.text:
+            field += ' ' + mbrief.text
+
+        fields.append(field)
+
+    return {
+        'name': name,
+        'fullname': fullname,
+        'brief': brief,
+        'fields': fields,
+    }
 
 def generate_autosummary_docs(sources, output_dir=None, suffix='.rst',
                               #base_path=None, builder=None, template_dir=None):
@@ -117,8 +195,26 @@ def generate_autosummary_docs(sources, output_dir=None, suffix='.rst',
                 ns['enums'] = [e.text for e in obj.findall('.//sectiondef[@kind="public-type"]/memberdef[@kind="enum"]/name')]
                 ns['objtype'] = 'class'
             elif obj.tag == 'compounddef' and obj.get('kind') == 'namespace':
-                ns['methods'] = [e.text for e in obj.findall('./sectiondef[@kind="func"]/memberdef[@kind="function"]/name')]
-                ns['types'] = [e.text for e in obj.findall('./innerclass') if is_type(e)]
+                # Extract full documentation for methods
+                method_defs = obj.findall('./sectiondef[@kind="func"]/memberdef[@kind="function"]')
+                ns['methods'] = [extract_method_info(m, build_mode) for m in method_defs]
+
+                # Extract full documentation for types
+                type_data = []
+                for c in obj.findall('./innerclass'):
+                    if is_type(c):
+                        class_obj = get_doxygen_root().find('./compounddef[@id="%s"]' % c.get('refid'))
+                        type_data.append(extract_type_info(class_obj, build_mode))
+                ns['types'] = type_data
+
+                # Brief and detailed descriptions for the module itself
+                ns['brief_desc'] = format_xml_paragraph(obj.find('briefdescription'), build_mode)
+                detailed = obj.find('detaileddescription')
+                if len(detailed) or (detailed.text and detailed.text.strip()):
+                    ns['detailed_desc'] = format_xml_paragraph(detailed, build_mode)
+                else:
+                    ns['detailed_desc'] = ns['brief_desc']
+
                 ns['objtype'] = 'namespace'
             elif obj.tag == 'compounddef' and obj.get('kind') == 'page':
                 if builder.app.verbosity > 0:

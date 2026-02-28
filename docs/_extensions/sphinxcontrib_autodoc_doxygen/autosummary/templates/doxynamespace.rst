@@ -1,34 +1,57 @@
-.. autodoxymodule:: {{ fullname }}
-   :members:
-   {% if methods %}
-   :methods:
-   {% endif %}
-   {% if types %}
-   :types:
-   {% endif %}
+{% set title = name + ' module reference' %}
+{{ '=' * title|length }}
+{{ title }}
+{{ '=' * title|length }}
 
-   {% if types %}
-   ----------
-   Data Types
-   ----------
+.. f:module:: {{ name }}
 
-   .. autodoxysummary::
-      :kind: type
+{% for line in brief_desc %}
+{{ line }}
+{% endfor %}
 
-   {% for item in types %}
-      ~{{ item }}
-   {% endfor %}
-   {% endif %}
+.. _DETA{{ name }}:
 
-   {% if methods %}
-   ---------------------
-   Functions/Subroutines
-   ---------------------
+-----------------------
+Detailed Description
+-----------------------
 
-   .. autodoxysummary::
-      :kind: func
+{% for line in detailed_desc %}
+{{ line }}
+{% endfor %}
 
-   {% for item in methods %}
-      ~{{ fullname }}::{{ item }}
-   {% endfor %}
-   {% endif %}
+{% if types %}
+-----------------------
+Type Documentation
+-----------------------
+
+{% for type in types %}
+.. f:type:: {{ type.name }}
+
+{% for line in type.brief %}
+   {{ line }}
+{% endfor %}
+
+{% for field in type.fields %}
+   {{ field }}
+{% endfor %}
+
+{% endfor %}
+{% endif %}
+{% if methods %}
+-------------------------------------
+Function/Subroutine Documentation
+-------------------------------------
+
+{% for method in methods %}
+.. f:{{ method.directive }}:: {{ method.signame }}{{ method.argsstring }}
+
+{% for line in method.brief %}
+   {{ line }}
+{% endfor %}
+
+{% for line in method.detailed %}
+   {{ line }}
+{% endfor %}
+
+{% endfor %}
+{% endif %}

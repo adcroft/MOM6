@@ -10,6 +10,7 @@ build:
     python: "3.12"
   apt_packages:
     - doxygen
+    - graphviz
   commands:
     - cd docs && doxygen Doxyfile_rtd
     - mkdir -p $READTHEDOCS_OUTPUT/html

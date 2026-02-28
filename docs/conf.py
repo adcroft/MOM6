@@ -21,6 +21,7 @@ from subprocess import check_output
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
 #sys.path.insert(0, os.path.abspath('.'))
+sys.path.insert(0, os.path.abspath('_extensions'))
 
 # -- Custom configuration values and roles -----------------------------------
 from docutils import nodes
@@ -137,7 +138,7 @@ if return_code != 0: sys.exit(return_code)
 extensions = [
         'sphinxcontrib.bibtex',
         'sphinx.ext.ifconfig',
-        'sphinxcontrib.autodoc_doxygen',
+        'sphinxcontrib_autodoc_doxygen',
         'sphinxfortran.fortran_domain',
 ]
 bibtex_bibfiles = ['ocean.bib', 'references.bib', 'zotero.bib']

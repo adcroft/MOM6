@@ -102,6 +102,9 @@ type, public :: regridding_CS ; private
   !> Minimum thickness allowed when building the new grid through regridding [H ~> m or kg m-2].
   real :: min_thickness
 
+  !> If true, call adjust_interface_motion() after initial grid generation
+  logical :: use_adjust_interface_motion
+
   !> Reference pressure for potential density calculations [R L2 T-2 ~> Pa]
   real :: ref_pressure = 2.e7
 
@@ -991,8 +994,13 @@ subroutine initialize_regridding(CS, G, GV, US, max_depth, param_file, mdl, &
                  "thickness allowed.", units="m", scale=GV%m_to_H, &
                  default=regriddingDefaultMinThickness )
     call set_regrid_params(CS, min_thickness=tmpReal)
+    call get_param(param_file, mdl, "USE_ADJUST_INTERFACE_MOTION", tmpLogical, &
+              "When regridding, after the primary grid generation, call a function that ensures "//&
+              "positive layer thicknesses. Historically, this was required.", default=.true.)
+    call set_regrid_params(CS, use_adjust_interface_motion=tmpLogical)
   else
     call set_regrid_params(CS, min_thickness=0.)
+    call set_regrid_params(CS, use_adjust_interface_motion=.true.)
   endif
 
   if (main_parameters .and. coordinateMode(coord_mode) == REGRIDDING_HYCOM1) then
@@ -1702,7 +1710,7 @@ subroutine build_zstar_grid( CS, G, GV, h, nom_depth_H, dzInterface, frac_shelf_
       endif
 #endif
 
-      call adjust_interface_motion( CS, nz, h(i,j,:), dzInterface(i,j,:) )
+      if (CS%use_adjust_interface_motion) call adjust_interface_motion( CS, nz, h(i,j,:), dzInterface(i,j,:) )
 
     enddo
   enddo
@@ -2057,7 +2065,7 @@ subroutine build_grid_HyCOM1( G, GV, US, h, nom_depth_H, tv, h_new, dzInterface,
 
       ! This adjusts things robust to round-off errors
       dz_col(:) = -dz_col(:)
-      call adjust_interface_motion( CS, GV%ke, h(i,j,:), dz_col(:) )
+      if (CS%use_adjust_interface_motion) call adjust_interface_motion( CS, GV%ke, h(i,j,:), dz_col(:) )
 
       dzInterface(i,j,1:nki+1) = dz_col(1:nki+1)
       if (nki<CS%nk) dzInterface(i,j,nki+2:CS%nk+1) = 0.
@@ -2135,7 +2143,7 @@ subroutine build_grid_adaptive(G, GV, US, h, nom_depth_H, tv, dzInterface, remap
     call filtered_grid_motion(CS, nz, zInt(i,j,:), zNext, dzInterface(i,j,:))
     ! convert from depth to z
     do K = 1, nz+1 ; dzInterface(i,j,K) = -dzInterface(i,j,K) ; enddo
-    call adjust_interface_motion(CS, nz, h(i,j,:), dzInterface(i,j,:))
+    if (CS%use_adjust_interface_motion) call adjust_interface_motion(CS, nz, h(i,j,:), dzInterface(i,j,:))
   enddo ; enddo
 end subroutine build_grid_adaptive
 
@@ -2767,7 +2775,7 @@ end function getCoordinateShortName
 !> Can be used to set any of the parameters for MOM_regridding.
 subroutine set_regrid_params( CS, boundary_extrapolation, min_thickness, old_grid_weight, &
              interp_scheme, depth_of_time_filter_shallow, depth_of_time_filter_deep, &
-             compress_fraction, ref_pressure, &
+             use_adjust_interface_motion, compress_fraction, ref_pressure, &
              integrate_downward_for_e, remap_answers_2018, remap_answer_date, regrid_answer_date, &
              adaptTimeRatio, adaptZoom, adaptZoomCoeff, adaptBuoyCoeff, &
              adaptAlpha, adaptDoMin, adaptDrho0)
@@ -2779,6 +2787,7 @@ subroutine set_regrid_params( CS, boundary_extrapolation, min_thickness, old_gri
   character(len=*), optional, intent(in) :: interp_scheme !< Interpolation method for state-dependent coordinates
   real,    optional, intent(in) :: depth_of_time_filter_shallow !< Depth to start cubic [H ~> m or kg m-2]
   real,    optional, intent(in) :: depth_of_time_filter_deep !< Depth to end cubic [H ~> m or kg m-2]
+  logical, optional, intent(in) :: use_adjust_interface_motion !< Call adjust_interface_motion()
   real,    optional, intent(in) :: compress_fraction !< Fraction of compressibility to add to potential density [nondim]
   real,    optional, intent(in) :: ref_pressure     !< The reference pressure for density-dependent
                                                     !! coordinates [R L2 T-2 ~> Pa]
@@ -2820,6 +2829,7 @@ subroutine set_regrid_params( CS, boundary_extrapolation, min_thickness, old_gri
   endif
 
   if (present(min_thickness)) CS%min_thickness = min_thickness
+  if (present(use_adjust_interface_motion)) CS%use_adjust_interface_motion = use_adjust_interface_motion
   if (present(compress_fraction)) CS%compressibility_fraction = compress_fraction
   if (present(ref_pressure)) CS%ref_pressure = ref_pressure
   if (present(integrate_downward_for_e)) CS%integrate_downward_for_e = integrate_downward_for_e

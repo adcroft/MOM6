@@ -316,7 +316,7 @@ subroutine ALE_init( param_file, G, GV, US, max_depth, CS)
   call get_param(param_file, mdl, "REGRID_FILTER_DEEP_DEPTH", filter_deep_depth, &
                  "The depth below which full time-filtering is applied with time-scale "//&
                  "REGRID_TIME_SCALE. Between depths REGRID_FILTER_SHALLOW_DEPTH and "//&
-                 "REGRID_FILTER_SHALLOW_DEPTH the filter weights adopt a cubic profile.", &
+                 "REGRID_FILTER_DEEP_DEPTH the filter weights adopt a cubic profile.", &
                  units="m", default=0., scale=GV%m_to_H)
   call set_regrid_params(CS%regridCS, depth_of_time_filter_shallow=filter_shallow_depth, &
                          depth_of_time_filter_deep=filter_deep_depth)

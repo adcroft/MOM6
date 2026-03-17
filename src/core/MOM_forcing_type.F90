@@ -135,6 +135,10 @@ type, public :: forcing
     frunoff_glc   => NULL(), & !< frozen river glacier runoff entering ocean [R Z T-1 ~> kg m-2 s-1]
     seaice_melt   => NULL()    !< snow/seaice melt (positive) or formation (negative) [R Z T-1 ~> kg m-2 s-1]
 
+  ! carbon content associated with water crossing ocean surface
+  real, pointer, dimension(:,:) :: &
+    carbon_content_lrunoff     => NULL() !< carbon content associated with liquid runoff [R Z T-1 ~> kg m-2 s-1]
+
   ! Integrated water mass fluxes into the ocean, used for passive tracer sources [H ~> m or kg m-2]
   real, pointer, dimension(:,:) :: &
     netMassIn     => NULL(), & !< Sum of water mass fluxes into the ocean integrated over a
@@ -370,6 +374,7 @@ type, public :: forcing_diags ; private
   integer :: id_heat_added              = -1, id_heat_content_massin     = -1
   integer :: id_hfrainds                = -1, id_hfrunoffds              = -1
   integer :: id_seaice_melt_heat        = -1
+  integer :: id_carbon_content_lrunoff  = -1
 
   ! global area integrated heat flux diagnostic handles
   integer :: id_total_net_heat_coupler        = -1, id_total_net_heat_surface        = -1
@@ -1542,7 +1547,7 @@ end subroutine forcing_SinglePointPrint
 
 !> Register members of the forcing type for diagnostics
 subroutine register_forcing_type_diags(Time, diag, US, use_temperature, handles, use_berg_fluxes, use_waves, &
-                                       use_cfcs, use_glc_runoff)
+                                       use_cfcs, use_glc_runoff, use_carbon_runoff)
   type(time_type),     intent(in)    :: Time            !< time type
   type(diag_ctrl),     intent(inout) :: diag            !< diagnostic control type
   type(unit_scale_type), intent(in)  :: US              !< A dimensional unit scaling type
@@ -1552,6 +1557,7 @@ subroutine register_forcing_type_diags(Time, diag, US, use_temperature, handles,
   logical, optional,   intent(in)    :: use_waves       !< If true, allow wave forcing diagnostics
   logical, optional,   intent(in)    :: use_cfcs        !< If true, allow cfc related diagnostics
   logical, optional,   intent(in)    :: use_glc_runoff  !< If true, allow separate glacial runoff diagnostics
+  logical, optional,   intent(in)    :: use_carbon_runoff  !< If true, allow separate carbon runoff diagnostics
 
   ! Clock for forcing diagnostics
   handles%id_clock_forcing=cpu_clock_id('(Ocean forcing diagnostics)', grain=CLOCK_ROUTINE)
@@ -1851,6 +1857,14 @@ subroutine register_forcing_type_diags(Time, diag, US, use_temperature, handles,
         diag%axesT1, Time, 'Heat content (relative to 0C) of liquid runoff into ocean',        &
         'W m-2', conversion=US%QRZ_T_to_W_m2, &
         standard_name='temperature_flux_due_to_runoff_expressed_as_heat_flux_into_sea_water')
+
+  if (present(use_carbon_runoff)) then
+    if (use_carbon_runoff) then
+       handles%id_carbon_content_lrunoff = register_diag_field('ocean_model', 'carbon_content_lrunoff', &
+             diag%axesT1, Time, 'Carbon content of liquid runoff into ocean',        &
+             'kg m-2 s-1', standard_name='carbon_flux_due_to_runoff')
+    endif
+  endif
 
   if (present(use_glc_runoff)) then
     handles%id_heat_content_frunoff_glc = register_diag_field('ocean_model', 'heat_content_frunoff_glc', &
@@ -2478,6 +2492,12 @@ subroutine fluxes_accumulate(flux_tmp, fluxes, G, wt2, forces)
                                              wt2*flux_tmp%heat_content_frunoff_glc(i,j)
     enddo ; enddo
   endif
+  if (associated(fluxes%carbon_content_lrunoff) .and. associated(flux_tmp%carbon_content_lrunoff)) then
+    do j=js,je ; do i=is,ie
+      fluxes%carbon_content_lrunoff(i,j) = wt1*fluxes%carbon_content_lrunoff(i,j) + &
+                                           wt2*flux_tmp%carbon_content_lrunoff(i,j)
+    enddo ; enddo
+  endif
 
   if (associated(fluxes%ustar_shelf) .and. associated(flux_tmp%ustar_shelf)) then
     do i=isd,ied ; do j=jsd,jed
@@ -2993,6 +3013,9 @@ subroutine forcing_diagnostics(fluxes_in, sfc_state, G_in, US, time_end, diag, h
       endif
     endif
 
+    if ((handles%id_carbon_content_lrunoff > 0) .and. associated(fluxes%carbon_content_lrunoff))  &
+      call post_data(handles%id_carbon_content_lrunoff, fluxes%carbon_content_lrunoff, diag)
+
     ! post diagnostics for boundary heat fluxes ====================================
 
     if ((handles%id_heat_content_lrunoff > 0) .and. associated(fluxes%heat_content_lrunoff))  &
@@ -3417,7 +3440,7 @@ end subroutine forcing_diagnostics
 subroutine allocate_forcing_by_group(G, fluxes, water, heat, ustar, press, &
                                   shelf, iceberg, salt, fix_accum_bug, cfc, marbl, &
                                   waves, shelf_sfc_accumulation, lamult, hevap, &
-                                  ice_ncat, tau_mag)
+                                  ice_ncat, tau_mag, carbon)
   type(ocean_grid_type), intent(in) :: G       !< Ocean grid structure
   type(forcing),      intent(inout) :: fluxes  !< A structure containing thermodynamic forcing fields
   logical, optional,     intent(in) :: water   !< If present and true, allocate water fluxes
@@ -3443,6 +3466,7 @@ subroutine allocate_forcing_by_group(G, fluxes, water, heat, ustar, press, &
                                                !! via coupler.
   integer, optional,     intent(in) :: ice_ncat !< number of ice categories
   logical, optional,     intent(in) :: tau_mag !< If present and true, allocate tau_mag and related fields
+  logical, optional,     intent(in) :: carbon  !< If present and true, allocate carbon fluxes
 
   ! Local variables
   integer :: isd, ied, jsd, jed, IsdB, IedB, JsdB, JedB
@@ -3488,6 +3512,7 @@ subroutine allocate_forcing_by_group(G, fluxes, water, heat, ustar, press, &
   call myAlloc(fluxes%latent_frunoff_glc_diag,isd,ied,jsd,jed, heat)
 
   call myAlloc(fluxes%salt_flux,isd,ied,jsd,jed, salt)
+  call myAlloc(fluxes%carbon_content_lrunoff,isd,ied,jsd,jed, carbon)
 
   if (present(heat) .and. present(water)) then ; if (heat .and. water) then
     call myAlloc(fluxes%heat_content_cond,isd,ied,jsd,jed, .true.)
@@ -3555,14 +3580,14 @@ subroutine allocate_forcing_by_ref(fluxes_ref, G, fluxes, turns)
                                                    !! quarter turns to use on the new grid.
 
   logical :: do_ustar, do_taumag, do_water, do_heat, do_salt, do_press, do_shelf
-  logical :: do_iceberg, do_heat_added, do_buoy
+  logical :: do_iceberg, do_heat_added, do_buoy, do_carbon
   logical :: even_turns  ! True if turns is absent or even
 
   call get_forcing_groups(fluxes_ref, do_water, do_heat, do_ustar, do_taumag, do_press, &
-      do_shelf, do_iceberg, do_salt, do_heat_added, do_buoy)
+      do_shelf, do_iceberg, do_salt, do_heat_added, do_buoy, do_carbon)
 
   call allocate_forcing_type(G, fluxes, do_water, do_heat, do_ustar, &
-      do_press, do_shelf, do_iceberg, do_salt, tau_mag=do_taumag)
+      do_press, do_shelf, do_iceberg, do_salt, tau_mag=do_taumag, carbon=do_carbon)
 
   ! The following fluxes would typically be allocated by the driver
   call myAlloc(fluxes%sw_vis_dir, G%isd, G%ied, G%jsd, G%jed, &
@@ -3692,7 +3717,7 @@ end subroutine allocate_mech_forcing_from_ref
 
 !> Return flags indicating which groups of forcings are allocated
 subroutine get_forcing_groups(fluxes, water, heat, ustar, tau_mag, press, shelf, &
-                             iceberg, salt, heat_added, buoy)
+                             iceberg, salt, heat_added, buoy, carbon)
   type(forcing), intent(in) :: fluxes  !< Reference flux fields
   logical, intent(out) :: water   !< True if fluxes contains water-based fluxes
   logical, intent(out) :: heat    !< True if fluxes contains heat-based fluxes
@@ -3704,6 +3729,7 @@ subroutine get_forcing_groups(fluxes, water, heat, ustar, tau_mag, press, shelf,
   logical, intent(out) :: salt    !< True if fluxes contains salt flux
   logical, intent(out) :: heat_added !< True if fluxes contains explicit heat
   logical, intent(out) :: buoy    !< True if fluxes contains buoyancy fluxes
+  logical, optional, intent(out) :: carbon  !< True if fluxes contains carbon fluxes
 
   ! NOTE: heat, salt, heat_added, and buoy would typically depend on each other
   !   to some degree.  But since this would be enforced at the driver level,
@@ -3720,6 +3746,7 @@ subroutine get_forcing_groups(fluxes, water, heat, ustar, tau_mag, press, shelf,
   iceberg = associated(fluxes%ustar_berg)
   heat_added = associated(fluxes%heat_added)
   buoy = associated(fluxes%buoy)
+  if(present(carbon)) carbon = associated(fluxes%carbon_content_lrunoff)
 end subroutine get_forcing_groups
 
 
@@ -3800,6 +3827,7 @@ subroutine deallocate_forcing_type(fluxes)
   if (associated(fluxes%latent_frunoff_diag))  deallocate(fluxes%latent_frunoff_diag)
   if (associated(fluxes%latent_frunoff_glc_diag))  deallocate(fluxes%latent_frunoff_glc_diag)
   if (associated(fluxes%sens))                 deallocate(fluxes%sens)
+  if (associated(fluxes%carbon_content_lrunoff)) deallocate(fluxes%carbon_content_lrunoff)
   if (associated(fluxes%heat_added))           deallocate(fluxes%heat_added)
   if (associated(fluxes%heat_content_lrunoff)) deallocate(fluxes%heat_content_lrunoff)
   if (associated(fluxes%heat_content_frunoff)) deallocate(fluxes%heat_content_frunoff)

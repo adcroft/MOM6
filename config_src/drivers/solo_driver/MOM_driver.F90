@@ -51,7 +51,7 @@ program MOM6
   use MOM_ice_shelf,       only : initialize_ice_shelf, ice_shelf_end, ice_shelf_CS
   use MOM_ice_shelf,       only : shelf_calc_flux, add_shelf_forces, ice_shelf_save_restart
   use MOM_ice_shelf,       only : initialize_ice_shelf_fluxes, initialize_ice_shelf_forces
-  use MOM_ice_shelf,       only : ice_shelf_query
+  use MOM_ice_shelf,       only : ice_shelf_query, adjust_ice_sheet_frazil
   use MOM_ice_shelf_initialize, only : initialize_ice_SMB
   use MOM_interpolate,     only : time_interp_external_init
   use MOM_io,              only : file_exists, open_ASCII_file, close_file
@@ -315,6 +315,9 @@ program MOM6
   call callTree_waypoint("done initialize_MOM")
 
   call extract_surface_state(MOM_CSp, sfc_state)
+
+  if (use_ice_shelf .and. allocated(sfc_state%frazil)) &
+    call adjust_ice_sheet_frazil(sfc_state, fluxes, Ice_shelf_CSp)
 
   call surface_forcing_init(Time, grid, US, param_file, diag, &
                             surface_forcing_CSp, tracer_flow_CSp)

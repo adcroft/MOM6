@@ -111,6 +111,7 @@ type, public :: surface_forcing_CS ; private
   real    :: rigid_sea_ice_mass !< A mass per unit area of sea-ice beyond which sea-ice viscosity
                                 !! becomes effective [R Z ~> kg m-2], typically of order 1000 kg m-2.
   logical :: allow_flux_adjustments !< If true, use data_override to obtain flux adjustments
+  logical :: allow_carbon_flux_exchange !< If true, allows fluxes and diagnostics of carbon in runoff.
 
   logical :: restore_salt       !< If true, the coupled MOM driver adds a term to restore surface
                                 !! salinity to a specified value.
@@ -191,6 +192,7 @@ type, public :: ice_ocean_boundary_type
   real, pointer, dimension(:,:) :: lprec           =>NULL() !< mass flux of liquid precip [kg m-2 s-1]
   real, pointer, dimension(:,:) :: fprec           =>NULL() !< mass flux of frozen precip [kg m-2 s-1]
   real, pointer, dimension(:,:) :: runoff          =>NULL() !< mass flux of liquid runoff [kg m-2 s-1]
+  real, pointer, dimension(:,:) :: runoff_carbon   =>NULL() !< mass flux of carbon in liquid runoff [kg m-2 s-1]
   real, pointer, dimension(:,:) :: calving         =>NULL() !< mass flux of frozen runoff [kg m-2 s-1]
   real, pointer, dimension(:,:) :: stress_mag      =>NULL() !< The time-mean magnitude of the stress on the ocean [Pa]
   real, pointer, dimension(:,:) :: ustar_berg      =>NULL() !< frictional velocity beneath icebergs [m s-1]
@@ -291,7 +293,8 @@ subroutine convert_IOB_to_fluxes(IOB, fluxes, index_bounds, Time, valid_time, G,
   ! flux type has been used.
   if (fluxes%dt_buoy_accum < 0) then
     call allocate_forcing_type(G, fluxes, water=.true., heat=.true., ustar=.not.CS%nonBous, press=.true., &
-                               fix_accum_bug=.not.CS%ustar_gustless_bug, tau_mag=CS%nonBous)
+                               fix_accum_bug=.not.CS%ustar_gustless_bug, tau_mag=CS%nonBous,&
+                               carbon=CS%allow_carbon_flux_exchange)
 
     call safe_alloc_ptr(fluxes%sw_vis_dir,isd,ied,jsd,jed)
     call safe_alloc_ptr(fluxes%sw_vis_dif,isd,ied,jsd,jed)
@@ -505,6 +508,12 @@ subroutine convert_IOB_to_fluxes(IOB, fluxes, index_bounds, Time, valid_time, G,
       fluxes%heat_content_lrunoff(i,j) = US%W_m2_to_QRZ_T * IOB%runoff_hflx(i-i0,j-j0) * G%mask2dT(i,j)
       if (CS%check_no_land_fluxes) &
         call check_mask_val_consistency(IOB%runoff_hflx(i-i0,j-j0), G%mask2dT(i,j), i, j, 'runoff_hflx', G)
+    endif
+
+    if (associated(IOB%runoff_carbon) .and. CS%allow_carbon_flux_exchange) then
+      fluxes%carbon_content_lrunoff(i,j) = US%kg_m2s_to_RZ_T * IOB%runoff_carbon(i-i0,j-j0) * G%mask2dT(i,j)
+      if (CS%check_no_land_fluxes) &
+        call check_mask_val_consistency(IOB%runoff_carbon(i-i0,j-j0), G%mask2dT(i,j), i, j, 'runoff_carbon', G)
     endif
 
     if (associated(IOB%calving_hflx)) then
@@ -1712,8 +1721,12 @@ subroutine surface_forcing_init(Time, G, US, param_file, diag, CS, wind_stagger)
   call get_param(param_file, mdl, "ALLOW_ICEBERG_FLUX_DIAGNOSTICS", iceberg_flux_diags, &
                  "If true, makes available diagnostics of fluxes from icebergs "//&
                  "as seen by MOM6.", default=.false.)
+  call get_param(param_file, mdl, "ALLOW_CARBON_FLUX_EXCHANGE", CS%allow_carbon_flux_exchange, &
+                 "If true, makes available fluxes and diagnostics of carbon in runoff "//&
+                 "within MOM6.", default=.false.)
   call register_forcing_type_diags(Time, diag, US, CS%use_temperature, CS%handles, &
-                                   use_berg_fluxes=iceberg_flux_diags)
+                                   use_berg_fluxes=iceberg_flux_diags, &
+                                   use_carbon_runoff=CS%allow_carbon_flux_exchange)
 
   call get_param(param_file, mdl, "ALLOW_FLUX_ADJUSTMENTS", CS%allow_flux_adjustments, &
                  "If true, allows flux adjustments to specified via the "//&

@@ -296,6 +296,13 @@ subroutine ALE_init( param_file, G, GV, US, max_depth, CS)
                  "legacy step and should not be needed if the initialization is "//&
                  "consistent with the coordinate mode.", default=.true.)
 
+  call get_param(param_file, mdl, "REGRID_USE_DEPTH_BASED_TIME_FILTER", local_logical, &
+                 "If true, always uses depth-based time filtering code that updates the "//&
+                 "generated grid using REGRID_TIME_SCALE, REGRID_FILTER_SHALLOW_DEPTH, "//&
+                 "REGRID_FILTER_DEEP_DEPTH parameters. Setting to True always uses "//&
+                 "filtering but setting to False bypasses calculations when filter times = 0.", &
+                 default=.true.)
+  call set_regrid_params(CS%regridCS, use_depth_based_time_filter=local_logical)
   call get_param(param_file, mdl, "REGRID_TIME_SCALE", CS%regrid_time_scale, &
                  "The time-scale used in blending between the current (old) grid "//&
                  "and the target (new) grid. A short time-scale favors the target "//&
@@ -309,7 +316,7 @@ subroutine ALE_init( param_file, G, GV, US, max_depth, CS)
   call get_param(param_file, mdl, "REGRID_FILTER_DEEP_DEPTH", filter_deep_depth, &
                  "The depth below which full time-filtering is applied with time-scale "//&
                  "REGRID_TIME_SCALE. Between depths REGRID_FILTER_SHALLOW_DEPTH and "//&
-                 "REGRID_FILTER_SHALLOW_DEPTH the filter weights adopt a cubic profile.", &
+                 "REGRID_FILTER_DEEP_DEPTH the filter weights adopt a cubic profile.", &
                  units="m", default=0., scale=GV%m_to_H)
   call set_regrid_params(CS%regridCS, depth_of_time_filter_shallow=filter_shallow_depth, &
                          depth_of_time_filter_deep=filter_deep_depth)

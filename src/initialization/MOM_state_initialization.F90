@@ -2646,6 +2646,7 @@ subroutine MOM_temp_salt_initialize_from_Z(h, tv, depth_tot, G, GV, US, PF, just
   character(len=64) :: remappingScheme
   logical :: om4_remap_via_sub_cells ! If true, use the OM4 remapping algorithm (only used if useALEremapping)
   logical :: do_conv_adj, ignore
+  logical :: use_depth_based_time_fitler, use_adjust_interface_motion
   integer :: id_clock_routine, id_clock_ALE
 
   id_clock_routine = cpu_clock_id('(Initialize from Z)', grain=CLOCK_ROUTINE)
@@ -2800,6 +2801,10 @@ subroutine MOM_temp_salt_initialize_from_Z(h, tv, depth_tot, G, GV, US, PF, just
                  "from an input dataset using horiz_interp_and_extrap_tracer.  This routine "//&
                  "converges slowly, so an overly small tolerance can get expensive.", &
                  units="ppt", default=1.0e-3, scale=US%ppt_to_S, do_not_log=just_read)
+  call get_param(PF, mdl, "REGRID_USE_DEPTH_BASED_TIME_FILTER", use_depth_based_time_fitler, &
+                 default=.true., do_not_log=.true.)
+  call get_param(PF, mdl, "USE_ADJUST_INTERFACE_MOTION", use_adjust_interface_motion, &
+                 default=.true., do_not_log=.true.)
 
   if (just_read) then
     if ((.not.useALEremapping) .and. adjust_temperature) &
@@ -2910,7 +2915,9 @@ subroutine MOM_temp_salt_initialize_from_Z(h, tv, depth_tot, G, GV, US, PF, just
 
     ! Now remap from source grid to target grid, first setting reconstruction parameters
     if (remap_general) then
-      call set_regrid_params( regridCS, min_thickness=0. )
+      call set_regrid_params( regridCS, min_thickness=0., &
+                              use_adjust_interface_motion=use_adjust_interface_motion, &
+                              use_depth_based_time_filter=use_depth_based_time_fitler)
       allocate( dz_interface(isd:ied,jsd:jed,nkd+1) ) ! Need for argument to regridding_main() but is not used
 
       call regridding_preadjust_reqs(regridCS, do_conv_adj, ignore)

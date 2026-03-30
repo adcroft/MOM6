@@ -1,0 +1,10 @@
+name: "Check commits for typos"
+on: [push]
+
+jobs:
+  summarize:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run Copilot Chat
+        run: |
+          gh copilot chat "Examine changes in this commit. Report on problems with functional correctness, code style, efficiency. Also check that the commit message sufficiently describes the code changes, including the motivation for the changes when appropriate."

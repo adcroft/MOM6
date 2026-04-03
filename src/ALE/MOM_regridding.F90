@@ -32,7 +32,7 @@ use regrid_interp, only : set_interp_scheme, set_interp_extrap, set_interp_answe
 
 use coord_zlike,  only : zlike_CS
 use coord_zlike,  only : init_coord_zlike, set_zlike_params, end_coord_zlike
-use coord_zlike,  only : build_zstar_open_ocean_column, build_zstar_column
+use coord_zlike,  only : build_zstar_open_ocean_column, build_zstar_under_ice_column
 use coord_sigma,  only : sigma_CS
 use coord_sigma,  only : init_coord_sigma, set_sigma_params, build_sigma_column, end_coord_sigma
 use coord_rho,    only : rho_CS
@@ -1679,7 +1679,7 @@ subroutine build_zstar_grid( CS, G, GV, h, nom_depth_H, dzInterface, frac_shelf_
 
       if (ice_shelf) then
         if (frac_shelf_h(i,j) > 0.) then ! under ice shelf
-          call build_zstar_column(CS%zlike_CS, nominalDepth, totalThickness, zNew, &
+          call build_zstar_under_ice_column(CS%zlike_CS, nominalDepth, totalThickness, zNew, &
                                   totalThickness-nominalDepth, zOld(1))
         else
           call build_zstar_open_ocean_column(CS%zlike_CS, nominalDepth, totalThickness, zNew)

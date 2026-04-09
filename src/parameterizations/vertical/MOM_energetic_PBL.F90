@@ -9,6 +9,7 @@ use MOM_cpu_clock,      only : cpu_clock_id, cpu_clock_begin, cpu_clock_end, CLO
 use MOM_coms,           only : EFP_type, real_to_EFP, EFP_to_real, operator(+), assignment(=), EFP_sum_across_PEs
 use MOM_debugging,      only : hchksum
 use MOM_diag_mediator,  only : post_data, register_diag_field, safe_alloc_alloc
+use MOM_diag_mediator,  only : post_data_3d_by_column, post_data_3d_final
 use MOM_diag_mediator,  only : time_type, diag_ctrl
 use MOM_domains,        only : create_group_pass, do_group_pass, group_pass_type
 use MOM_error_handler,  only : MOM_error, FATAL, WARNING, MOM_mesg
@@ -263,6 +264,7 @@ type, public :: energetic_PBL_CS ; private
   type(EFP_type), dimension(2) :: sum_its_BBL !< The total number of iterations and columns worked on
 
   !>@{ Diagnostic IDs
+  integer :: id_Kd_ePBL_col_by_col = -1
   integer :: id_ML_depth = -1, id_hML_depth = -1, id_TKE_wind = -1, id_TKE_mixing = -1
   integer :: id_ustar_ePBL = -1, id_bflx_ePBL = -1
   integer :: id_TKE_MKE = -1, id_TKE_conv = -1, id_TKE_forcing = -1
@@ -692,6 +694,8 @@ subroutine energetic_PBL(h_3d, u_3d, v_3d, tv, fluxes, visc, dt, Kd_int, G, GV, 
                          u_star, u_star_mean, mech_TKE, dt, MLD_io, Kd, mixvel, mixlen, GV, &
                          US, CS, eCD, Waves, G, i, j)
       endif
+      if (CS%id_Kd_ePBL_col_by_col > 0) &
+        call post_data_3d_by_column(CS%id_Kd_ePBL_col_by_col, Kd, CS%diag, i, j)
 
       ! Add the diffusivity due to bottom boundary layer mixing, if there is energy to drive this mixing.
       if (BBL_mixing) then
@@ -827,6 +831,7 @@ subroutine energetic_PBL(h_3d, u_3d, v_3d, tv, fluxes, visc, dt, Kd_int, G, GV, 
     do K=1,nz+1 ; do i=is,ie ; Kd_int(i,j,K) = Kd_2d(i,K) ; enddo ; enddo
 
   enddo ! j-loop
+  if (CS%id_Kd_ePBL_col_by_col > 0) call post_data_3d_final(CS%id_Kd_ePBL_col_by_col, CS%diag)
 
   if (CS%debug .and. BBL_mixing) then
     call hchksum(visc%BBL_meanKE_loss, "ePBL visc%BBL_meanKE_loss", G%HI, &
@@ -2792,7 +2797,7 @@ subroutine kappa_eqdisc(shape_func, CS, GV, dz, absf, B_flux, u_star, MLD_guess)
   hz(1) = 0.0
   do K=2,nz
     hz(K) = hz(K-1) + dz(K-1)
-  end do
+  enddo
   hbl = MLD_Guess ! hbl is boundary layer depth.
 
   u_star_I = 1.0/u_star
@@ -2861,7 +2866,7 @@ subroutine kappa_eqdisc(shape_func, CS, GV, dz, absf, B_flux, u_star, MLD_guess)
     elseif (hz(n) > hbl) then
       shape_func(n) = CS%shape_function_epsilon ! set an arbitrary low constant value below hbl, default 0.01
     endif
-  end do
+  enddo
 end subroutine kappa_eqdisc
 
 !> Gives velocity scale (v_0) using equations that approximate neural network of Sane et al. 2023
@@ -4332,6 +4337,8 @@ subroutine energetic_PBL_init(Time, G, GV, US, param_file, diag, CS)
 
 
 !/ Checking output flags
+  CS%id_Kd_ePBL_col_by_col = register_diag_field('ocean_model', 'Kd_ePBL_col_by_col', diag%axesTi, Time, &
+      'ePBL diapycnal diffusivity at interfaces posted column by column', 'm2 s-1', conversion=GV%HZ_T_to_m2_s)
   CS%id_ML_depth = register_diag_field('ocean_model', 'ePBL_h_ML', diag%axesT1, &
       Time, 'Surface boundary layer depth', units='m', conversion=US%Z_to_m, &
       cmor_long_name='Ocean Mixed Layer Thickness Defined by Mixing Scheme')

@@ -268,7 +268,7 @@ subroutine tidal_forcing_init(Time, G, US, param_file, CS)
   integer :: i, j, c, is, ie, js, je, isd, ied, jsd, jed, nc
 
   is = G%isc ; ie = G%iec ; js = G%jsc ; je = G%jec
-  isd = G%isd ; ied = G%ied ; jsd = G%jsd; jed = G%jed
+  isd = G%isd ; ied = G%ied ; jsd = G%jsd ; jed = G%jed
 
   ! Read all relevant parameters and write them to the model log.
   call log_version(param_file, mdl, version, "")
@@ -633,7 +633,7 @@ subroutine calc_tidal_forcing(Time, e_tide_eq, e_tide_sal, G, US, CS)
     return
   endif
 
-  now = US%s_to_T * time_minus_signed(Time, cs%time_ref)
+  now = time_minus_signed(Time, cs%time_ref, scale=US%s_to_T)
 
   do c=1,CS%nc
     m = CS%struct(c)
@@ -707,7 +707,7 @@ subroutine calc_tidal_forcing_legacy(Time, e_sal, e_sal_tide, e_tide_eq, e_tide_
     return
   endif
 
-  now = US%s_to_T * time_minus_signed(Time, cs%time_ref)
+  now = time_minus_signed(Time, cs%time_ref, scale=US%s_to_T)
 
   do j=Jsq,Jeq+1 ; do i=Isq,Ieq+1
     e_sal_tide(i,j) = e_sal(i,j)

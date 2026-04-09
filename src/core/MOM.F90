@@ -46,7 +46,7 @@ use MOM_restart,              only : register_restart_field, register_restart_pa
 use MOM_restart,              only : query_initialized, set_initialized, restart_registry_lock
 use MOM_restart,              only : restart_init, is_new_run, determine_is_new_run, MOM_restart_CS
 use MOM_spatial_means,        only : global_mass_integral
-use MOM_time_manager,         only : time_type, real_to_time, time_type_to_real, operator(+)
+use MOM_time_manager,         only : time_type, real_to_time, operator(+)
 use MOM_time_manager,         only : operator(-), operator(>), operator(*), operator(/)
 use MOM_time_manager,         only : operator(>=), operator(==), increment_date
 use MOM_unit_tests,           only : unit_tests
@@ -116,6 +116,7 @@ use MOM_mixed_layer_restrat,   only : mixedlayer_restrat_register_restarts
 use MOM_obsolete_diagnostics,  only : register_obsolete_diagnostics
 use MOM_open_boundary,         only : ocean_OBC_type, open_boundary_end
 use MOM_open_boundary,         only : register_temp_salt_segments, update_segment_tracer_reservoirs
+use MOM_open_boundary,         only : read_OBC_segment_data, initialize_OBC_segment_reservoirs
 use MOM_open_boundary,         only : setup_OBC_tracer_reservoirs
 use MOM_open_boundary,         only : setup_OBC_thickness_reservoirs
 use MOM_open_boundary,         only : open_boundary_register_restarts, remap_OBC_fields
@@ -387,6 +388,7 @@ type, public :: MOM_control_struct ; private
                                 !! roundoff for non-Boussinesq cases.
   logical :: use_particles      !< Turns on the particles package
   logical :: use_uh_particles   !< particles are advected by uh/h
+  logical :: uh_particles_bug   !< If true, uses an inconsistent timestep for particle advection
   logical :: use_dbclient       !< Turns on the database client used for ML inference/analysis
   character(len=10) :: particle_type !< Particle types include: surface(default), profiling and sail drone.
 
@@ -608,6 +610,8 @@ subroutine step_MOM(forces_in, fluxes_in, sfc_state, Time_start, time_int_in, CS
   real :: I_wt_ssh  ! The inverse of the time weights [T-1 ~> s-1]
 
   type(time_type) :: Time_local, end_time_thermo
+  type(time_type) :: Time_end_diag ! End time of a diagnostic segment, as a time type
+
   type(group_pass_type) :: pass_tau_ustar_psurf
   logical :: showCallTree
 
@@ -792,7 +796,8 @@ subroutine step_MOM(forces_in, fluxes_in, sfc_state, Time_start, time_int_in, CS
     do j=js,je ; do i=is,ie ; CS%ssh_rint(i,j) = 0.0 ; enddo ; enddo
 
     if (CS%VarMix%use_variable_mixing) then
-      call enable_averages(cycle_time, Time_start + real_to_time(US%T_to_s*cycle_time), CS%diag)
+      Time_end_diag = Time_start + real_to_time(cycle_time, unscale=US%T_to_s)
+      call enable_averages(cycle_time, Time_end_diag, CS%diag)
       call calc_resoln_function(h, CS%tv, G, GV, US, CS%VarMix, CS%MEKE, CS%OBC, dt)
       call calc_depth_function(G, CS%VarMix)
       call disable_averaging(CS%diag)
@@ -820,7 +825,8 @@ subroutine step_MOM(forces_in, fluxes_in, sfc_state, Time_start, time_int_in, CS
     endif
     if (CS%UseWaves) then
       ! Update wave information, which is presently kept static over each call to step_mom
-      call enable_averages(time_interval, Time_start + real_to_time(US%T_to_s*time_interval), CS%diag)
+      Time_end_diag = Time_start + real_to_time(time_interval, unscale=US%T_to_s)
+      call enable_averages(time_interval, Time_end_diag, CS%diag)
       call find_ustar(forces, CS%tv, U_star, G, GV, US, halo=1)
       call thickness_to_dz(h, CS%tv, dz, G, GV, US, halo_size=1)
       call Update_Stokes_Drift(G, GV, US, Waves, dz, U_star, time_interval, do_dyn)
@@ -850,9 +856,9 @@ subroutine step_MOM(forces_in, fluxes_in, sfc_state, Time_start, time_int_in, CS
   do n=1,n_max
     rel_time = rel_time + dt ! The relative time at the end of the step.
     ! Set the universally visible time to the middle of the time step.
-    CS%Time = Time_start + real_to_time(US%T_to_s*(rel_time - 0.5*dt))
+    CS%Time = Time_start + real_to_time(rel_time - 0.5*dt, unscale=US%T_to_s)
     ! Set the local time to the end of the time step.
-    Time_local = Time_start + real_to_time(US%T_to_s*rel_time)
+    Time_local = Time_start + real_to_time(rel_time, unscale=US%T_to_s)
 
     if (showCallTree) call callTree_enter("DT cycles (step_MOM) n=",n)
 
@@ -883,10 +889,10 @@ subroutine step_MOM(forces_in, fluxes_in, sfc_state, Time_start, time_int_in, CS
       if (dtdia > dt) then
         ! If necessary, temporarily reset CS%Time to the center of the period covered
         ! by the call to step_MOM_thermo, noting that they begin at the same time.
-        CS%Time = CS%Time + real_to_time(0.5*US%T_to_s*(dtdia-dt))
+        CS%Time = CS%Time + real_to_time(0.5*(dtdia-dt), unscale=US%T_to_s)
         ! The end-time of the diagnostic interval needs to be set ahead if there
         ! are multiple dynamic time steps worth of thermodynamics applied here.
-        end_time_thermo = Time_local + real_to_time(US%T_to_s*(dtdia-dt))
+        end_time_thermo = Time_local + real_to_time(dtdia-dt, unscale=US%T_to_s)
       endif
 
       ! Apply diabatic forcing, do mixing, and regrid.
@@ -902,7 +908,7 @@ subroutine step_MOM(forces_in, fluxes_in, sfc_state, Time_start, time_int_in, CS
       if (showCallTree) call callTree_waypoint("finished diabatic_first (step_MOM)")
 
       if (dtdia > dt) & ! Reset CS%Time to its previous value.
-        CS%Time = Time_start + real_to_time(US%T_to_s*(rel_time - 0.5*dt))
+        CS%Time = Time_start + real_to_time(rel_time - 0.5*dt, unscale=US%T_to_s)
     endif ! end of block "(CS%diabatic_first .and. (CS%t_dyn_rel_adv==0.0))"
 
     if (do_dyn) then
@@ -1000,7 +1006,7 @@ subroutine step_MOM(forces_in, fluxes_in, sfc_state, Time_start, time_int_in, CS
       ! If necessary, temporarily reset CS%Time to the center of the period covered
       ! by the call to step_MOM_thermo, noting that they end at the same time.
       if (dtdia > dt) &
-        CS%Time = CS%Time - real_to_time(0.5*US%T_to_s*(dtdia-dt))
+        CS%Time = CS%Time - real_to_time(0.5*(dtdia-dt), unscale=US%T_to_s)
 
       ! Apply diabatic forcing, do mixing, and regrid.
       call step_MOM_thermo(CS, G, GV, US, u, v, h, CS%tv, fluxes, dtdia, &
@@ -1019,7 +1025,7 @@ subroutine step_MOM(forces_in, fluxes_in, sfc_state, Time_start, time_int_in, CS
 
       ! Reset CS%Time to its previous value.
       if (dtdia > dt) &
-        CS%Time = Time_start + real_to_time(US%T_to_s*(rel_time - 0.5*dt))
+        CS%Time = Time_start + real_to_time(rel_time - 0.5*dt, unscale=US%T_to_s)
     endif
 
     if (do_dyn) then
@@ -1137,7 +1143,7 @@ subroutine step_MOM(forces_in, fluxes_in, sfc_state, Time_start, time_int_in, CS
   if (MOM_state_is_synchronized(CS)) &
     call write_energy(CS%u, CS%v, CS%h, CS%tv, Time_local, CS%nstep_tot, &
                       G, GV, US, CS%sum_output_CSp, CS%tracer_flow_CSp, &
-                      dt_forcing=real_to_time(US%T_to_s*time_interval) )
+                      dt_forcing=real_to_time(time_interval, unscale=US%T_to_s) )
 
   call cpu_clock_end(id_clock_other)
 
@@ -1190,6 +1196,7 @@ subroutine step_MOM_dynamics(forces, p_surf_begin, p_surf_end, dt, dt_tr_adv, &
     v => NULL(), & ! v : meridional velocity component [L T-1 ~> m s-1]
     h => NULL()    ! h : layer thickness [H ~> m or kg m-2]
 
+  type(time_type) :: Time_end_diag ! End time of a diagnostic segment, as a time type
   logical :: calc_dtbt  ! Indicates whether the dynamically adjusted
                         ! barotropic time step needs to be updated.
   logical :: showCallTree
@@ -1219,7 +1226,8 @@ subroutine step_MOM_dynamics(forces, p_surf_begin, p_surf_end, dt, dt_tr_adv, &
   if ((CS%t_dyn_rel_adv == 0.0) .and. CS%thickness_diffuse_first .and. &
       (CS%thickness_diffuse .or. CS%interface_filter)) then
 
-    call enable_averages(dt_tr_adv, Time_local+real_to_time(US%T_to_s*(dt_tr_adv-dt)), CS%diag)
+    Time_end_diag = Time_local + real_to_time(dt_tr_adv - dt, unscale=US%T_to_s)
+    call enable_averages(dt_tr_adv, Time_end_diag, CS%diag)
     if (CS%thickness_diffuse) then
       call cpu_clock_begin(id_clock_thick_diff)
       if (CS%VarMix%use_variable_mixing) &
@@ -1260,8 +1268,8 @@ subroutine step_MOM_dynamics(forces, p_surf_begin, p_surf_end, dt, dt_tr_adv, &
 
   ! The bottom boundary layer properties need to be recalculated.
   if (bbl_time_int > 0.0) then
-    call enable_averages(bbl_time_int, &
-              Time_local + real_to_time(US%T_to_s*(bbl_time_int-dt)), CS%diag)
+    Time_end_diag = Time_local + real_to_time(bbl_time_int - dt, unscale=US%T_to_s)
+    call enable_averages(bbl_time_int, Time_end_diag, CS%diag)
     ! Calculate the BBL properties and store them inside visc (u,h).
     call cpu_clock_begin(id_clock_BBL_visc)
     call set_viscous_BBL(CS%u, CS%v, CS%h, CS%tv, CS%visc, G, GV, US, CS%set_visc_CSp, CS%pbv)
@@ -1346,10 +1354,10 @@ subroutine step_MOM_dynamics(forces, p_surf_begin, p_surf_end, dt, dt_tr_adv, &
   if (Waves%Stokes_DDT .and. (.not.Waves%Passive_Stokes_DDT)) then
     do J=jsq,jeq ; do i=is,ie
       v(i,J,:) = v(i,J,:) + Waves%ddt_us_y(i,J,:)*dt
-    enddo; enddo
+    enddo ; enddo
     do j=js,je ; do I=isq,ieq
       u(I,j,:) = u(I,j,:) + Waves%ddt_us_x(I,j,:)*dt
-    enddo; enddo
+    enddo ; enddo
     call pass_vector(u, v, G%Domain)
   endif
   ! Added an additional output to track Stokes drift time tendency.
@@ -1358,12 +1366,12 @@ subroutine step_MOM_dynamics(forces, p_surf_begin, p_surf_end, dt, dt_tr_adv, &
   if (Waves%Stokes_DDT .and. (Waves%id_3dstokes_y_from_ddt>0)) then
     do J=jsq,jeq ; do i=is,ie
       Waves%us_y_from_ddt(i,J,:) = Waves%us_y_from_ddt(i,J,:) + Waves%ddt_us_y(i,J,:)*dt
-    enddo; enddo
+    enddo ; enddo
   endif
   if (Waves%Stokes_DDT .and. (Waves%id_3dstokes_x_from_ddt>0)) then
     do j=js,je ; do I=isq,ieq
       Waves%us_x_from_ddt(I,j,:) = Waves%us_x_from_ddt(I,j,:) + Waves%ddt_us_x(I,j,:)*dt
-    enddo; enddo
+    enddo ; enddo
   endif
 
 
@@ -1435,10 +1443,11 @@ subroutine step_MOM_dynamics(forces, p_surf_begin, p_surf_end, dt, dt_tr_adv, &
   ! Advance the dynamics time by dt.
   CS%t_dyn_rel_adv = CS%t_dyn_rel_adv + dt
 
-  if (CS%use_particles .and. CS%do_dynamics .and. CS%use_uh_particles) then
-    !Run particles using thickness-weighted velocity
+  if (CS%use_particles .and. CS%do_dynamics .and. CS%use_uh_particles .and. &
+      CS%uh_particles_bug) then
+    ! Run particles using thickness-weighted velocity
     call particles_run(CS%particles, Time_local, CS%uhtr, CS%vhtr, CS%h, &
-        CS%tv, CS%t_dyn_rel_adv, CS%use_uh_particles)
+                       CS%tv, CS%t_dyn_rel_adv, CS%use_uh_particles)
   endif
 
   CS%n_dyn_steps_in_adv = CS%n_dyn_steps_in_adv + 1
@@ -1501,6 +1510,13 @@ subroutine step_MOM_tracer_dyn(CS, G, GV, US, h, Time_local)
 
   call cpu_clock_begin(id_clock_thermo) ; call cpu_clock_begin(id_clock_tracer)
   call enable_averages(CS%t_dyn_rel_adv, Time_local, CS%diag)
+
+  if (CS%use_particles .and. CS%use_uh_particles .and. (.not. CS%uh_particles_bug)) then
+    ! Run particles using thickness-weighted velocity
+    call particles_run(CS%particles, Time_local, CS%uhtr, CS%vhtr, CS%h, &
+                       CS%tv, CS%t_dyn_rel_adv, CS%use_uh_particles)
+  endif
+
 
   if (CS%alternate_first_direction) then
     ! This calculation of the value of G%first_direction from the start of the accumulation of
@@ -2027,12 +2043,12 @@ subroutine step_offline(forces, fluxes, sfc_state, Time_start, time_interval, CS
 
   ! Check to see if vertical tracer functions should be done
   do_vertical = (first_iter .or. (accumulated_time >= vertical_time))
-  if (do_vertical) vertical_time = accumulated_time + real_to_time(US%T_to_s*dt_offline_vertical)
+  if (do_vertical) vertical_time = accumulated_time + real_to_time(dt_offline_vertical, unscale=US%T_to_s)
 
   ! Increment the amount of time elapsed since last read and check if it's time to roll around
-  accumulated_time = accumulated_time + real_to_time(US%T_to_s*time_interval)
+  accumulated_time = accumulated_time + real_to_time(time_interval, unscale=US%T_to_s)
 
-  last_iter = (accumulated_time >= real_to_time(US%T_to_s*dt_offline))
+  last_iter = (accumulated_time >= real_to_time(dt_offline, unscale=US%T_to_s))
 
   if (CS%use_ALE_algorithm) then
     ! If this is the first iteration in the offline timestep, then we need to read in fields and
@@ -2764,7 +2780,12 @@ subroutine initialize_MOM(Time, Time_init, param_file, dirs, CS, &
   call get_param(param_file, "MOM", "USE_PARTICLES", CS%use_particles, &
                  "If true, use the particles package.", default=.false.)
   call get_param(param_file, "MOM", "USE_UH_PARTICLES", CS%use_uh_particles, &
-                 "If true, use the uh velocity in the particles package.",default=.false.)
+                 "If true, use the uh velocity in the particles package.", &
+                 default=.false., do_not_log=.not.CS%use_particles)
+  call get_param(param_file, "MOM", "UH_PARTICLES_BUG", CS%uh_particles_bug, &
+                 "If true, use a bug in which the particles are advected inconsistently"//&
+                 "with the dynamics timestep instead of the tracer timestep.", &
+                 default=enable_bugs, do_not_log=.not.CS%use_uh_particles)
   CS%ensemble_ocean=.false.
   call get_param(param_file, "MOM", "ENSEMBLE_OCEAN", CS%ensemble_ocean, &
                  "If False, The model is being run in serial mode as a single realization. "//&
@@ -3162,7 +3183,7 @@ subroutine initialize_MOM(Time, Time_init, param_file, dirs, CS, &
   G%ke = GV%ke
 
   if (use_ice_shelf) then
-    point_calving=.false.; if (present(calve_ice_shelf_bergs)) point_calving=calve_ice_shelf_bergs
+    point_calving = .false. ; if (present(calve_ice_shelf_bergs)) point_calving = calve_ice_shelf_bergs
   endif
 
   if (CS%rotate_index) then
@@ -3297,7 +3318,9 @@ subroutine initialize_MOM(Time, Time_init, param_file, dirs, CS, &
     call calc_derived_thermo(CS%tv, CS%h, G, GV, US)
 
     ! Call this during initialization to fill boundary arrays from fixed values
-    call update_OBC_segment_data(G, GV, US, CS%OBC, CS%tv, CS%h, Time)
+    call read_OBC_segment_data(G, GV, US, CS%OBC, CS%tv, CS%h, Time)
+    call update_OBC_segment_data(G, GV, US, CS%OBC, CS%h, Time)
+    call initialize_OBC_segment_reservoirs(GV, CS%OBC)
   endif
 
   if (use_ice_shelf .and. CS%debug) then
@@ -3521,7 +3544,7 @@ subroutine initialize_MOM(Time, Time_init, param_file, dirs, CS, &
               cont_stencil=CS%cont_stencil, dyn_h_stencil=CS%dyn_h_stencil)
     endif
     if (CS%dtbt_reset_period > 0.0) then
-      CS%dtbt_reset_interval = real_to_time(US%T_to_s*CS%dtbt_reset_period)
+      CS%dtbt_reset_interval = real_to_time(CS%dtbt_reset_period, unscale=US%T_to_s)
       ! Set dtbt_reset_time to be the next even multiple of dtbt_reset_interval.
       CS%dtbt_reset_time = Time_init + CS%dtbt_reset_interval * &
                                  ((Time - Time_init) / CS%dtbt_reset_interval)
@@ -3549,7 +3572,7 @@ subroutine initialize_MOM(Time, Time_init, param_file, dirs, CS, &
 
   !Set OBC segment data update period
   if (associated(CS%OBC) .and. CS%dt_obc_seg_period > 0.0) then
-    CS%dt_obc_seg_interval = real_to_time(US%T_to_s*CS%dt_obc_seg_period)
+    CS%dt_obc_seg_interval = real_to_time(CS%dt_obc_seg_period, unscale=US%T_to_s)
     CS%dt_obc_seg_time = Time + CS%dt_obc_seg_interval
   endif
 
@@ -3983,8 +4006,8 @@ subroutine extract_surface_state(CS, sfc_state_in)
   G => CS%G ; G_in => CS%G_in ; GV => CS%GV ; US => CS%US
   is  = G%isc ; ie  = G%iec ; js  = G%jsc ; je  = G%jec ; nz = GV%ke
   isd = G%isd ; ied = G%ied ; jsd = G%jsd ; jed = G%jed
-  iscB = G%iscB ; iecB = G%iecB; jscB = G%jscB ; jecB = G%jecB
-  isdB = G%isdB ; iedB = G%iedB; jsdB = G%jsdB ; jedB = G%jedB
+  iscB = G%iscB ; iecB = G%iecB ; jscB = G%jscB ; jecB = G%jecB
+  isdB = G%isdB ; iedB = G%iedB ; jsdB = G%jsdB ; jedB = G%jedB
   h => CS%h
 
   use_temperature = associated(CS%tv%T)

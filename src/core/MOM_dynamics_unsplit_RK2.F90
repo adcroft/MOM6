@@ -68,7 +68,7 @@ use MOM_error_handler, only : MOM_error, MOM_mesg, FATAL, WARNING, is_root_pe
 use MOM_error_handler, only : MOM_set_verbosity
 use MOM_file_parser, only : get_param, log_param, log_version, param_file_type
 use MOM_get_input, only : directories
-use MOM_time_manager, only : time_type, time_type_to_real, operator(+)
+use MOM_time_manager, only : time_type, operator(+)
 use MOM_time_manager, only : operator(-), operator(>), operator(*), operator(/)
 
 use MOM_ALE, only : ALE_CS
@@ -260,7 +260,7 @@ subroutine step_MOM_dyn_unsplit_RK2(u_in, v_in, h_in, tv, visc, Time_local, dt, 
   dt_pred = dt * CS%BE
   cor_stencil = CoriolisAdv_stencil(CS%CoriolisAdv)
 
-  h_av(:,:,:) = 0; hp(:,:,:) = 0
+  h_av(:,:,:) = 0 ; hp(:,:,:) = 0
   up(:,:,:) = 0
   vp(:,:,:) = 0
 

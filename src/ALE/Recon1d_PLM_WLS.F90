@@ -17,6 +17,7 @@ public PLM_WLS, testing
 !! - average()                 *locally defined
 !! - f()                       *locally defined
 !! - dfdx()                    *locally defined
+!! - x()                    -> recon1d_type.x()
 !! - check_reconstruction()    *locally defined
 !! - unit_tests()              *locally defined
 !! - destroy()                 *locally defined
@@ -370,6 +371,16 @@ logical function unit_tests(this, verbose, stdout, stderr)
     um(k) = this%average(k, 0.5, 0.75) ! Average from x=0.5 to 0.75 in each cell
   enddo
   call test%real_arr(3, um, (/1.25,3.25,5.25/), "Return interval average")
+
+  call test%real_scalar( this%x(1,0.), 0., 'f-1(1,0)=0')
+  call test%real_scalar( this%x(1,1.), 0.5, 'f-1(1,1)=0.5')
+  call test%real_scalar( this%x(1,3.), 1., 'f-1(1,3)=1')
+  call test%real_scalar( this%x(2,1.), 0., 'f-1(2,1)=0')
+  call test%real_scalar( this%x(2,3.), 0.5, 'f-1(2,3)=0.5')
+  call test%real_scalar( this%x(2,5.), 1., 'f-1(2,5)=1')
+  call test%real_scalar( this%x(3,3.), 0., 'f-1(3,3)=0')
+  call test%real_scalar( this%x(3,5.), 0.5, 'f-1(3,5)=0.5')
+  call test%real_scalar( this%x(3,7.), 1., 'f-1(3,7)=1')
 
   call this%destroy()
   deallocate( um, ul, ur, ull, urr )

@@ -36,7 +36,7 @@ use MOM_restart,           only : register_restart_field, register_restart_pair
 use MOM_restart,           only : query_initialized, set_initialized, save_restart
 use MOM_restart,           only : only_read_from_restarts
 use MOM_restart,           only : restart_init, is_new_run, MOM_restart_CS
-use MOM_time_manager,      only : time_type, time_type_to_real, operator(+)
+use MOM_time_manager,      only : time_type, operator(+)
 use MOM_time_manager,      only : operator(-), operator(>), operator(*), operator(/)
 
 use MOM_ALE,                   only : ALE_CS, ALE_remap_velocities
@@ -668,7 +668,7 @@ subroutine step_MOM_dyn_split_RK2(u_inst, v_inst, h, tv, visc, Time_local, dt, f
   endif
 
   if (CS%BT_use_layer_fluxes) then
-    uh_ptr => uh_in ; vh_ptr => vh_in; u_ptr => u_inst ; v_ptr => v_inst
+    uh_ptr => uh_in ; vh_ptr => vh_in ; u_ptr => u_inst ; v_ptr => v_inst
   endif
 
   call cpu_clock_begin(id_clock_btstep)

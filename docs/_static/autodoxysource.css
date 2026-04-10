@@ -1,0 +1,83 @@
+/* Source browser styling for autodoxysource directive */
+
+.autodoxysource {
+  font-family: monospace;
+  font-size: 0.85em;
+  line-height: 1.4;
+  background: #f8f8f8;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 0.5em 0;
+  overflow-x: auto;
+  counter-reset: none;
+}
+
+.autodoxysource .source-line {
+  display: block;
+  white-space: pre;
+  padding: 0 0.8em 0 0;
+  min-height: 1.4em;
+}
+
+.autodoxysource .source-line:target {
+  background-color: #ffffcc;
+}
+
+.autodoxysource .source-lineno {
+  display: inline-block;
+  width: 4.5em;
+  text-align: right;
+  padding-right: 0.8em;
+  margin-right: 0.8em;
+  color: #999;
+  border-right: 1px solid #ddd;
+  text-decoration: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.autodoxysource .source-lineno:hover {
+  color: #333;
+}
+
+/* Doxygen highlight classes */
+.f-hl-comment {
+  color: #408080;
+  font-style: italic;
+}
+
+.f-hl-keyword {
+  color: #008000;
+  font-weight: bold;
+}
+
+.f-hl-keywordtype {
+  color: #b00040;
+}
+
+.f-hl-keywordflow {
+  color: #008000;
+  font-weight: bold;
+}
+
+.f-hl-stringliteral {
+  color: #ba2121;
+}
+
+.f-hl-preprocessor {
+  color: #bc7a00;
+}
+
+.f-hl-normal {
+  color: #333;
+}
+
+/* Make xref links within source subtle */
+.autodoxysource a.reference {
+  text-decoration: none;
+  border-bottom: 1px dotted #999;
+}
+
+.autodoxysource a.reference:hover {
+  border-bottom: 1px solid #333;
+}

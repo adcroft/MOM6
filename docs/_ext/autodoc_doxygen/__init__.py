@@ -52,6 +52,7 @@ def setup(app):
     )
     from .autosummary import DoxygenAutosummary, DoxygenAutoEnum
     from .autosummary.generate import process_generate_options
+    from .autodoxysource import AutoDoxySourceDirective
 
     app.connect("builder-inited", set_doxygen_xml)
     app.connect("builder-inited", process_generate_options)
@@ -69,5 +70,8 @@ def setup(app):
 
     app.add_directive('autodoxysummary', DoxygenAutosummary)
     app.add_directive('autodoxyenum', DoxygenAutoEnum)
+    app.add_directive('autodoxysource', AutoDoxySourceDirective)
+
+    app.add_css_file('autodoxysource.css')
 
     return {'version': sphinx.__display_version__, 'parallel_read_safe': True}

@@ -358,3 +358,180 @@ Sphinx 3.2.1 drags them in.
 - **Not chasing zero warnings.** The existing build has warnings; we
   will preserve the current signal-to-noise ratio, not try to fix
   longstanding doc issues in the same PR.
+
+---
+
+## What we actually did
+
+Everything above this section is the original forward-looking plan,
+preserved for provenance. The work landed roughly along those four
+pieces but with a number of unanticipated additions, and one large
+performance discovery that the plan did not foresee at all. This
+section is the retrospective record.
+
+### Commit chain on `doc-test`
+
+In dependency order:
+
+1. **Vendor `sphinxcontrib-autodoc_doxygen` into `docs/_ext/`** -
+   piece 1 of the plan. Copies the `0.7.13` release of
+   `jr3cermak/sphinxcontrib-autodoc_doxygen` into the repo, removes
+   ~80 lines of dead code (commented-out pdb traces, the unused
+   `DoxygenClassDocumenter`, `_import_by_name_original`,
+   `visit_ref_angus`, the `flint` try-import, `from __future__` and
+   `six` shims), and ports four Sphinx 3 → 8 API changes (pass
+   `self.bridge` not `self` to documenter constructors,
+   `self.warn` → `logger.warning`, `os.fspath` for `env.doc2path`,
+   etc.).
+2. **Swap `jr3cermak/sphinx-fortran` for upstream `VACUMM` pinned
+   commit** - piece 2. Drops the fork dependency and pins to a
+   specific upstream master commit. The `conf.py` monkey-patch for
+   `FortranDomain.merge_domaindata` (added in commit 1) handles
+   upstream's broken parallel-build merge.
+3. **Drop `jr3cermak/sphinx` fork for stock Sphinx 8** - piece 3.
+   Removes the forked Sphinx pin, replaces it with a stock
+   `sphinx>=8,<9` from PyPI, and drops eight transitive ceiling pins
+   (`jinja2<3.1`, the five `sphinxcontrib_*<...`, `alabaster<0.7.14`,
+   `setuptools<82.0.0`) that only existed because the forked Sphinx
+   3.2.1 dragged them in. Adds the `wrap_displaymath` monkey-patch
+   to `conf.py` (the only functional change the forked Sphinx
+   carried) and moves the `UPDATEHTMLEQS` post-processing hook from
+   the forked `sphinx/cmd/build.py` into the `Makefile`'s `html`
+   target. Tightens `exclude_patterns` so Sphinx stops walking local
+   `venv*` directories.
+4. **Drop `flint` dependency from docs build** - piece 4. After
+   verifying empirically that nothing in the pipeline references
+   `flint`, removes it from `requirements.txt` and from the README.
+5. **Update `docs/README.md` to match the modernized toolchain** -
+   not in the original plan. Sweeps the README for stale references
+   to the old four-fork toolchain (Requirements bullet list,
+   Credits section, doxygen install instructions, RTD note).
+6. **Fix crash in `autodoc_doxygen.visit_image` on empty `<image>`
+   elements** - not in the original plan. The fork's `visit_image`
+   called `node.text.strip()` unconditionally, which crashes when
+   doxygen produces an empty `<image/>` element (no caption text).
+   Did not surface during piece-1 validation because we were testing
+   against a shortened doxygen input list that did not include any
+   of the affected pages.
+7. **Ignore Python bytecode cache in `docs/`** - not in the original
+   plan. Adds `__pycache__` and `*.pyc` to `docs/.gitignore` so the
+   bytecode that the vendored `_ext/autodoc_doxygen` generates at
+   build time stops appearing in `git status`.
+8. **Parallel build on RTD** - not in the original plan, but
+   anticipated as a follow-up. Replaces the high-level `sphinx:`
+   key in `.readthedocs.yml` with a `build.jobs.build.html`
+   override that runs `sphinx-build -M html docs $READTHEDOCS_OUTPUT
+   -j auto`, since the high-level `sphinx:` key has no parallelism
+   option and `SPHINXOPTS` is ignored by RTD's default sphinx runner.
+9. **Make `doxygen_xml` path robust to cwd changes on RTD** - not in
+   the plan. Surfaced when the first parallel RTD build failed with
+   `ExtensionError: No doxygen xml output found in
+   doxygen_xml="xml"`. Two complementary fixes: `conf.py` now
+   resolves `doxygen_xml` to an absolute path via `__file__`, and
+   `set_doxygen_xml` resolves any bare relative path against
+   `app.confdir` rather than the ambient cwd.
+10. **`sphinx: use as many cores as possible`** - not in the plan.
+    Switches the local `Makefile`'s `make html` rule from `-j 4` to
+    `-j auto` to match RTD.
+11. **Fix quadratic XPath in `autodoc_doxygen` `scanNode`** - not in
+    the plan, and the largest single change in the entire upgrade.
+    See the dedicated section below.
+
+### The performance discovery (commit 11)
+
+The original plan said nothing about performance. It assumed the
+toolchain swap was the whole job. Once everything else was in place
+and we tried the first full-input build on RTD, the build hit the
+15-minute Read the Docs timeout. Locally the same build took ~6m33
+of wall clock and burned ~100 minutes of CPU across `-j auto`
+workers - not catastrophic on a beefy local machine, but disastrous
+on RTD's two slow cores.
+
+The investigation went through several wrong hypotheses (xref
+resolution, the autosummary table emitter, `:callto:`/`:calledfrom:`)
+before we did the obvious thing and profiled with cProfile on a
+serial build. The profile pinned 75% of total wall clock self-time
+to one function: `_DoxygenXmlParagraphFormatter.scanNode` in
+`docs/_ext/autodoc_doxygen/xmlutils.py`.
+
+The bug was three character-level XPath errors. `scanNode` used:
+
+    node.xpath('//latexonly')
+    node.xpath('//htmlonly')
+    node.xpath('//image[@type="latex"]')
+
+In XPath, `//foo` is shorthand for
+`/descendant-or-self::node()/foo` -- starting from the *document
+root*, not from `node`. The autodoc_doxygen extension merges every
+file under `xml/` into a single in-memory lxml tree (see
+`set_doxygen_xml`), so the owner document of every node passed to
+`format_xml_paragraph` is the entire MOM6 doxygen output. Every
+call to `scanNode` was therefore scanning the entire merged
+doxygen XML tree (1230+ files at full input scale), and
+`scanNode` is called once per `format_xml_paragraph`, of which
+there are tens of thousands per build. Cost was `O(N · M)` where
+N is the number of documented entities and M is the size of the
+merged doxygen tree.
+
+Fix: change all three to `.//foo`, which is the correct
+"descendant-or-self relative to the current node" form. Each call
+now scans only the local subtree of the actual node being
+formatted (typically a single `<detaileddescription>`), which is
+what was always intended.
+
+Measured at full MOM6 input scale (292 modules, 2773 f-domain
+objects, 367 generated HTML files, 1230 doxygen XML files merged):
+
+| Metric             | Before    | After    | Ratio |
+| ------------------ | --------- | -------- | ----- |
+| Wall clock         | 6m33s     | 48.8s    | 8.05× |
+| User CPU           | 6022s     | 127s     | 47×   |
+| Observed parallel. | 15.3×     | 2.6×     | -     |
+| Warnings           | 287       | 287      | =     |
+| Modules / objects  | 292 / 2773| 292 / 2773 | = |
+| HTML files         | 367       | 367      | =     |
+
+Output is bit-equivalent. The fix removes work, it does not
+change behavior. The drop in observed parallelism is the
+clean signature: there is simply much less CPU work to
+parallelize once `scanNode` is no longer quadratic.
+
+Lesson learned: profile before patching when the symptom is
+"slow." Three earlier patches (qualified xrefs in
+`get_table`, qualified xrefs in `visit_ref`, the
+`:callto:`/`:calledfrom:` qualifier work) were written on
+plausible-but-unverified hypotheses about where the cost was
+and were correctly reverted before commit because none of
+them moved wall clock. cProfile pointed at the right
+function in one run.
+
+### Updated `requirements.txt` (actual, not target)
+
+```
+sphinx>=8,<9
+sphinx-rtd-theme
+sphinxcontrib-bibtex
+lxml
+numpy
+git+https://github.com/VACUMM/sphinx-fortran.git@<sha>#egg=sphinx-fortran
+six
+```
+
+Down from 19 lines to 8. Zero `jr3cermak/*` dependencies. The
+`six` line is still required because the pinned `VACUMM/sphinx-fortran`
+commit imports `six` at module load time; it can be removed once an
+upstream PR drops the import.
+
+The `lxml` dep is explicit (the vendored `_ext/autodoc_doxygen`
+extension parses doxygen XML with lxml) - it was previously dragged
+in transitively by the fork's setup.py.
+
+### Outstanding work
+
+See `REMAINING_TASKS.md` for the deferred items, which include the
+two upstream PRs (`sphinxfortran/fortran_domain.merge_domaindata`,
+`sphinx.util.math.wrap_displaymath`), a content-level fix for the
+"more than one target found for cross-reference" warnings that
+surface at full input scale, validation of `make latexpdf` against
+a real TeX install, and a few conservative defaults that can be
+loosened later.

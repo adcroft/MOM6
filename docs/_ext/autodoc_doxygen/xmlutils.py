@@ -1,6 +1,6 @@
 import re
 
-from . import get_doxygen_root
+from . import get_doxygen_root, get_doxygen_id_index
 
 
 def flatten(xmlnode):
@@ -262,14 +262,15 @@ class _DoxygenXmlParagraphFormatter(object):
         ream_name = None
         kind = None
 
-        # debug
-        #if refid == 'General_Coordinate':
-        ref = get_doxygen_root().findall('.//*[@id="%s"]' % refid)
+        # O(1) lookup via the lazily-built id -> element index.
+        # The previous findall('.//*[@id=X]') on the merged tree was the
+        # single largest cost in `make html` under XML_PROGRAMLISTING=YES
+        # -- see docs/REMAINING_TASKS.md / profile notes.
+        hit = get_doxygen_id_index().get(refid)
         if self.verbosity > 0: print("[debug] refid(%s) kindref(%s) ref(%s)" %
-            (refid, node.get('kindref'), ref))
-        #if refid.find('wright1997') >= 0:
-        if ref:
-            ref = ref[0]
+            (refid, node.get('kindref'), hit))
+        if hit is not None:
+            ref = hit
             kind = ref.get('kind')
             if self.verbosity > 0: print("[debug] ref(%s)" % ref.items())
             if ref.tag == 'memberdef':

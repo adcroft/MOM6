@@ -595,26 +595,20 @@ class DoxygenTypeDocumenter(DoxygenDocumenter):
             self.env.config.sphinx_build_mode, verbosity=self.env.app.verbosity)]
 
         for member in self.object.findall('./sectiondef/memberdef'):
-            attribs = flatten(member.find('type')).strip().split(', ')
             name = member.find('name').text
-            shape = ''
-            rest = ''
+            type_el = member.find('type')
+            full_type = ''.join(type_el.itertext()).strip() if type_el is not None else ''
 
-            # very rudimentary parsing of type attributes
-            # into the Fortran domain format
-            for word in attribs:
-                if word.startswith('dimension'):
-                    shape = word[len('dimension'):].replace(':', r'\:')
-
-            extras = [w for w in attribs[1:] if not w.startswith('dimension')]
             if member.get('prot') == 'private':
-                extras.append('private')
-            if len(extras):
-                rest = ' [' + ', '.join(extras) + ']'
+                if full_type:
+                    full_type += ', private'
+                else:
+                    full_type = 'private'
 
-            field = ':typefield %s%s %s%s:' % (attribs[0], shape, name, rest)
+            field = ':typefield %s:' % name
+            if full_type:
+                field += ' ``%s``' % full_type
 
-            # look for the brief description paragraph
             brief = member.find('briefdescription/para')
             if brief is not None:
                 field += ' ' + brief.text

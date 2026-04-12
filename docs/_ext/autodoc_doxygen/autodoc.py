@@ -503,14 +503,14 @@ class DoxygenMethodDocumenter(DoxygenDocumenter):
         if typefield is None:
             rtype = None
         elif 'function' in typefield:
-            # get the return type
-            # watch for different patterns
-            m = re.search(r'(\S+)\s+function', typefield)
-            if m:
-                rtype = m.group(0)
-            else:
-                rtype = 'function'
-                print('ERROR searching for return type in', typefield)
+            # Don't include the return type in the directive name.
+            # sphinx-fortran's f_sig_re regex only matches
+            # "function name(args)" or bare "name(args)"; a return
+            # type prefix like "real name(args)" causes the regex
+            # to fail, leaving the function unregistered and
+            # unclickable. The f:function directive already labels
+            # the entry as "function".
+            rtype = None
         else:
             rtype = 'subroutine' if 'subroutine' in typefield else 'unknown'
 

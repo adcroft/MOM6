@@ -138,58 +138,77 @@ class AutoDoxySourceDirective(Directive):
             logger.warning('autodoxysource: no programlisting in %s', file_id)
             return [nodes.paragraph('', 'Source listing not available.')]
 
-        # Outer wrapper
+        # Outer wrapper. support_smartquotes=False propagates to all
+        # descendants via sphinx.util.nodes.is_smartquotable, so every
+        # text node inside the listing is skipped by the smartquotes
+        # transform -- a meaningful speedup on 329 large source pages.
         table = nodes.container(classes=['autodoxysource'])
+        table['support_smartquotes'] = False
 
         for codeline in programlisting.findall('codeline'):
             lineno = codeline.get('lineno', '')
 
+            # Per-line container carries the #L<N> anchor via ``ids``;
+            # the previous standalone ``target`` node was dropped to
+            # cut a node per line. The inner ``source-code`` inline
+            # wrapper is kept because Sphinx's HTML writer asserts
+            # that ``reference`` nodes (produced when pending_xrefs
+            # resolve) have a ``TextElement`` parent.
             line_node = nodes.container(classes=['source-line'])
+            if lineno:
+                line_node['ids'] = ['L' + lineno]
 
-            # Anchor target for #L<N> links
-            target = nodes.target('', '', ids=['L' + lineno])
-            line_node += target
+            line_node += nodes.inline(lineno, lineno,
+                                      classes=['source-lineno'])
 
-            # Line number display
-            ln = nodes.inline(lineno, lineno, classes=['source-lineno'])
-            line_node += ln
-
-            # Code content container
             code_node = nodes.inline(classes=['source-code'])
-
             for hl in codeline:
                 if hl.tag != 'highlight':
                     continue
                 css = _HL_CSS.get(hl.get('class', 'normal'), 'f-hl-normal')
                 _walk_highlight(hl, css, code_node)
-
             line_node += code_node
+
             table += line_node
 
         return [table]
 
 
 def _walk_highlight(hl, css_class, parent):
-    """Walk mixed content of a <highlight> element, appending nodes to *parent*."""
-    # Leading text of the <highlight> element itself
+    """Walk mixed content of a <highlight> element, appending nodes to
+    *parent*.
+
+    Text fragments are coalesced: consecutive characters with the same
+    CSS class (including ``<sp/>`` expansions and tail text) are
+    flushed as a single ``inline`` node rather than one per fragment.
+    Before coalescing, a typical line emitted 10-30 nodes; after, it
+    emits closer to 3-5. Node count drives pickling, transform walks,
+    and HTML writing cost linearly for the source-listing pages.
+    """
+    buf = []
+
+    def flush():
+        if buf:
+            text = ''.join(buf)
+            parent.append(nodes.inline(text, text, classes=[css_class]))
+            buf.clear()
+
     if hl.text:
-        parent += nodes.inline(hl.text, hl.text, classes=[css_class])
+        buf.append(hl.text)
 
     for child in hl:
         if child.tag == 'sp':
-            parent += nodes.Text(' ')
+            buf.append(' ')
         elif child.tag == 'ref':
+            flush()
             _emit_ref(child, css_class, parent)
-        else:
-            # Unknown child — render as plain text
-            if child.text:
-                parent += nodes.inline(child.text, child.text,
-                                       classes=[css_class])
+        elif child.text:
+            buf.append(child.text)
 
-        # Tail text after the closing tag of this child
         if child.tail:
-            parent += nodes.inline(child.tail, child.tail,
-                                   classes=[css_class])
+            buf.append(child.tail)
+
+    flush()
 
 
 def _emit_ref(ref_el, css_class, parent):

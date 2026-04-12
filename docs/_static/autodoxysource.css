@@ -1,22 +1,31 @@
-/* Source browser styling for autodoxysource directive */
+/* Source browser styling for autodoxysource directive.
+   Font stack and sizes match the sphinx_rtd_theme's code-block rules
+   so source listings look consistent with fenced code blocks. */
 
 .autodoxysource {
-  font-family: monospace;
-  font-size: 0.85em;
-  line-height: 1.4;
+  font-family: SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+               "Courier New", Courier, monospace;
+  font-size: 12px;
+  line-height: 1.2;
   background: #f8f8f8;
-  border: 1px solid #ddd;
+  border: 1px solid #e1e4e5;
   border-radius: 4px;
-  padding: 0.5em 0;
+  padding: 12px 0;
   overflow-x: auto;
-  counter-reset: none;
+  min-width: fit-content;
+  max-width: calc(6.5em + 120ch + 24px);
 }
 
 .autodoxysource .source-line {
   display: block;
+  white-space: nowrap;
+  margin: 0;
+  padding: 0 12px 0 0;
+  line-height: 1.2;
+}
+
+.autodoxysource .source-code {
   white-space: pre;
-  padding: 0 0.8em 0 0;
-  min-height: 1.4em;
 }
 
 .autodoxysource .source-line:target {
@@ -29,8 +38,8 @@
   text-align: right;
   padding-right: 0.8em;
   margin-right: 0.8em;
-  color: #999;
-  border-right: 1px solid #ddd;
+  color: #858585;
+  border-right: 1px solid #e6e9ea;
   text-decoration: none;
   -webkit-user-select: none;
   user-select: none;
@@ -74,10 +83,12 @@
 
 /* Make xref links within source subtle */
 .autodoxysource a.reference {
+  color: inherit;
   text-decoration: none;
   border-bottom: 1px dotted #999;
 }
 
 .autodoxysource a.reference:hover {
   border-bottom: 1px solid #333;
+  color: #2980b9;
 }

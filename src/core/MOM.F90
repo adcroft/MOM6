@@ -128,7 +128,7 @@ use MOM_porous_barriers,       only : porous_widths_layer, porous_widths_interfa
 use MOM_porous_barriers,       only : porous_barrier_CS
 use MOM_set_visc,              only : set_viscous_BBL, set_viscous_ML, set_visc_CS
 use MOM_set_visc,              only : set_visc_register_restarts, remap_vertvisc_aux_vars
-use MOM_set_visc,              only : set_visc_init, set_visc_end
+use MOM_set_visc,              only : set_visc_init, set_visc_end, set_shelf_exp_decay
 use MOM_shared_initialization, only : write_ocean_geometry_file
 use MOM_sponge,                only : init_sponge_diags, sponge_CS
 use MOM_state_initialization,  only : MOM_initialize_state, MOM_initialize_OBCs
@@ -960,6 +960,12 @@ subroutine step_MOM(forces_in, fluxes_in, sfc_state, Time_start, time_int_in, CS
           CS%p_surf_begin(i,j) = wt_beg * forces%p_surf(i,j) + &
                           (1.0-wt_beg) * CS%p_surf_prev(i,j)
         enddo ; enddo
+      endif
+
+      if (allocated(CS%visc%uvdecay2d_h)) then
+        call enable_averages(dt, Time_local, CS%diag)
+        call set_shelf_exp_decay(CS%visc, fluxes, h, G, GV, US, CS%set_visc_CSp)
+        call disable_averaging(CS%diag)
       endif
 
       call step_MOM_dynamics(forces, CS%p_surf_begin, CS%p_surf_end, dt, &

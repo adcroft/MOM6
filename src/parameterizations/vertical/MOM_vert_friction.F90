@@ -592,6 +592,7 @@ subroutine vertvisc(u, v, h, forces, visc, dt, OBC, ADp, CDp, G, GV, US, CS, &
                            ! than this are diagnosed as 0 [L T-2 ~> m s-2].
   real :: zDS, h_a         ! Temporary thickness variables used with direct_stress [H ~> m or kg m-2]
   real :: hfr              ! Temporary ratio of thicknesses used with direct_stress [nondim]
+  real :: onepdamp         ! 1 + dt * an exponential decay rate [nondim]
   real :: surface_stress(SZIB_(G), SZJB_(G))
     ! The same as stress, unless the wind stress is applied as a body force
     ! [H L T-1 ~> m2 s-1 or kg m-1 s-1].
@@ -730,8 +731,10 @@ subroutine vertvisc(u, v, h, forces, visc, dt, OBC, ADp, CDp, G, GV, US, CS, &
   do j=G%jsc,G%jec ; do I=Isq,Ieq ; if (G%mask2dCu(I,j) > 0.) then
     Ray = 0.
     if (allocated(visc%Ray_u)) Ray = visc%Ray_u(I,j,1)
+    onepdamp = 1.
+    if (allocated(visc%uvdecay2d_h)) onepdamp = 1. + 0.5 * dt * ( visc%uvdecay2d_h(i,j) + visc%uvdecay2d_h(i+1,j) )
 
-    b_denom_1 = CS%h_u(I,j,1) + dt * (Ray + CS%a_u(I,j,1))
+    b_denom_1 = onepdamp * CS%h_u(I,j,1) + dt * (Ray + CS%a_u(I,j,1))
     b1 = 1. / (b_denom_1 + dt * CS%a_u(I,j,2))
     d1 = b_denom_1 * b1
     u(I,j,1) = b1 * (CS%h_u(I,j,1) * u(I,j,1) + surface_stress(I,j))
@@ -744,7 +747,7 @@ subroutine vertvisc(u, v, h, forces, visc, dt, OBC, ADp, CDp, G, GV, US, CS, &
       if (allocated(visc%Ray_u)) Ray = visc%Ray_u(I,j,k)
 
       c1(k) = dt * CS%a_u(I,j,K) * b1
-      b_denom_1 = CS%h_u(I,j,k) + dt * (Ray + CS%a_u(I,j,K) * d1)
+      b_denom_1 = onepdamp * CS%h_u(I,j,k) + dt * (Ray + CS%a_u(I,j,K) * d1)
       b1 = 1. / (b_denom_1 + dt * CS%a_u(I,j,K+1))
       d1 = b_denom_1 * b1
       u(I,j,k) = (CS%h_u(I,j,k) * u(I,j,k) + dt * CS%a_u(I,j,K) * u(I,j,k-1)) * b1
@@ -781,7 +784,9 @@ subroutine vertvisc(u, v, h, forces, visc, dt, OBC, ADp, CDp, G, GV, US, CS, &
   if ((CS%id_du_dt_visc_gl90 > 0) .or. (CS%id_GLwork > 0)) then
     if (associated(ADp%du_dt_visc_gl90)) then
       do j=G%jsc,G%jec ; do I=Isq,Ieq ; if (G%mask2dCu(I,j) > 0.) then
-        b_denom_1 = CS%h_u(I,j,1)  ! CS%a_u_gl90(I,j,1) is zero
+        onepdamp = 1.
+        if (allocated(visc%uvdecay2d_h)) onepdamp = 1. + 0.5 * dt * ( visc%uvdecay2d_h(i,j) + visc%uvdecay2d_h(i+1,j) )
+        b_denom_1 = onepdamp * CS%h_u(I,j,1)  ! CS%a_u_gl90(I,j,1) is zero
         b1 = 1.0 / (b_denom_1 + dt * CS%a_u_gl90(I,j,2))
         d1 = b_denom_1 * b1
 
@@ -789,7 +794,7 @@ subroutine vertvisc(u, v, h, forces, visc, dt, OBC, ADp, CDp, G, GV, US, CS, &
 
         do k=2,nz
           c1(k) = dt * CS%a_u_gl90(I,j,K) * b1
-          b_denom_1 = CS%h_u(I,j,k) + dt * (CS%a_u_gl90(I,j,K)*d1)
+          b_denom_1 = onepdamp * CS%h_u(I,j,k) + dt * (CS%a_u_gl90(I,j,K)*d1)
           b1 = 1.0 / (b_denom_1 + dt * CS%a_u_gl90(I,j,K+1))
           d1 = b_denom_1 * b1
 
@@ -924,8 +929,10 @@ subroutine vertvisc(u, v, h, forces, visc, dt, OBC, ADp, CDp, G, GV, US, CS, &
   do J=Jsq,Jeq ; do i=is,ie ; if (G%mask2dCv(i,J) > 0.) then
     Ray = 0.
     if (allocated(visc%Ray_v)) Ray = visc%Ray_v(i,J,1)
+    onepdamp = 1.
+    if (allocated(visc%uvdecay2d_h)) onepdamp = 1. + 0.5 * dt * ( visc%uvdecay2d_h(i,j) + visc%uvdecay2d_h(i,j+1) )
 
-    b_denom_1 = CS%h_v(i,J,1) + dt * (Ray + CS%a_v(i,J,1))
+    b_denom_1 = onepdamp * CS%h_v(i,J,1) + dt * (Ray + CS%a_v(i,J,1))
     b1 = 1.0 / (b_denom_1 + dt*CS%a_v(i,J,2))
     d1 = b_denom_1 * b1
     v(i,J,1) = b1 * (CS%h_v(i,J,1) * v(i,J,1) + surface_stress(i,J))
@@ -938,7 +945,7 @@ subroutine vertvisc(u, v, h, forces, visc, dt, OBC, ADp, CDp, G, GV, US, CS, &
       if (allocated(visc%Ray_v)) Ray = visc%Ray_v(i,J,k)
 
       c1(k) = dt * CS%a_v(i,J,K) * b1
-      b_denom_1 = CS%h_v(i,J,k) + dt * (Ray + CS%a_v(i,J,K) * d1)
+      b_denom_1 = onepdamp * CS%h_v(i,J,k) + dt * (Ray + CS%a_v(i,J,K) * d1)
       b1 = 1. / (b_denom_1 + dt * CS%a_v(i,J,K+1))
       d1 = b_denom_1 * b1
       v(i,J,k) = (CS%h_v(i,J,k) * v(i,J,k) + dt * CS%a_v(i,J,K) * v(i,J,k-1)) * b1
@@ -975,14 +982,16 @@ subroutine vertvisc(u, v, h, forces, visc, dt, OBC, ADp, CDp, G, GV, US, CS, &
   if ((CS%id_dv_dt_visc_gl90 > 0) .or. (CS%id_GLwork > 0)) then
     if (associated(ADp%dv_dt_visc_gl90)) then
       do J=Jsq,Jeq ; do i=is,ie ; if (G%mask2dCv(i,J) > 0.) then
-        b_denom_1 = CS%h_v(i,J,1)  ! CS%a_v_gl90(i,J,1) is zero
+        onepdamp = 1.
+        if (allocated(visc%uvdecay2d_h)) onepdamp = 1. + 0.5 * dt * ( visc%uvdecay2d_h(i,j) + visc%uvdecay2d_h(i,j+1) )
+        b_denom_1 = onepdamp * CS%h_v(i,J,1)  ! CS%a_v_gl90(i,J,1) is zero
         b1 = 1.0 / (b_denom_1 + dt*CS%a_v_gl90(i,J,2))
         d1 = b_denom_1 * b1
         ADp%dv_dt_visc_gl90(I,J,1) = b1 * (CS%h_v(i,J,1) * ADp%dv_dt_visc_gl90(i,J,1))
 
         do k=2,nz
           c1(k) = dt * CS%a_v_gl90(i,J,K) * b1
-          b_denom_1 = CS%h_v(i,J,k) + dt * (CS%a_v_gl90(i,J,K) * d1)
+          b_denom_1 = onepdamp * CS%h_v(i,J,k) + dt * (CS%a_v_gl90(i,J,K) * d1)
           b1 = 1.0 / (b_denom_1 + dt * CS%a_v_gl90(i,J,K+1))
           d1 = b_denom_1 * b1
           ADp%dv_dt_visc_gl90(i,J,k) = (CS%h_v(i,J,k) * ADp%dv_dt_visc_gl90(i,J,k) &
@@ -1180,6 +1189,7 @@ subroutine vertvisc_remnant(visc, visc_rem_u, visc_rem_v, dt, G, GV, US, CS)
     ! d1=1-c1 is used by the tridiagonal solver [nondim].
   real :: Ray
     ! Ray is the Rayleigh-drag velocity [H T-1 ~> m s-1 or Pa s m-1]
+  real :: onepdamp ! 1 + dt * an exponential decay rate [nondim]
   real :: b_denom_1
     ! The first term in the denominator of b1 [H ~> m or kg m-2].
 
@@ -1198,8 +1208,10 @@ subroutine vertvisc_remnant(visc, visc_rem_u, visc_rem_v, dt, G, GV, US, CS)
   do j=G%jsc,G%jec ; do I=Isq,Ieq ; if (G%mask2dCu(I,j) > 0.) then
     Ray = 0.
     if (allocated(visc%Ray_u)) Ray = visc%Ray_u(I,j,1)
+    onepdamp = 1.
+    if (allocated(visc%uvdecay2d_h)) onepdamp = 1. + 0.5 * dt * ( visc%uvdecay2d_h(i,j) + visc%uvdecay2d_h(i+1,j) )
 
-    b_denom_1 = CS%h_u(I,j,1) + dt * (Ray + CS%a_u(I,j,1))
+    b_denom_1 = onepdamp * CS%h_u(I,j,1) + dt * (Ray + CS%a_u(I,j,1))
     b1 = 1.0 / (b_denom_1 + dt * CS%a_u(I,j,2))
     d1 = b_denom_1 * b1
     visc_rem_u(I,j,1) = b1 * CS%h_u(I,j,1)
@@ -1208,7 +1220,7 @@ subroutine vertvisc_remnant(visc, visc_rem_u, visc_rem_v, dt, G, GV, US, CS)
       if (allocated(visc%Ray_u)) Ray = visc%Ray_u(I,j,k)
 
       c1(k) = dt * CS%a_u(I,j,K) * b1
-      b_denom_1 = CS%h_u(I,j,k) + dt * (Ray + CS%a_u(I,j,K) * d1)
+      b_denom_1 = onepdamp * CS%h_u(I,j,k) + dt * (Ray + CS%a_u(I,j,K) * d1)
       b1 = 1.0 / (b_denom_1 + dt * CS%a_u(I,j,K+1))
       d1 = b_denom_1 * b1
       visc_rem_u(I,j,k) = (CS%h_u(I,j,k) + dt * CS%a_u(I,j,K) * visc_rem_u(I,j,k-1)) * b1
@@ -1227,8 +1239,10 @@ subroutine vertvisc_remnant(visc, visc_rem_u, visc_rem_v, dt, G, GV, US, CS)
   do J=Jsq,Jeq ; do i=is,ie ; if (G%mask2dCv(i,J) > 0.) then
     Ray = 0.
     if (allocated(visc%Ray_v)) Ray = visc%Ray_v(i,J,1)
+    onepdamp = 1.
+    if (allocated(visc%uvdecay2d_h)) onepdamp = 1. +  0.5 * dt * ( visc%uvdecay2d_h(i,j) + visc%uvdecay2d_h(i,j+1) )
 
-    b_denom_1 = CS%h_v(i,J,1) + dt * (Ray + CS%a_v(i,J,1))
+    b_denom_1 = onepdamp * CS%h_v(i,J,1) + dt * (Ray + CS%a_v(i,J,1))
     b1 = 1.0 / (b_denom_1 + dt*CS%a_v(i,J,2))
     d1 = b_denom_1 * b1
     visc_rem_v(i,J,1) = b1 * CS%h_v(i,J,1)
@@ -1237,7 +1251,7 @@ subroutine vertvisc_remnant(visc, visc_rem_u, visc_rem_v, dt, G, GV, US, CS)
       if (allocated(visc%Ray_v)) Ray = visc%Ray_v(i,J,k)
 
       c1(k) = dt * CS%a_v(i,J,K) * b1
-      b_denom_1 = CS%h_v(i,J,k) + dt * (Ray + CS%a_v(i,J,K) * d1)
+      b_denom_1 = onepdamp * CS%h_v(i,J,k) + dt * (Ray + CS%a_v(i,J,K) * d1)
       b1 = 1.0 / (b_denom_1 + dt * CS%a_v(i,J,K+1))
       d1 = b_denom_1 * b1
       visc_rem_v(i,J,k) = (CS%h_v(i,J,k) + dt * CS%a_v(i,J,K) * visc_rem_v(i,J,k-1)) * b1

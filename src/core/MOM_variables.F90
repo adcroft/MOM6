@@ -290,6 +290,8 @@ type, public :: vertvisc_type
   real, allocatable, dimension(:,:,:) :: &
     Ray_u, &    !< The Rayleigh drag velocity to be applied to each layer at u-points [H T-1 ~> m s-1 or Pa s m-1].
     Ray_v       !< The Rayleigh drag velocity to be applied to each layer at v-points [H T-1 ~> m s-1 or Pa s m-1].
+  real, allocatable, dimension(:,:) :: &
+    uvdecay2d_h !< An exponential decay rate to be applied to flow in all layers, provided at h-points [T-1 ~> s-].
 
   ! The following elements are pointers so they can be used as targets for pointers in the restart registry.
   real, pointer, dimension(:,:) :: MLD => NULL()  !< Instantaneous active mixing layer depth [Z ~> m].

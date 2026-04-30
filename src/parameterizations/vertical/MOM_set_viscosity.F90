@@ -41,7 +41,7 @@ implicit none ; private
 
 public set_viscous_BBL, set_viscous_ML, set_visc_init, set_visc_end
 public set_visc_register_restarts, set_u_at_v, set_v_at_u
-public remap_vertvisc_aux_vars
+public remap_vertvisc_aux_vars, set_shelf_exp_decay
 
 ! A note on unit descriptions in comments: MOM6 uses units that can be rescaled for dimensional
 ! consistency testing. These are noted in comments with units like Z, H, L, and T, along with
@@ -117,6 +117,8 @@ type, public :: set_visc_CS ; private
                             !! accounts for conversion of amplitude to mean magnitude over
                             !! a time average much longer than the tidal periods and for
                             !! non-commuting conversion of mean tideamp to mean ustar**3 [nondim]
+  real    :: shelf_uv_exp_decay_rate !< A decay rate used to scale a 2D function an apply an exponential
+                            !! decay to flow in all layers [T-1 ~> s-1]
   logical :: concave_trigonometric_L  !< If true, use trigonometric expressions to determine the
                             !! fractional open interface lengths for concave topography.
   integer :: answer_date    !< The vintage of the order of arithmetic and expressions in the set
@@ -140,7 +142,7 @@ type, public :: set_visc_CS ; private
   !>@{ Diagnostics handles
   integer :: id_bbl_thick_u = -1, id_kv_bbl_u = -1, id_bbl_u = -1
   integer :: id_bbl_thick_v = -1, id_kv_bbl_v = -1, id_bbl_v = -1
-  integer :: id_Ray_u = -1, id_Ray_v = -1
+  integer :: id_Ray_u = -1, id_Ray_v = -1, id_shelf_uvdecay2d = -1
   integer :: id_nkml_visc_u = -1, id_nkml_visc_v = -1
   !>@}
 end type set_visc_CS
@@ -2760,10 +2762,53 @@ subroutine set_viscous_ML(u, v, h, tv, forces, visc, dt, G, GV, US, CS)
 
 end subroutine set_viscous_ML
 
+!> Calculates the (2D) exponential decay rate pattern to apply to all layer flow
+subroutine set_shelf_exp_decay(visc, fluxes, h, G, GV, US, CS)
+  type(vertvisc_type),     intent(inout) :: visc   !< A structure containing vertical viscosities and
+                                                   !! related fields
+  type(forcing),           intent(in)    :: fluxes !< A structure with pointers to themodynamic,
+                                                   !! tracer and mass exchange forcing fields
+  type(ocean_grid_type),   intent(in)    :: G      !< The ocean's grid structure
+  type(verticalGrid_type), intent(in)    :: GV     !< The ocean's vertical grid structure
+  real, dimension(SZI_(G),SZJ_(G),SZK_(GV)), &
+                           intent(in)    :: h      !< Layer thicknesses [H ~> m or kg m-2]
+  type(unit_scale_type),   intent(in)    :: US     !< A dimensional unit scaling type
+  type(set_visc_CS),       intent(in)    :: CS     !< The control structure returned by a previous
+                                                   !! call to set_visc_init
+
+  ! Local variables
+  real :: htot   ! Total column thickness [H ~> m or kg m-2]
+  real :: ifrac  ! Fraction of total ice+ocean thickness occupied by ice [nondim]
+  integer :: i, j, k
+
+  if (.not.allocated(visc%uvdecay2d_h)) call MOM_error(FATAL,"MOM_set_viscosity(set_shelf_exp_decay): "//&
+         "visc%uvdecay2d_h is not allocated. We should not get into this routine!")
+  if (.not.associated(fluxes%frac_shelf_h)) call MOM_error(FATAL,"MOM_set_viscosity(set_shelf_exp_decay): "//&
+         "fluxes%frac_shelf_h is not allocated. Is the ice-shelf activated?")
+  if (.not.associated(fluxes%p_surf_full)) call MOM_error(FATAL,"MOM_set_viscosity(set_shelf_exp_decay): "//&
+         "fluxes%p_surf_full is not allocated. Is the ice-shelf setting this array?")
+
+  do j=G%jsc-1,G%jec+1 ; do i=G%isc-1,G%iec+1
+    if (fluxes%frac_shelf_h(i,j) > 0.) then
+      htot = GV%h_subroundoff
+      do k = 1, GV%ke
+        htot = htot + h(i,j,k)
+      enddo
+      ! htot is the total ocean thickness in either m or kg m-2
+      ifrac = fluxes%p_surf_full(i,j) / ( fluxes%p_surf_full(i,j) + htot * GV%H_to_Pa )
+      visc%uvdecay2d_h(i,j) = ( CS%shelf_uv_exp_decay_rate * 1.25 ) * max( 0., ifrac - 0.2 )
+    else
+      visc%uvdecay2d_h(i,j) = 0.
+    endif
+  enddo ; enddo
+  if (CS%id_shelf_uvdecay2d>0) call post_data(CS%id_shelf_uvdecay2d, visc%uvdecay2d_h, CS%diag)
+
+end subroutine set_shelf_exp_decay
+
 !> Register any fields associated with the vertvisc_type.
 subroutine set_visc_register_restarts(HI, G, GV, US, param_file, visc, restart_CS, use_ice_shelf)
   type(hor_index_type),    intent(in)    :: HI         !< A horizontal index type structure.
-  type(ocean_grid_type),   intent(in) :: G          !< The ocean's grid structure.
+  type(ocean_grid_type),   intent(in)    :: G          !< The ocean's grid structure.
   type(verticalGrid_type), intent(in)    :: GV         !< The ocean's vertical grid structure.
   type(unit_scale_type),   intent(in)    :: US         !< A dimensional unit scaling type
   type(param_file_type),   intent(in)    :: param_file !< A structure to parse for run-time
@@ -2970,7 +3015,7 @@ subroutine set_visc_init(Time, G, GV, US, param_file, diag, visc, CS, restart_CS
                              ! arithmetic mean of the adjacent depths above it, to roughly mimic a
                              ! continental shelf break profile.
   real, allocatable, dimension(:,:) :: cdrag_h !< The spatially varying quadratic drag coefficient [nondim]
-
+  real    :: shelf_uv_exp_decay_time ! A time-scale to used to create a 2D Rayleigh dissipation term [T ~> s]
   integer :: i, j, is, ie, js, je
   integer :: isd, ied, jsd, jed, IsdB, IedB, JsdB, JedB, nz
   integer :: default_answer_date  ! The default setting for the various ANSWER_DATE flags.
@@ -3319,6 +3364,17 @@ subroutine set_visc_init(Time, G, GV, US, param_file, diag, visc, CS, restart_CS
        diag%axesCu1, Time, 'Number of layers in viscous mixed layer at u points', 'nondim')
     CS%id_nkml_visc_v = register_diag_field('ocean_model', 'nkml_visc_v', &
        diag%axesCv1, Time, 'Number of layers in viscous mixed layer at v points', 'nondim')
+  endif
+  call get_param(param_file, mdl, "SHELF_UV_EXP_DECAY_TIME", shelf_uv_exp_decay_time, &
+                 "A time-scale to use in for an exponential decay of flow in ice-shelf "//&
+                 "cavities. Non-positive values disable the term (default).", &
+                 units='s', default=0., scale=US%s_to_T)
+  CS%shelf_uv_exp_decay_rate = 0.
+  if (shelf_uv_exp_decay_time > 0.) then
+    allocate(visc%uvdecay2d_h(isd:ied,jsd:jed), source=0.0)
+    CS%shelf_uv_exp_decay_rate = 1. / shelf_uv_exp_decay_time
+    CS%id_shelf_uvdecay2d = register_diag_field('ocean_model', 'shelf_uvdecay2d', &
+       diag%axesT1, Time, 'Ice-shelf cavity Rayleigh rate', 's-1', conversion=US%s_to_T)
   endif
 
   call register_restart_field_as_obsolete('Kd_turb','Kd_shear', restart_CS)

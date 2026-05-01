@@ -2387,20 +2387,25 @@ subroutine fluxes_accumulate(flux_tmp, fluxes, G, wt2, forces)
       fluxes%tau_mag(i,j) = wt1*fluxes%tau_mag(i,j) + wt2*forces%tau_mag(i,j)
     enddo ; enddo ; endif
   else
+    call assert_associated(fluxes%p_surf, flux_tmp%p_surf, 'p_surf')
+    call assert_associated(fluxes%p_surf_full, flux_tmp%p_surf_full, 'p_surf_full')
     do j=js,je ; do i=is,ie
       fluxes%p_surf(i,j) = flux_tmp%p_surf(i,j)
       fluxes%p_surf_full(i,j) = flux_tmp%p_surf_full(i,j)
     enddo ; enddo
 
+    call assert_associated(fluxes%ustar, flux_tmp%ustar, 'ustar')
     if (associated(fluxes%ustar)) then ; do j=js,je ; do i=is,ie
       fluxes%ustar(i,j) = wt1*fluxes%ustar(i,j) + wt2*flux_tmp%ustar(i,j)
     enddo ; enddo ; endif
+    call assert_associated(fluxes%tau_mag, flux_tmp%tau_mag, 'tau_mag')
     if (associated(fluxes%tau_mag)) then ; do j=js,je ; do i=is,ie
       fluxes%tau_mag(i,j) = wt1*fluxes%tau_mag(i,j) + wt2*flux_tmp%tau_mag(i,j)
     enddo ; enddo ; endif
   endif
 
   ! Average ustar_gustless.
+  call assert_associated(fluxes%ustar_gustless, flux_tmp%ustar_gustless, 'ustar_gustless')
   if (associated(fluxes%ustar_gustless)) then
     if (fluxes%gustless_accum_bug) then
       do j=js,je ; do i=is,ie
@@ -2413,6 +2418,7 @@ subroutine fluxes_accumulate(flux_tmp, fluxes, G, wt2, forces)
     endif
   endif
 
+  call assert_associated(fluxes%tau_mag_gustless, flux_tmp%tau_mag_gustless, 'tau_mag_gustless')
   if (associated(fluxes%tau_mag_gustless)) then
     do j=js,je ; do i=is,ie
       fluxes%tau_mag_gustless(i,j) = wt1*fluxes%tau_mag_gustless(i,j) + wt2*flux_tmp%tau_mag_gustless(i,j)
@@ -2420,6 +2426,23 @@ subroutine fluxes_accumulate(flux_tmp, fluxes, G, wt2, forces)
   endif
 
   ! Average the water, heat, and salt fluxes.
+  call assert_associated(fluxes%evap, flux_tmp%evap, 'evap')
+  call assert_associated(fluxes%lprec, flux_tmp%lprec, 'lprec')
+  call assert_associated(fluxes%fprec, flux_tmp%fprec, 'fprec')
+  call assert_associated(fluxes%vprec, flux_tmp%vprec, 'vprec')
+  call assert_associated(fluxes%lrunoff, flux_tmp%lrunoff, 'lrunoff')
+  call assert_associated(fluxes%frunoff, flux_tmp%frunoff, 'frunoff')
+  call assert_associated(fluxes%lrunoff_glc, flux_tmp%lrunoff_glc, 'lrunoff_glc')
+  call assert_associated(fluxes%frunoff_glc, flux_tmp%frunoff_glc, 'frunoff_glc')
+  call assert_associated(fluxes%seaice_melt, flux_tmp%seaice_melt, 'seaice_melt')
+  call assert_associated(fluxes%sw, flux_tmp%sw, 'sw')
+  call assert_associated(fluxes%sw_vis_dir, flux_tmp%sw_vis_dir, 'sw_vis_dir')
+  call assert_associated(fluxes%sw_vis_dif, flux_tmp%sw_vis_dif, 'sw_vis_dif')
+  call assert_associated(fluxes%sw_nir_dir, flux_tmp%sw_nir_dir, 'sw_nir_dir')
+  call assert_associated(fluxes%sw_nir_dif, flux_tmp%sw_nir_dif, 'sw_nir_dif')
+  call assert_associated(fluxes%lw, flux_tmp%lw, 'lw')
+  call assert_associated(fluxes%latent, flux_tmp%latent, 'latent')
+  call assert_associated(fluxes%sens, flux_tmp%sens, 'sens')
   do j=js,je ; do i=is,ie
     fluxes%evap(i,j) = wt1*fluxes%evap(i,j) + wt2*flux_tmp%evap(i,j)
     fluxes%lprec(i,j) = wt1*fluxes%lprec(i,j) + wt2*flux_tmp%lprec(i,j)
@@ -2441,59 +2464,70 @@ subroutine fluxes_accumulate(flux_tmp, fluxes, G, wt2, forces)
 
     fluxes%salt_flux(i,j) = wt1*fluxes%salt_flux(i,j) + wt2*flux_tmp%salt_flux(i,j)
   enddo ; enddo
+  call assert_associated(fluxes%heat_added, flux_tmp%heat_added, 'heat_added')
   if (associated(fluxes%heat_added) .and. associated(flux_tmp%heat_added)) then
     do j=js,je ; do i=is,ie
       fluxes%heat_added(i,j) = wt1*fluxes%heat_added(i,j) + wt2*flux_tmp%heat_added(i,j)
     enddo ; enddo
   endif
   ! These might always be associated, in which case they can be combined?
+  call assert_associated(fluxes%heat_content_cond, flux_tmp%heat_content_cond, 'heat_content_cond')
   if (associated(fluxes%heat_content_cond) .and. associated(flux_tmp%heat_content_cond)) then
     do j=js,je ; do i=is,ie
       fluxes%heat_content_cond(i,j) = wt1*fluxes%heat_content_cond(i,j) + wt2*flux_tmp%heat_content_cond(i,j)
     enddo ; enddo
   endif
+  call assert_associated(fluxes%heat_content_evap, flux_tmp%heat_content_evap, 'heat_content_evap')
   if (associated(fluxes%heat_content_evap) .and. associated(flux_tmp%heat_content_evap)) then
     do j=js,je ; do i=is,ie
       fluxes%heat_content_evap(i,j) = wt1*fluxes%heat_content_evap(i,j) + wt2*flux_tmp%heat_content_evap(i,j)
     enddo ; enddo
   endif
+  call assert_associated(fluxes%heat_content_lprec, flux_tmp%heat_content_lprec, 'heat_content_lprec')
   if (associated(fluxes%heat_content_lprec) .and. associated(flux_tmp%heat_content_lprec)) then
     do j=js,je ; do i=is,ie
       fluxes%heat_content_lprec(i,j) = wt1*fluxes%heat_content_lprec(i,j) + wt2*flux_tmp%heat_content_lprec(i,j)
     enddo ; enddo
   endif
+  call assert_associated(fluxes%heat_content_fprec, flux_tmp%heat_content_fprec, 'heat_content_fprec')
   if (associated(fluxes%heat_content_fprec) .and. associated(flux_tmp%heat_content_fprec)) then
     do j=js,je ; do i=is,ie
       fluxes%heat_content_fprec(i,j) = wt1*fluxes%heat_content_fprec(i,j) + wt2*flux_tmp%heat_content_fprec(i,j)
     enddo ; enddo
   endif
+  call assert_associated(fluxes%heat_content_vprec, flux_tmp%heat_content_vprec, 'heat_content_vprec')
   if (associated(fluxes%heat_content_vprec) .and. associated(flux_tmp%heat_content_vprec)) then
     do j=js,je ; do i=is,ie
       fluxes%heat_content_vprec(i,j) = wt1*fluxes%heat_content_vprec(i,j) + wt2*flux_tmp%heat_content_vprec(i,j)
     enddo ; enddo
   endif
+  call assert_associated(fluxes%heat_content_lrunoff, flux_tmp%heat_content_lrunoff, 'heat_content_lrunoff')
   if (associated(fluxes%heat_content_lrunoff) .and. associated(flux_tmp%heat_content_lrunoff)) then
     do j=js,je ; do i=is,ie
       fluxes%heat_content_lrunoff(i,j) = wt1*fluxes%heat_content_lrunoff(i,j) + wt2*flux_tmp%heat_content_lrunoff(i,j)
     enddo ; enddo
   endif
+  call assert_associated(fluxes%heat_content_frunoff, flux_tmp%heat_content_frunoff, 'heat_content_frunoff')
   if (associated(fluxes%heat_content_frunoff) .and. associated(flux_tmp%heat_content_frunoff)) then
     do j=js,je ; do i=is,ie
       fluxes%heat_content_frunoff(i,j) = wt1*fluxes%heat_content_frunoff(i,j) + wt2*flux_tmp%heat_content_frunoff(i,j)
     enddo ; enddo
   endif
+  call assert_associated(fluxes%heat_content_lrunoff_glc, flux_tmp%heat_content_lrunoff_glc, 'heat_content_lrunoff_glc')
   if (associated(fluxes%heat_content_lrunoff_glc) .and. associated(flux_tmp%heat_content_lrunoff_glc)) then
     do j=js,je ; do i=is,ie
       fluxes%heat_content_lrunoff_glc(i,j) = wt1*fluxes%heat_content_lrunoff_glc(i,j) + &
                                              wt2*flux_tmp%heat_content_lrunoff_glc(i,j)
     enddo ; enddo
   endif
+  call assert_associated(fluxes%heat_content_frunoff_glc, flux_tmp%heat_content_frunoff_glc, 'heat_content_frunoff_glc')
   if (associated(fluxes%heat_content_frunoff_glc) .and. associated(flux_tmp%heat_content_frunoff_glc)) then
     do j=js,je ; do i=is,ie
       fluxes%heat_content_frunoff_glc(i,j) = wt1*fluxes%heat_content_frunoff_glc(i,j) + &
                                              wt2*flux_tmp%heat_content_frunoff_glc(i,j)
     enddo ; enddo
   endif
+  call assert_associated(fluxes%carbon_content_lrunoff, flux_tmp%carbon_content_lrunoff, 'carbon_content_lrunoff')
   if (associated(fluxes%carbon_content_lrunoff) .and. associated(flux_tmp%carbon_content_lrunoff)) then
     do j=js,je ; do i=is,ie
       fluxes%carbon_content_lrunoff(i,j) = wt1*fluxes%carbon_content_lrunoff(i,j) + &
@@ -2501,22 +2535,26 @@ subroutine fluxes_accumulate(flux_tmp, fluxes, G, wt2, forces)
     enddo ; enddo
   endif
 
+  call assert_associated(fluxes%ustar_shelf, flux_tmp%ustar_shelf, 'ustar_shelf')
   if (associated(fluxes%ustar_shelf) .and. associated(flux_tmp%ustar_shelf)) then
     do i=isd,ied ; do j=jsd,jed
       fluxes%ustar_shelf(i,j)  = flux_tmp%ustar_shelf(i,j)
     enddo ; enddo
   endif
+  call assert_associated(fluxes%iceshelf_melt, flux_tmp%iceshelf_melt, 'iceshelf_melt')
   if (associated(fluxes%iceshelf_melt) .and. associated(flux_tmp%iceshelf_melt)) then
     do i=isd,ied ; do j=jsd,jed
       fluxes%iceshelf_melt(i,j)  = flux_tmp%iceshelf_melt(i,j)
     enddo ; enddo
   endif
+  call assert_associated(fluxes%shelf_sfc_mass_flux, flux_tmp%shelf_sfc_mass_flux, 'shelf_sfc_mass_flux')
   if (associated(fluxes%shelf_sfc_mass_flux) &
                  .and. associated(flux_tmp%shelf_sfc_mass_flux)) then
     do i=isd,ied ; do j=jsd,jed
       fluxes%shelf_sfc_mass_flux(i,j)  = flux_tmp%shelf_sfc_mass_flux(i,j)
     enddo ; enddo
   endif
+  call assert_associated(fluxes%frac_shelf_h, flux_tmp%frac_shelf_h, 'frac_shelf_h')
   if (associated(fluxes%frac_shelf_h) .and. associated(flux_tmp%frac_shelf_h)) then
     do i=isd,ied ; do j=jsd,jed
       fluxes%frac_shelf_h(i,j)  = flux_tmp%frac_shelf_h(i,j)
@@ -2527,6 +2565,22 @@ subroutine fluxes_accumulate(flux_tmp, fluxes, G, wt2, forces)
       coupler_type_initialized(flux_tmp%tr_fluxes)) &
     call coupler_type_increment_data(flux_tmp%tr_fluxes, fluxes%tr_fluxes, &
                               scale_factor=wt2, scale_prev=wt1)
+
+  contains
+
+  subroutine assert_associated(fld_from_fluxes, fld_from_tmp, fld_name)
+    real, pointer, dimension(:,:) :: fld_from_fluxes !< Pointer to field from fluxes% [A]
+    real, pointer, dimension(:,:) :: fld_from_tmp    !< Pointer to field from fluxes_tmp% [A]
+    character(len=*), intent(in)  :: fld_name        !< Name of field for messages
+    ! Local variables
+    character(len=80) :: mesg
+
+    if (associated(fld_from_fluxes) .neqv. associated(fld_from_tmp)) then
+      write(mesg, '(3a)') "Member ", trim(fld_name), " is not equivalently associated"
+      call MOM_error(FATAL, trim(mesg))
+    endif
+
+  end subroutine assert_associated
 
 end subroutine fluxes_accumulate
 

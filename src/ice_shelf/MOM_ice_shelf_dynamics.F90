@@ -1623,6 +1623,7 @@ subroutine ice_shelf_solve_outer(CS, ISS, G, US, u_shlf, v_shlf, taudx, taudy, i
     enddo ; enddo
   endif
 
+  err_init = 0
   if (CS%nonlin_solve_err_mode == 1) then
 
     Au(:,:) = 0.0 ; Av(:,:) = 0.0
@@ -1632,7 +1633,7 @@ subroutine ice_shelf_solve_outer(CS, ISS, G, US, u_shlf, v_shlf, taudx, taudy, i
                    G, US, G%isc-1, G%iec+1, G%jsc-1, G%jec+1, rhoi_rhow, use_newton_in=.false.)
     call pass_vector(Au, Av, G%domain, TO_ALL, BGRID_NE)
 
-    err_init = 0 ; err_tempu = 0 ; err_tempv = 0
+    err_tempu = 0 ; err_tempv = 0
     do J=G%JscB,G%JecB ; do I=G%IscB,G%IecB
       if (CS%umask(I,J) == 1) then
         err_tempu = ABS(Au(I,J) - taudx(I,J))

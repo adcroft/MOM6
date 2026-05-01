@@ -195,6 +195,9 @@ type, public :: MOM_dyn_split_RK2_CS ; private
   logical :: module_is_initialized = .false. !< Record whether this module has been initialized.
   logical :: visc_rem_dt_bug = .true. !< If true, recover a bug that uses dt_pred rather than dt for vertvisc_rem
                                       !! at the end of predictor.
+  logical :: hack_recalc_visc_remnant !< If true, call vertvisc_remnant and continuity() two extra times so
+                                      !! that the flow used in the Coriolis terms is better controlled by
+                                      !! direction-dependent viscosity.
 
   !>@{ Diagnostic IDs
   integer :: id_uh     = -1, id_vh     = -1
@@ -795,6 +798,15 @@ subroutine step_MOM_dyn_split_RK2(u_inst, v_inst, h, tv, visc, Time_local, dt, f
   call continuity(up, vp, h, hp, uh, vh, dt, G, GV, US, CS%continuity_CSp, CS%OBC, pbv, &
                   uhbt=CS%uhbt, vhbt=CS%vhbt, visc_rem_u=CS%visc_rem_u, visc_rem_v=CS%visc_rem_v, &
                   u_cor=u_av, v_cor=v_av, BT_cont=CS%BT_cont)
+  if (CS%hack_recalc_visc_remnant) then
+    ! TEST OF SILLY IDEA
+    call vertvisc_coef(u_av, v_av, h, dz, forces, visc, tv, dt_pred, G, GV, US, CS%vertvisc_CSp, &
+                      CS%OBC, VarMix)
+    call vertvisc_remnant(visc, CS%visc_rem_u, CS%visc_rem_v, dt, G, GV, US, CS%vertvisc_CSp)
+    call continuity(up, vp, h, hp, uh, vh, dt, G, GV, US, CS%continuity_CSp, CS%OBC, pbv, &
+                    uhbt=CS%uhbt, vhbt=CS%vhbt, visc_rem_u=CS%visc_rem_u, visc_rem_v=CS%visc_rem_v, &
+                    u_cor=u_av, v_cor=v_av, BT_cont=CS%BT_cont)
+  endif
   call cpu_clock_end(id_clock_continuity)
   if (showCallTree) call callTree_wayPoint("done with continuity (step_MOM_dyn_split_RK2)")
 
@@ -1051,6 +1063,15 @@ subroutine step_MOM_dyn_split_RK2(u_inst, v_inst, h, tv, visc, Time_local, dt, f
   ! h  = h + dt * div . uh
   ! u_av and v_av adjusted so their mass transports match uhbt and vhbt.
   call cpu_clock_begin(id_clock_continuity)
+  if (CS%hack_recalc_visc_remnant) then
+    ! TEST OF SILLY IDEA
+    call continuity(u_inst, v_inst, h, hp, uh, vh, dt, G, GV, US, CS%continuity_CSp, CS%OBC, pbv, &
+                    uhbt=CS%uhbt, vhbt=CS%vhbt, visc_rem_u=CS%visc_rem_u, visc_rem_v=CS%visc_rem_v, &
+                    u_cor=u_av, v_cor=v_av)
+    call vertvisc_coef(u_av, v_av, h, dz, forces, visc, tv, dt_pred, G, GV, US, CS%vertvisc_CSp, &
+                       CS%OBC, VarMix)
+    call vertvisc_remnant(visc, CS%visc_rem_u, CS%visc_rem_v, dt, G, GV, US, CS%vertvisc_CSp)
+  endif
   call continuity(u_inst, v_inst, h, h, uh, vh, dt, G, GV, US, CS%continuity_CSp, CS%OBC, pbv, &
                   uhbt=CS%uhbt, vhbt=CS%vhbt, visc_rem_u=CS%visc_rem_u, visc_rem_v=CS%visc_rem_v, &
                   u_cor=u_av, v_cor=v_av)
@@ -1541,6 +1562,14 @@ subroutine initialize_dyn_split_RK2(u, v, h, tv, uh, vh, eta, Time, G, GV, US, p
                  "vertvisc_remnant() at the end of predictor stage for the following "//&
                  "continuity() and btstep() calls in the corrector step. Default of this flag "//&
                  "is set by VISC_REM_BUG", default=visc_rem_bug)
+  ! The following is a "hidden" parameter, meaning no-one should be using it.
+  call get_param(param_file, mdl, "HACK_RECALC_VISC_REMNANT", CS%hack_recalc_visc_remnant, &
+                 default=.false., do_not_log=.true.)
+  call get_param(param_file, mdl, "HACK_RECALC_VISC_REMNANT", CS%hack_recalc_visc_remnant, &
+                 "If true, call vertvisc_remnant and continuity() two extra times so that the "//&
+                 "flow used in the Coriolis terms is better controlled by direction-dependent "//&
+                 "viscosity. DO NOT USE THIS! The option will disappear unannounced.", &
+                 default=.false., do_not_log=.not.CS%hack_recalc_visc_remnant)
 
   ALLOC_(CS%uhbt(IsdB:IedB,jsd:jed))          ; CS%uhbt(:,:)         = 0.0
   ALLOC_(CS%vhbt(isd:ied,JsdB:JedB))          ; CS%vhbt(:,:)         = 0.0

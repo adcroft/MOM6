@@ -196,9 +196,18 @@ subroutine build_zstar_column_via_h(CS, depth, total_thickness, clip_surface, h)
   ! the nominal grid spacing.
   h(CS%nk) = h(CS%nk) + dz_remaining
 
-  if ((clip_surface .and. total_thickness<depth) .or. depth <= 0.) then
+  if (clip_surface) then
     ! When clipping we do not stretch the column and assume the top is wherever the column
     ! thickness points too.
+    stretching = max(total_thickness / depth, 1.)
+    if (total_thickness<depth .and. total_thickness>0.99*depth) then
+      ! When the ice-shelf cavity becomes small we want to use something more like a sigma-coordinate
+      ! so layers are connected laterally
+      h(:) = total_thickness / real(CS%nk)
+    endif
+  elseif (depth <= 0.) then
+    ! Under an ice-sheet, and where the ocean bottom is above mean sea-level (z=0),
+    ! we cannot apply the z* transformation, so we do not strech
     stretching = 1.
   else
     ! Open ocean, or the unusual case where the ice-shelf base is above z=0

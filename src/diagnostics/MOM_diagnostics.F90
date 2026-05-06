@@ -126,8 +126,9 @@ type, public :: diagnostics_CS ; private
   integer :: id_h_pre_sync     = -1
   integer :: id_tosq           = -1, id_sosq           = -1
   integer :: id_t20d           = -1, id_t17d           = -1
-
+  integer :: id_T200           = -1
   !>@}
+
   type(wave_speed_CS) :: wave_speed  !< Wave speed control struct
 
   type(p3d) :: var_ptr(MAX_FIELDS_)  !< pointers to variables used in the calculation
@@ -929,15 +930,18 @@ subroutine calculate_vertical_integrals(h, tv, p_surf, G, GV, US, CS)
               ! at the ocean surface [R L2 T-2 ~> Pa].
     tr_int,&  ! vertical integral of a tracer times density,
               ! (Rho_0 in a Boussinesq model) [Conc R Z ~> Conc kg m-2].
-    d17,&     ! Depth of 17 degC isotherm [Z ~> m]
-    d20       ! Depth of 20 degC isotherm [Z ~> m]
+    d17, &    ! Depth of 17 degC isotherm [Z ~> m]
+    d20, &    ! Depth of 20 degC isotherm [Z ~> m]
+    mask2d, & ! Wet mask, 1 for wet, 0 for dry [nondim]
+    thetao200 ! Sea water temperature (potential or conservative) at 200m depth [C ~> degC]
   real :: tmp(SZI_(G),SZJ_(G),SZK_(GV)) ! Temporary array [defined at each usage]
   real :: IG_Earth  ! Inverse of gravitational acceleration [T2 Z L-2 ~> s2 m-1].
   real :: Ttop, Tbot ! Temperature at top/bottom of cell [C ~> degC]
   type(EPPM_CWK) :: PPM ! Class for reconstruction
   real :: d_from_ssh(0:GV%ke) ! eta-z (Distance from surface) [Z ~> m]
   real :: dz ! Layer thickness in Z [Z ~> m]
-
+  real :: z_target ! Target depth for thetao200 interpolation [Z ~> m]
+  real :: x_pos ! Normalized position within a cell [nondim]
   integer :: i, j, k, is, ie, js, je, nz
   integer, dimension(2) :: EOSdom ! The i-computational domain for the equation of state
   is = G%isc ; ie = G%iec ; js = G%jsc ; je = G%jec ; nz = GV%ke
@@ -983,8 +987,9 @@ subroutine calculate_vertical_integrals(h, tv, p_surf, G, GV, US, CS)
     endif
     if (CS%id_col_mass > 0) call post_data(CS%id_col_mass, mass, CS%diag)
   endif
-  if (CS%id_t20d > 0 .or. CS%id_t17d > 0) then
+  if (CS%id_t20d > 0 .or. CS%id_t17d > 0 .or. CS%id_T200 > 0) then
     call PPM%init(GV%ke, h_neglect=0.)
+    z_target = 200. * US%m_to_Z
     do j=js,je ; do i=is,ie
       ! Pre-calculate the interface depths relative to the surface
       if (GV%Boussinesq) then
@@ -1002,34 +1007,61 @@ subroutine calculate_vertical_integrals(h, tv, p_surf, G, GV, US, CS)
         enddo
       endif
       call PPM%reconstruct(h(i,j,:), tv%T(i,j,:))
-      d17(i,j) = d_from_ssh(nz)
-      d20(i,j) = d_from_ssh(nz)
-      do k=nz,1,-1
-        Ttop = PPM%f(k, 0.)
-        Tbot = PPM%f(k, 1.)
-        if ( Tbot>Ttop ) cycle ! The cell is inverted, skip to next
-        if ( 20.<Tbot .and. Tbot<Ttop ) exit ! The whole remaining column is warmer than 20
-        dz = d_from_ssh(k) - d_from_ssh(k-1) ! >=0
-        if ( Tbot<=17. .and. 17.<=Ttop ) then
-          ! The 17 degC isotherm is within the cell which is non-negatively stratified
-          d17(i,j) = d_from_ssh(k-1) + dz * PPM%x(k, 17.)
-        elseif ( Ttop<17. ) then
-          ! The 17 degC isotherm is above the top of the cell
-          d17(i,j) = d_from_ssh(k-1)
+      if (CS%id_t20d > 0 .or. CS%id_t17d > 0) then
+        d17(i,j) = d_from_ssh(nz)
+        d20(i,j) = d_from_ssh(nz)
+        do k=nz,1,-1
+          Ttop = PPM%f(k, 0.)
+          Tbot = PPM%f(k, 1.)
+          if ( Tbot>Ttop ) cycle ! The cell is inverted, skip to next
+          if ( 20.<Tbot .and. Tbot<Ttop ) exit ! The whole remaining column is warmer than 20
+          dz = d_from_ssh(k) - d_from_ssh(k-1) ! >=0
+          if ( Tbot<=17. .and. 17.<=Ttop ) then
+            ! The 17 degC isotherm is within the cell which is non-negatively stratified
+            d17(i,j) = d_from_ssh(k-1) + dz * PPM%x(k, 17.)
+          elseif ( Ttop<17. ) then
+            ! The 17 degC isotherm is above the top of the cell
+            d17(i,j) = d_from_ssh(k-1)
+          endif
+          if ( Tbot<=20. .and. 20.<=Ttop ) then
+            ! The 20 degC isotherm is within the cell which is non-negatively stratified
+            d20(i,j) = d_from_ssh(k-1) + dz * PPM%x(k, 20.)
+          elseif ( Ttop<20. ) then
+            ! The 20 degC isotherm is above the top of the cell
+            d20(i,j) = d_from_ssh(k-1)
+          endif
+        enddo
+      endif
+      if (CS%id_T200 > 0) then
+        mask2d(i,j) = 0.
+        thetao200(i,j) = 0. ! Avoids uninitialized values even if masked
+        if (G%bathyT(i,j) >= z_target) then
+          ! Use bottom temperature as fall back. If ssh falls enough that d_from_ssh hits the
+          ! bottom then the next assignment ensures we have a meaningful value. Masking is
+          ! static in time.
+          thetao200(i,j) = tv%T(i,j,nz)
+          mask2d(i,j) = 1.
+          do k=1,nz
+            if (d_from_ssh(k) >= z_target) then
+              ! The 200m depth lies within cell k; interpolate using the reconstruction
+              dz = d_from_ssh(k) - d_from_ssh(k-1)
+              if (dz > 0.) then
+                x_pos = (z_target - d_from_ssh(k-1)) / dz
+              else
+                x_pos = 0.5
+              endif
+              thetao200(i,j) = PPM%f(k, x_pos)
+              exit
+            endif
+          enddo
         endif
-        if ( Tbot<=20. .and. 20.<=Ttop ) then
-          ! The 20 degC isotherm is within the cell which is non-negatively stratified
-          d20(i,j) = d_from_ssh(k-1) + dz * PPM%x(k, 20.)
-        elseif ( Ttop<20. ) then
-          ! The 20 degC isotherm is above the top of the cell
-          d20(i,j) = d_from_ssh(k-1)
-        endif
-      enddo
+      endif
     enddo ; enddo
     call PPM%destroy()
-    if (CS%id_t17d > 0) call post_data(CS%id_t17d, d17, CS%diag)
-    if (CS%id_t20d > 0) call post_data(CS%id_t20d, d20, CS%diag)
   endif
+  if (CS%id_t17d > 0) call post_data(CS%id_t17d, d17, CS%diag)
+  if (CS%id_t20d > 0) call post_data(CS%id_t20d, d20, CS%diag)
+  if (CS%id_T200 > 0) call post_data(CS%id_T200, thetao200, CS%diag, mask=mask2d)
 
   ! Practical salinity expressed as salt mass content
   if (CS%id_scint > 0) then
@@ -2100,6 +2132,19 @@ subroutine MOM_diagnostics_init(MIS, ADp, CDp, Time, G, GV, US, param_file, diag
         'Depth of 17 degree Celsius Isotherm', &
         units='m', conversion=US%Z_to_m, &
         standard_name='depth_of_isosurface_of_sea_water_potential_temperature')
+    if (tv%T_is_conT) then
+      CS%id_T200 = register_diag_field('ocean_model', 'bigthetao200', diag%axesT1, Time, &
+        'Sea Water Conservative Temperature at 200m Depth', &
+        units='degC', conversion=US%C_to_degC, cmor_field_name='bigthetao200', &
+        standard_name='sea_water_conservative_temperature', &
+        cmor_long_name='Sea Water Conservative Temperature at 200m Depth')
+    else
+      CS%id_T200 = register_diag_field('ocean_model', 'thetao200', diag%axesT1, Time, &
+        'Sea Water Potential Temperature at 200m Depth', &
+        units='degC', conversion=US%C_to_degC, cmor_field_name='thetao200', &
+        standard_name='sea_water_potential_temperature', &
+        cmor_long_name='Sea Water Potential Temperature at 200m Depth')
+    endif
   endif
 
   CS%id_u = register_diag_field('ocean_model', 'u', diag%axesCuL, Time, &

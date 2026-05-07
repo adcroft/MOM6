@@ -39,6 +39,7 @@ end module fortran_intrinsics
 !! initialization of data.
 module MOM_intrinsic_functions
 
+use numerical_testing_type, only : testing
 use iso_fortran_env, only : stdout => output_unit, stderr => error_unit
 use iso_fortran_env, only : int64, real64
 use fortran_intrinsics, only : f_sin
@@ -552,180 +553,143 @@ function intrinsic_functions_unit_tests(verbose) result(fail)
   logical :: fail !< True if any of the unit tests fail
 
   ! Local variables
+  type(testing) :: test, test_cr ! Unit testing convenience functions
   real :: testval  ! A test value for self-consistency testing [nondim]
   real :: x ! Temporary argument
   integer :: n
 
-  fail = .false.  ! Start with no fails
-  if (verbose) write(stdout,*) '==== MOM_intrinsic_functions: intrinsics_unit_tests ==='
+  if (verbose) write(stdout,*) '==== MOM_intrinsic_functions: intrinsics_functions_unit_tests ==='
+
+  call test%set( verbose=verbose ) ! Sets the verbosity flag in test
 
   ! Cube root tests
-  fail = fail .or. Test_cuberoot(verbose, 1.2345678901234e9)
-  fail = fail .or. Test_cuberoot(verbose, -9.8765432109876e-21)
-  fail = fail .or. Test_cuberoot(verbose, 64.0)
-  fail = fail .or. Test_cuberoot(verbose, -0.5000000000001)
-  fail = fail .or. Test_cuberoot(verbose, 0.0)
-  fail = fail .or. Test_cuberoot(verbose, 1.0)
-  fail = fail .or. Test_cuberoot(verbose, 0.125)
-  fail = fail .or. Test_cuberoot(verbose, 0.965)
-  fail = fail .or. Test_cuberoot(verbose, 1.0 - epsilon(1.0))
-  fail = fail .or. Test_cuberoot(verbose, 1.0 - 0.5*epsilon(1.0))
+  call Test_cuberoot(test, 1.2345678901234e9)
+  call Test_cuberoot(test, -9.8765432109876e-21)
+  call Test_cuberoot(test, 64.0)
+  call Test_cuberoot(test, -0.5000000000001)
+  call Test_cuberoot(test, 0.0)
+  call Test_cuberoot(test, 1.0)
+  call Test_cuberoot(test, 0.125)
+  call Test_cuberoot(test, 0.965)
+  call Test_cuberoot(test, 1.0 - epsilon(1.0))
+  call Test_cuberoot(test, 1.0 - 0.5*epsilon(1.0))
 
+  ! For this loop we use a separate testing type to group results into one overall test
+  call test_cr%set( verbose=.false. ) ! This next loop will be quiet unless there is a fail
   testval = 1.0e-99
   do n=-160,160
-    fail = fail .or. Test_cuberoot(verbose, testval)
+    call Test_cuberoot(test_cr, testval)
     testval = (-2.908 * (1.414213562373 + 1.2345678901234e-5*n)) * testval
   enddo
+  call test%test(test_cr%summarize('cuberoot sweep'), 'cuberoots')
 
   ! Trig tests
   if (verbose) write(stdout,'(a25,1pe24.16)') 'module pi:',pi
-  if (verbose) write(stdout,'(a25,2a24,x,a)') '','result','correct result','err/epsilon'
 
-  fail = test(fail, pi, 4.0 * atan( 1.0 ), 'module pi (v. library)')
+  call test%real_scalar(pi, 4.0 * atan( 1.0 ), 'module pi (v. library)')
 
   ! Sine tests
   if (verbose) write(stdout,*) 'Tests of sin()'
-  fail = test(fail, sin_m6(0.0), 0., 'sin(0)')
-  fail = test(fail, sin_m6(pi/12.), 0.25*(sqrt(6.)-sqrt(2.)), 'sin(pi/12)=0.2588...', inexact=1.)
-  fail = test(fail, sin_m6(pi/6.), .5, 'sin(pi/6)=0.5', inexact=1.)
-  fail = test(fail, sin_m6(0.25*pi), 0.5*sqrt(2.), 'sin(pi/4)=sqrt(0.5)', inexact=1.)
-  fail = test(fail, sin_m6(pi/3.), 0.5*sqrt(3.), 'sin(pi/3)=sqrt(3/4)', inexact=1.)
-  fail = test(fail, sin_m6(0.5*pi), 1.0, 'sin(pi/2)=1')
-  fail = test(fail, sin_m6(pi), 0., 'sin(pi)')
-  fail = test(fail, sin_m6(1.5*pi), -1.0, 'sin(3/2 pi)')
-  fail = test(fail, sin_m6(2.5*pi), 1.0, 'sin(5/2 pi)')
-  fail = test(fail, sin_m6(-2.5*pi), -1.0, 'sin(-5/2 pi)')
+  call test%real_scalar(sin_m6(0.0), 0., 'sin(0)')
+  call test%real_scalar(sin_m6(pi/12.), 0.25*(sqrt(6.)-sqrt(2.)), 'sin(pi/12)=0.2588...', robits=1)
+  call test%real_scalar(sin_m6(pi/6.), .5, 'sin(pi/6)=0.5', robits=1)
+  call test%real_scalar(sin_m6(0.25*pi), 0.5*sqrt(2.), 'sin(pi/4)=sqrt(0.5)', robits=1)
+  call test%real_scalar(sin_m6(pi/3.), 0.5*sqrt(3.), 'sin(pi/3)=sqrt(3/4)', robits=1)
+  call test%real_scalar(sin_m6(0.5*pi), 1.0, 'sin(pi/2)=1')
+  call test%real_scalar(sin_m6(pi), 0., 'sin(pi)')
+  call test%real_scalar(sin_m6(1.5*pi), -1.0, 'sin(3/2 pi)')
+  call test%real_scalar(sin_m6(2.5*pi), 1.0, 'sin(5/2 pi)')
+  call test%real_scalar(sin_m6(-2.5*pi), -1.0, 'sin(-5/2 pi)')
 
   ! Cosine tests
   if (verbose) write(stdout,*) 'Tests of cos()'
-  fail = test(fail, cos_m6(0.), 1., 'cos(0)=1')
-  fail = test(fail, cos_m6(0.25*pi), sqrt(0.5), 'cos(pi/4)=sqrt(0.5)',inexact=1.)
-  fail = test(fail, cos_m6(0.5*pi), 0., 'cos(pi/2)=0')
-  fail = test(fail, cos_m6(pi), -1., 'cos(pi)=-1')
-  fail = test(fail, cos_m6(1.5*pi), 0., 'cos(3/2 pi)=0')
-  fail = test(fail, cos_m6(2.0*pi), 1., 'cos(2pi)=-1')
+  call test%real_scalar(cos_m6(0.), 1., 'cos(0)=1')
+  call test%real_scalar(cos_m6(0.25*pi), sqrt(0.5), 'cos(pi/4)=sqrt(0.5)', robits=1)
+  call test%real_scalar(cos_m6(0.5*pi), 0., 'cos(pi/2)=0')
+  call test%real_scalar(cos_m6(pi), -1., 'cos(pi)=-1')
+  call test%real_scalar(cos_m6(1.5*pi), 0., 'cos(3/2 pi)=0')
+  call test%real_scalar(cos_m6(2.0*pi), 1., 'cos(2pi)=-1')
 
   ! Tests that sin(x)**2 + cos(x)**2 = 1 (or less within a bit)
   if (verbose) write(stdout,*) 'Tests of sin(x)**2 + cos(x)**2'
   x = 0.5*pi
-  fail = test(fail, cos_m6(x)**2+sin_m6(x)**2, 1., 'cos^2+sin^2, x=pi/2')
+  call test%real_scalar(cos_m6(x)**2+sin_m6(x)**2, 1., 'cos^2+sin^2, x=pi/2')
   x = pi/3.
-  fail = test(fail, cos_m6(x)**2+sin_m6(x)**2, 1., 'cos^2+sin^2, x=pi/3')
+  call test%real_scalar(cos_m6(x)**2+sin_m6(x)**2, 1., 'cos^2+sin^2, x=pi/3')
   x = 0.25
-  fail = test(fail, cos_m6(x)**2+sin_m6(x)**2, 1., 'cos^2+sin^2, x=1/4', inexact=1.)
+  call test%real_scalar(cos_m6(x)**2+sin_m6(x)**2, 1., 'cos^2+sin^2, x=1/4', robits=1)
   x = 0.5
-  fail = test(fail, cos_m6(x)**2+sin_m6(x)**2, 1., 'cos^2+sin^2, x=1/2')
+  call test%real_scalar(cos_m6(x)**2+sin_m6(x)**2, 1., 'cos^2+sin^2, x=1/2')
 
   ! Sine tests in degrees
   if (verbose) write(stdout,*) 'Tests of sind() in degrees'
-  fail = test(fail, sind_m6(0.0), 0., 'sin(0)')
-  fail = test(fail, sind_m6(30.), .5, 'sin(30)=0.5', inexact=1.)
-  fail = test(fail, sind_m6(45.), 0.5*sqrt(2.), 'sin(45)=sqrt(0.5)', inexact=1.)
-  fail = test(fail, sind_m6(60.), 0.5*sqrt(3.), 'sin(60)=sqrt(3/4)', inexact=1.)
-  fail = test(fail, sind_m6(90.), 1.0, 'sin(90)=1')
-  fail = test(fail, sind_m6(180.), 0., 'sin(180)')
-  fail = test(fail, sind_m6(270.), -1.0, 'sin(270)')
+  call test%real_scalar(sind_m6(0.0), 0., 'sin(0)')
+  call test%real_scalar(sind_m6(30.), .5, 'sin(30)=0.5', robits=1)
+  call test%real_scalar(sind_m6(45.), 0.5*sqrt(2.), 'sin(45)=sqrt(0.5)', robits=1)
+  call test%real_scalar(sind_m6(60.), 0.5*sqrt(3.), 'sin(60)=sqrt(3/4)', robits=1)
+  call test%real_scalar(sind_m6(90.), 1.0, 'sin(90)=1')
+  call test%real_scalar(sind_m6(180.), 0., 'sin(180)')
+  call test%real_scalar(sind_m6(270.), -1.0, 'sin(270)')
 
   ! Cosine tests in degrees
   if (verbose) write(stdout,*) 'Tests of cosd() in degrees'
-  fail = test(fail, cosd_m6(0.), 1., 'cos(0)=1')
-  fail = test(fail, cosd_m6(45.), sqrt(0.5), 'cos(45)=sqrt(0.5)',inexact=1.)
-  fail = test(fail, cosd_m6(90.), 0., 'cos(90)=0')
-  fail = test(fail, cosd_m6(180.), -1., 'cos(180)=-1')
-  fail = test(fail, cosd_m6(270.), 0., 'cos(270)=0')
-  fail = test(fail, cosd_m6(360.), 1., 'cos(360)=-1')
+  call test%real_scalar(cosd_m6(0.), 1., 'cos(0)=1')
+  call test%real_scalar(cosd_m6(45.), sqrt(0.5), 'cos(45)=sqrt(0.5)',robits=1)
+  call test%real_scalar(cosd_m6(90.), 0., 'cos(90)=0')
+  call test%real_scalar(cosd_m6(180.), -1., 'cos(180)=-1')
+  call test%real_scalar(cosd_m6(270.), 0., 'cos(270)=0')
+  call test%real_scalar(cosd_m6(360.), 1., 'cos(360)=-1')
 
   ! Test pow()
   if (verbose) write(stdout,*) 'Tests of pow()'
-  fail = test(fail, pow(0.,5), 0., 'pow(0,5)=0')
-  fail = test(fail, pow(1.,7), 1., 'pow(1,7)=1')
-  fail = test(fail, pow(2.,0), 1., 'pow(2,0)=1')
-  fail = test(fail, pow(2.,1), 2., 'pow(2,1)=2')
-  fail = test(fail, pow(2.,2), 4., 'pow(2,2)=4')
-  fail = test(fail, pow(-2.,3), -8., 'pow(2,3)=8')
-  fail = test(fail, pow(0.5,3), 0.125, 'pow(1/2,3)=1/8')
-  fail = test(fail, pow(0.5,-3), 8., 'pow(1/2,-3)=8')
-  fail = test(fail, pow(0.5,-4), 16., 'pow(1/2,-4)=16')
+  call test%real_scalar(pow(0.,5), 0., 'pow(0,5)=0')
+  call test%real_scalar(pow(1.,7), 1., 'pow(1,7)=1')
+  call test%real_scalar(pow(2.,0), 1., 'pow(2,0)=1')
+  call test%real_scalar(pow(2.,1), 2., 'pow(2,1)=2')
+  call test%real_scalar(pow(2.,2), 4., 'pow(2,2)=4')
+  call test%real_scalar(pow(-2.,3), -8., 'pow(2,3)=8')
+  call test%real_scalar(pow(0.5,3), 0.125, 'pow(1/2,3)=1/8')
+  call test%real_scalar(pow(0.5,-3), 8., 'pow(1/2,-3)=8')
+  call test%real_scalar(pow(0.5,-4), 16., 'pow(1/2,-4)=16')
 
   ! Test rootin()
   if (verbose) write(stdout,*) 'Tests of rootin()'
-  fail = test(fail, rootin(0.,2), 0., 'rootin(0,2)=0')
-  fail = test(fail, rootin(0.,5), 0., 'rootin(0,5)=0')
-  fail = test(fail, rootin(1.,2), 1., 'rootin(1,2)=0')
-  fail = test(fail, rootin(1.,3), 1., 'rootin(1,3)=0')
-  fail = test(fail, rootin(1.,4), 1., 'rootin(1,4)=0')
-  fail = test(fail, rootin(1.,5), 1., 'rootin(1,5)=0')
-  fail = test(fail, rootin(0.25,2), 0.5, 'rootin(1/4,2)=1/2')
-  fail = test(fail, rootin(0.125,3), 0.5, 'rootin(1/8,2)=1/2')
-  fail = test(fail, rootin(-0.125,3), -0.5, 'rootin(-1/8,2)=-1/2')
-  fail = test(fail, rootin(4.,2), 2., 'rootin(4,2)=2')
-  fail = test(fail, rootin(9.,2), 3., 'rootin(9,2)=3')
-  fail = test(fail, rootin(16.,2), 4., 'rootin(16,2)=4')
-  fail = test(fail, rootin(25.,2), 5., 'rootin(25,2)=5')
-  fail = test(fail, rootin(-125.,3), -5., 'rootin(-125,3)=-5')
-  fail = test(fail, rootin(2.**30,30), 2., 'rootin(2**30,30)=2')
-  fail = test(fail, rootin(-5.**13,13), -5., 'rootin(-5**13,13)=-5', inexact=1.)
-  fail = test(fail, rootin(0.5,2), sqrt(0.5), 'rootin(1/2,2)=sqrt(1/2)', inexact=1.)
-  fail = test(fail, rootin(2.,2), sqrt(2.0), 'rootin(2,2)=sqrt(2)', inexact=1.)
+  call test%real_scalar(rootin(0.,2), 0., 'rootin(0,2)=0')
+  call test%real_scalar(rootin(0.,5), 0., 'rootin(0,5)=0')
+  call test%real_scalar(rootin(1.,2), 1., 'rootin(1,2)=0')
+  call test%real_scalar(rootin(1.,3), 1., 'rootin(1,3)=0')
+  call test%real_scalar(rootin(1.,4), 1., 'rootin(1,4)=0')
+  call test%real_scalar(rootin(1.,5), 1., 'rootin(1,5)=0')
+  call test%real_scalar(rootin(0.25,2), 0.5, 'rootin(1/4,2)=1/2')
+  call test%real_scalar(rootin(0.125,3), 0.5, 'rootin(1/8,2)=1/2')
+  call test%real_scalar(rootin(-0.125,3), -0.5, 'rootin(-1/8,2)=-1/2')
+  call test%real_scalar(rootin(4.,2), 2., 'rootin(4,2)=2')
+  call test%real_scalar(rootin(9.,2), 3., 'rootin(9,2)=3')
+  call test%real_scalar(rootin(16.,2), 4., 'rootin(16,2)=4')
+  call test%real_scalar(rootin(25.,2), 5., 'rootin(25,2)=5')
+  call test%real_scalar(rootin(-125.,3), -5., 'rootin(-125,3)=-5')
+  call test%real_scalar(rootin(2.**30,30), 2., 'rootin(2**30,30)=2')
+  call test%real_scalar(rootin(-5.**13,13), -5., 'rootin(-5**13,13)=-5', robits=1)
+  call test%real_scalar(rootin(0.5,2), sqrt(0.5), 'rootin(1/2,2)=sqrt(1/2)', robits=1)
+  call test%real_scalar(rootin(2.,2), sqrt(2.0), 'rootin(2,2)=sqrt(2)', robits=1)
   x = rootin(2.,2)
-  fail = test(fail, x**2, 2.0, 'rootin(2,2)**2=2', inexact=1.)
+  call test%real_scalar(x**2, 2.0, 'rootin(2,2)**2=2', robits=1)
 
-  if (verbose .and. .not. fail) write(stdout,*) 'Pass'
+  fail = test%summarize('intrinsic_functions_unit_tests')
 
   contains
 
-  !> Returns true if a==b or previous failed
-  logical function test(previous_test, val, correctval, msg, inexact)
-    logical, intent(in) :: previous_test !< True if an earlier test failed
-    real, intent(in) :: val !< Value to test against correct value
-    real, intent(in) :: correctval !< Correct value
-    character(len=*), intent(in) :: msg !< Label
-    real, optional :: inexact !< If present allow a relative error of inexact*epsilon
-    ! Local variables
-    integer :: chan ! Stream to print to
-    real :: err ! error
-    err = abs( val - correctval )
-    test = err > 0. ! Comparison must be exact
-    if (present(inexact).and.test) then
-      test = err / ( abs(correctval) * epsilon(val) ) > inexact ! Allow a round off difference
-    endif
-    chan = stdout
-    if (test.and..not.verbose) chan = stderr
-    if (verbose.or.test) then
-      if (test) then
-        err = err / ( abs(val) * epsilon(correctval) )
-        write(chan,'(a24,":",2(1pe24.16),g9.2,a)') msg,val,correctval,err,' <--- FAIL!'
-      elseif (err<=0.) then
-        write(chan,'(a24,":",2(1pe24.16))') msg,val,correctval
-      else
-        err = err / ( abs(val) * epsilon(correctval) )
-        if (err>1.) then
-          write(chan,'(a24,":",2(1pe24.16),g9.2,a)') msg,val,correctval,err,' <- differ in last bits'
-        else
-          write(chan,'(a24,":",2(1pe24.16),g9.2,a)') msg,val,correctval,err,' <- differs in last bit'
-        endif
-      endif
-    endif
-    test = test .or. previous_test
-  end function test
-
   !> True if the cube of cuberoot(val) does not closely match val. False otherwise.
-  logical function Test_cuberoot(verbose, val)
-    logical, intent(in) :: verbose !< If true, write results to stdout
+  subroutine Test_cuberoot(test, val)
+    type(testing), intent(inout) :: test !< Unit testing convenience functions
     real, intent(in) :: val  !< The real value to test, in arbitrary units [A]
     ! Local variables
-    real :: diff ! The difference between val and the cube root of its cube [A].
+    character(len=32) :: str
 
-    diff = val - cuberoot(val)**3
-    Test_cuberoot = (abs(diff) > 2.0e-15*abs(val))
+    write(str,'(1pe24.16)') val
+    call test%real_scalar( cuberoot(val)**3, val, 'cuberoot '//trim(str), robits=2)
 
-    if (Test_cuberoot) then
-      write(stdout, '("For val = ",ES22.15,", (val - cuberoot(val**3))) = ",ES9.2," <-- FAIL")') val, diff
-    elseif (verbose) then
-      write(stdout, '("For val = ",ES22.15,", (val - cuberoot(val**3))) = ",ES9.2)') val, diff
-
-    endif
-  end function Test_cuberoot
+  end subroutine Test_cuberoot
 
 end function intrinsic_functions_unit_tests
 

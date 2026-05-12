@@ -7,25 +7,32 @@
 module fortran_intrinsics
 
 public :: f_sin
+public :: f_cos
 public :: f_atan
 public :: f_tan
 contains
 
-!> sin(x)
-real elemental function f_sin(x)
-  real, intent(in) :: x !< Argument to sin(x)
+!> sin(x) [nondim]
+real pure function f_sin(x)
+  real, intent(in) :: x !< Argument to sin(x) [radians]
   f_sin = sin(x)
 end function f_sin
 
-!> atan(x)
-real elemental function f_atan(x)
-  real, intent(in) :: x !< Argument to atan(x)
+!> cos(x) [nondim]
+real pure function f_cos(x)
+  real, intent(in) :: x !< Argument to cos(x) [radians]
+  f_cos = cos(x)
+end function f_cos
+
+!> atan(x) [nondim]
+real pure function f_atan(x)
+  real, intent(in) :: x !< Argument to atan(x) [radians]
   f_atan = atan(x)
 end function f_atan
 
-!> tan(x)
-real elemental function f_tan(x)
-  real, intent(in) :: x !< Argument to tan(x)
+!> tan(x) [nondim]
+real pure function f_tan(x)
+  real, intent(in) :: x !< Argument to tan(x) [radians]
   f_tan = tan(x)
 end function f_tan
 
@@ -43,6 +50,7 @@ use numerical_testing_type, only : testing
 use iso_fortran_env, only : stdout => output_unit, stderr => error_unit
 use iso_fortran_env, only : int64, real64
 use fortran_intrinsics, only : f_sin
+use fortran_intrinsics, only : f_cos
 use fortran_intrinsics, only : f_atan
 use fortran_intrinsics, only : f_tan
 
@@ -81,10 +89,10 @@ integer, parameter :: fraclen = expbit
 !! In IEEE 754 double precision floating point representation pi is
 !! 3.14159265358979323846 (52 mantissa bits or 21 digits) which is the
 !! value found in the C library math.h. We provide more digits (40)
-!! here (rounded) for no better reason than the compilers handle it.
-real, parameter :: pi = 3.141592653589793238462643383279502884197
-!> For efficiency, pi/180 which converts degrees to radians
-real, parameter :: pi_180 = 0.01745329251994329576923690768488612713443
+!! here (rounded) for no better reason than the compilers handle it. [nondim]
+real(kind=8), parameter :: pi = 3.141592653589793238462643383279502884197
+!> For efficiency, pi/180 which converts degrees to radians [radians/degree]
+real(kind=8), parameter :: pi_180 = 0.01745329251994329576923690768488612713443
 
 !> Module parameter to allow global switching between MOM6 intrinsic
 !! functions and the FORTRAN intrinsic functions
@@ -109,7 +117,7 @@ end function invcosh
 
 !> Returns the cube root of a real argument at roundoff accuracy, in a form that works properly with
 !! rescaling of the argument by integer powers of 8.  If the argument is a NaN, a NaN is returned.
-elemental function cuberoot(x) result(root)
+pure function cuberoot(x) result(root)
   real, intent(in) :: x !< The argument of cuberoot in arbitrary units cubed [A3]
   real :: root !< The real cube root of x in arbitrary units [A]
 
@@ -248,26 +256,26 @@ pure function descale(x, e_a, s_a) result(a)
 end function descale
 
 !> Returns sin(x) where x is in radians
-real elemental function sin_m6(x)
+real pure function sin_m6(x)
   real, intent(in) :: x !< Argument of sin [radians]
-  real :: a ! abs(x) or multiples thereof
-  real :: s ! 1 or -1 depending on quadrant
+  integer :: n  ! nearest number of pi/2 intervals to |x|
+  integer :: j  ! n mod 4, the quadrant (0-3)
+  real :: a     ! |x| reduced to [-pi/4, pi/4] by Cody-Waite
+  real :: s     ! sign of x
 
-  s = 1.0
+  s = sign(1.0, x)
   a = abs(x)
-  if (a>2.0*pi) then
-    ! Reduce range to 0..2pi
-    a = mod(a, 2.0*pi)
-  endif
-  if (a>pi) then
-    ! Reduce range to 0..pi
+  if (a > 2.0*pi) a = mod(a, 2.0*pi)  ! Reduce to [0, 2*pi)
+  if (a > pi) then                      ! Reflect to [0, pi]: sin(a) = -sin(a - pi)
     a = a - pi
-    s = -1.0
+    s = -s
   endif
-  if (a<=0.5*pi) then
-    sin_m6 = sign(sin_Taylor(a), s*x)
-  elseif (a<=pi) then
-    sin_m6 = sign(sin_Taylor(pi-a), s*x)
+  if (a > 0.5*pi) a = pi - a           ! Reflect to [0, pi/2]: sin(a) = sin(pi - a)
+  ! Further reduce to [0, pi/4]: sin(a) = cos(pi/2 - a) for a > pi/4
+  if (a > 0.25*pi) then
+    sin_m6 = s * cos_Remez(0.5*pi - a)
+  else
+    sin_m6 = s * sin_Remez(a)
   endif
 
   if (use_fortran_intrinsics) sin_m6 = sin(x)
@@ -275,27 +283,28 @@ real elemental function sin_m6(x)
 end function sin_m6
 
 !> Returns sin(x) where x is in degrees
-real elemental function sind_m6(x)
+real pure function sind_m6(x)
   real, intent(in) :: x !< Argument of sin [degrees]
-  real :: a ! abs(x) or multiples thereof
-  real :: s ! 1 or -1 depending on quadrant
+  integer :: n  ! nearest multiple of 90 degrees to |x|
+  integer :: j  ! n mod 4, the quadrant (0-3)
+  real :: a     ! |x| reduced to [-45, 45] degrees, then converted to radians
+  real :: s     ! sign of x
 
-  s = 1.0
+  s = sign(1.0, x)
   a = abs(x)
-  if (a>360.) then
-    ! Reduce range to 0..360
-    a = mod(a, 360.)
-  endif
-  if (a>180.) then
-    ! Reduce range to 0..180
-    a = a - 180.
-    s = -1.0
-  endif
-  if (a<=90.) then
-    sind_m6 = sign(sin_Taylor(pi_180*a), s*x)
-  elseif (a<=180.) then
-    sind_m6 = sign(sin_Taylor(pi_180*(180.-a)), s*x)
-  endif
+  ! 90 is exactly representable, so n*90 is exact for integer n, giving
+  ! accurate range reduction without Cody-Waite.
+  n = nint(a / 90.)
+  j = mod(n, 4)
+  a = (a - real(n)*90.) * pi_180   ! reduced to [-pi/4, pi/4]
+
+  ! sin(n*pi/2 + a): j=0 -> sin(a), j=1 -> cos(a), j=2 -> -sin(a), j=3 -> -cos(a)
+  select case (j)
+    case (0) ; sind_m6 = s * sin_Remez(a)
+    case (1) ; sind_m6 = s * cos_Remez(a)
+    case (2) ; sind_m6 = -s * sin_Remez(a)
+    case (3) ; sind_m6 = -s * cos_Remez(a)
+  end select
 
   if (use_fortran_intrinsics) sind_m6 = sin(pi_180*x)
 
@@ -304,7 +313,7 @@ end function sind_m6
 !> Returns sin(x) if x is in range -pi/2..pi/2 calculated using Taylor
 !! series. This approach adds Taylor series terms from smallest to largest
 !! and is thus as accurate as the underlying f.p. representation can be.
-real elemental function sin_Taylor(x)
+real pure function sin_Taylor(x)
   real, intent(in) :: x !< Argument of sin in range -pi/2..pi/2 [radians]
   ! Local variables
   integer, parameter :: n = 16 ! N-1 number of terms in series
@@ -342,7 +351,7 @@ end function sin_Taylor
 
 ! !> Returns sin(x) if x is in range -pi/2..pi/2 calculated using Horner's
 ! !! method applied to the Taylor series polynomial.
-! real elemental function sin_Horner(x)
+! real pure function sin_Horner(x)
 !   real, intent(in) :: x !< Argument of sin in range -pi/2..pi/2 [radians]
 !   ! Local variables
 !   integer, parameter :: n = 16 ! N-1 number of terms in series
@@ -372,23 +381,26 @@ end function sin_Taylor
 ! end function sin_Horner
 
 !> Returns cos(x) where x is in radians
-real elemental function cos_m6(x)
+real pure function cos_m6(x)
   real, intent(in) :: x !< Argument of cos [radians]
-  real :: a ! abs(x) or multiples thereof
+  integer :: n  ! nearest number of pi/2 intervals to |x|
+  integer :: j  ! n mod 4, the quadrant (0-3)
+  real :: a     ! |x| reduced to [-pi/4, pi/4] by Cody-Waite
+  real :: s ! accumulated sign: +1 or -1
 
   a = abs(x)
-  if (a>=2.0*pi) then
-    ! Reduce range to 0..2pi
-    a = mod(a, 2.0*pi)
+  s = 1.0
+  if (a >= 2.0*pi) a = mod(a, 2.0*pi)  ! Reduce to [0, 2*pi)
+  if (a > pi) a = 2.0*pi - a           ! Reflect to [0, pi]: cos(2*pi - a) = cos(a)
+  if (a > 0.5*pi) then                  ! Reflect to [0, pi/2]: cos(a) = -cos(pi - a)
+    a = pi - a
+    s = -1.0
   endif
-  if (a>pi) then
-    ! Reduce range to 0..pi
-    a = abs(pi - a)
-  endif
-  if (a<=0.5*pi) then
-    cos_m6 = cos_Taylor(a)
-  elseif (a<=pi) then
-    cos_m6 = -cos_Taylor(pi-a)
+  ! Further reduce to [0, pi/4]: cos(a) = sin(pi/2 - a) for a > pi/4
+  if (a > 0.25*pi) then
+    cos_m6 = s * sin_Remez(0.5*pi - a)
+  else
+    cos_m6 = s * cos_Remez(a)
   endif
 
   if (use_fortran_intrinsics) cos_m6 = cos(x)
@@ -396,24 +408,25 @@ real elemental function cos_m6(x)
 end function cos_m6
 
 !> Returns cos(x) where x is in degrees
-real elemental function cosd_m6(x)
+real pure function cosd_m6(x)
   real, intent(in) :: x !< Argument of cos [degrees]
-  real :: a ! abs(x) or multiples thereof
+  integer :: n  ! nearest multiple of 90 degrees to |x|
+  integer :: j  ! n mod 4, the quadrant (0-3)
+  real :: a     ! |x| reduced to [-45, 45] degrees, then converted to radians
 
-  a = abs(x)
-  if (a>=360.) then
-    ! Reduce range to 0..2pi
-    a = mod(a, 360.)
-  endif
-  if (a>180.) then
-    ! Reduce range to 0..pi
-    a = abs(180. - a)
-  endif
-  if (a<=90.) then
-    cosd_m6 = cos_Taylor(pi_180*a)
-  elseif (a<=180.) then
-    cosd_m6 = -cos_Taylor(pi_180*(180.-a))
-  endif
+  a = abs(x)   ! cos is even
+  ! 90 is exactly representable, so n*90 is exact for integer n.
+  n = nint(a / 90.)
+  j = mod(n, 4)
+  a = (a - real(n)*90.) * pi_180   ! reduced to [-pi/4, pi/4]
+
+  ! cos(n*pi/2 + a): j=0 -> cos(a), j=1 -> -sin(a), j=2 -> -cos(a), j=3 -> sin(a)
+  select case (j)
+    case (0) ; cosd_m6 = cos_Remez(a)
+    case (1) ; cosd_m6 = -sin_Remez(a)
+    case (2) ; cosd_m6 = -cos_Remez(a)
+    case (3) ; cosd_m6 = sin_Remez(a)
+  end select
 
   if (use_fortran_intrinsics) cosd_m6 = cos(pi_180*x)
 
@@ -422,7 +435,7 @@ end function cosd_m6
 !> Returns cos(x) if x is in range -pi/2..pi/2 calculated using Taylor
 !! series. This approach adds Taylor series terms from smallest to largest
 !! and is thus as accurate as the underlying f.p. representation can be.
-real elemental function cos_Taylor(x)
+real pure function cos_Taylor(x)
   real, intent(in) :: x !< Argument of sin in range -pi/2..pi/2 [radians]
   ! Local variables
   integer, parameter :: n = 16 ! N-1 number of terms in series
@@ -457,8 +470,69 @@ real elemental function cos_Taylor(x)
 
 end function cos_Taylor
 
+!> Returns sin(x) for x in [0, pi/4] using a minimax polynomial evaluated
+!! with Horner's method. sin(x) = x * (1 + x^2 * P(x^2)) where P is a
+!! degree-5 minimax polynomial over [0, pi/4].
+!! Coefficients from the Cephes math library (S. Moshier); error < 1 ULP
+!! for double precision over the full interval.
+real pure function sin_Remez(x)
+  real, intent(in) :: x  !< Argument in [0, pi/4] [radians]
+  ! Minimax coefficients for (sin(x)/x - 1) / x^2 as a polynomial in x^2
+  ! over [0, pi/4]. These differ slightly from Taylor coefficients: the
+  ! error is equioscillated across the interval rather than minimized at x=0.
+  ! Source: Cephes math library (S. Moshier), https://www.netlib.org/cephes/
+  real, parameter :: C1 = -1.66666666666666158e-1, &
+                     C2 =  8.33333333332040259e-3, &
+                     C3 = -1.98412698286768791e-4, &
+                     C4 =  2.75573133841171953e-6, &
+                     C5 = -2.50507179910586870e-8, &
+                     C6 =  1.58947866141311038e-10
+  real :: x2, r
+
+  x2 = x * x
+  ! Horner evaluation: sin(x)/x = 1 + x^2*(C1 + x^2*(C2 + x^2*(...)))
+  r = C6
+  r = C5 + x2*r
+  r = C4 + x2*r
+  r = C3 + x2*r
+  r = C2 + x2*r
+  r = C1 + x2*r
+  sin_Remez = x * (1.0 + x2*r)
+
+end function sin_Remez
+
+!> Returns cos(x) for x in [0, pi/4] using a minimax polynomial evaluated
+!! with Horner's method. cos(x) = 1 - x^2/2 + x^4 * Q(x^2) where Q is a
+!! degree-5 minimax polynomial over [0, pi/4].
+!! Coefficients from the Cephes math library (S. Moshier); error < 1 ULP
+!! for double precision over the full interval.
+real pure function cos_Remez(x)
+  real, intent(in) :: x  !< Argument in [0, pi/4] [radians]
+  ! Minimax coefficients for (cos(x) - 1 + x^2/2) / x^4 as a polynomial in x^2
+  ! over [0, pi/4].
+  ! Source: Cephes math library (S. Moshier), https://www.netlib.org/cephes/
+  real, parameter :: D1 =  4.16666666666664284e-2, &
+                     D2 = -1.38888888888585925e-3, &
+                     D3 =  2.48015872826768167e-5, &
+                     D4 = -2.75573127980909402e-7, &
+                     D5 =  2.08755453846878762e-9, &
+                     D6 = -1.13515899786764649e-11
+  real :: x2, r
+
+  x2 = x * x
+  ! Horner evaluation: cos(x) = 1 - 0.5*x^2 + x^4*(D1 + x^2*(D2 + x^2*(...)))
+  r = D6
+  r = D5 + x2*r
+  r = D4 + x2*r
+  r = D3 + x2*r
+  r = D2 + x2*r
+  r = D1 + x2*r
+  cos_Remez = 1.0 - 0.5*x2 + x2*x2*r
+
+end function cos_Remez
+
 !> Returns x**(1/n), the integer n'th root of x
-real elemental function rootin(x, n)
+real pure function rootin(x, n)
   real, intent(in) :: x !< Argument to be raised to (1/n)
   integer, intent(in) :: n !< Inverse power (assumed >1)
   ! Local variables
@@ -511,7 +585,7 @@ real elemental function rootin(x, n)
 end function rootin
 
 !> Return x**n calculated by squaring
-real elemental function pow(x,n)
+real pure function pow(x,n)
   real, intent(in) :: x !< Argument to raised to the n'th power
   integer, intent(in) :: n !< Power to which to raise x (assume non-negative)
   ! Local variables
@@ -585,6 +659,7 @@ function intrinsic_functions_unit_tests(verbose) result(fail)
 
   ! Trig tests
   if (verbose) write(stdout,'(a25,1pe24.16)') 'module pi:',pi
+! call test%set(stop_instantly=.true.)
 
   call test%real_scalar(pi, 4.0 * atan( 1.0 ), 'module pi (v. library)')
 
@@ -596,7 +671,8 @@ function intrinsic_functions_unit_tests(verbose) result(fail)
   call test%real_scalar(sin_m6(0.25*pi), 0.5*sqrt(2.), 'sin(pi/4)=sqrt(0.5)', robits=1)
   call test%real_scalar(sin_m6(pi/3.), 0.5*sqrt(3.), 'sin(pi/3)=sqrt(3/4)', robits=1)
   call test%real_scalar(sin_m6(0.5*pi), 1.0, 'sin(pi/2)=1')
-  call test%real_scalar(sin_m6(pi), 0., 'sin(pi)')
+  x = pi  ! use a variable to prevent compile-time constant folding of sin(pi)
+  call test%real_scalar(sin_m6(x), 0., 'sin(pi)')
   call test%real_scalar(sin_m6(1.5*pi), -1.0, 'sin(3/2 pi)')
   call test%real_scalar(sin_m6(2.5*pi), 1.0, 'sin(5/2 pi)')
   call test%real_scalar(sin_m6(-2.5*pi), -1.0, 'sin(-5/2 pi)')
@@ -605,9 +681,11 @@ function intrinsic_functions_unit_tests(verbose) result(fail)
   if (verbose) write(stdout,*) 'Tests of cos()'
   call test%real_scalar(cos_m6(0.), 1., 'cos(0)=1')
   call test%real_scalar(cos_m6(0.25*pi), sqrt(0.5), 'cos(pi/4)=sqrt(0.5)', robits=1)
-  call test%real_scalar(cos_m6(0.5*pi), 0., 'cos(pi/2)=0')
+  x = 0.5*pi  ! use a variable to prevent compile-time constant folding of cos(pi/2)
+  call test%real_scalar(cos_m6(x), 0., 'cos(pi/2)=0')
   call test%real_scalar(cos_m6(pi), -1., 'cos(pi)=-1')
-  call test%real_scalar(cos_m6(1.5*pi), 0., 'cos(3/2 pi)=0')
+  x = 1.5*pi  ! use a variable to prevent compile-time constant folding of cos(3pi/2)
+  call test%real_scalar(cos_m6(x), 0., 'cos(3/2 pi)=0')
   call test%real_scalar(cos_m6(2.0*pi), 1., 'cos(2pi)=-1')
 
   ! Tests that sin(x)**2 + cos(x)**2 = 1 (or less within a bit)
@@ -615,7 +693,7 @@ function intrinsic_functions_unit_tests(verbose) result(fail)
   x = 0.5*pi
   call test%real_scalar(cos_m6(x)**2+sin_m6(x)**2, 1., 'cos^2+sin^2, x=pi/2')
   x = pi/3.
-  call test%real_scalar(cos_m6(x)**2+sin_m6(x)**2, 1., 'cos^2+sin^2, x=pi/3')
+  call test%real_scalar(cos_m6(x)**2+sin_m6(x)**2, 1., 'cos^2+sin^2, x=pi/3', robits=1)
   x = 0.25
   call test%real_scalar(cos_m6(x)**2+sin_m6(x)**2, 1., 'cos^2+sin^2, x=1/4', robits=1)
   x = 0.5
@@ -623,21 +701,38 @@ function intrinsic_functions_unit_tests(verbose) result(fail)
 
   ! Sine tests in degrees
   if (verbose) write(stdout,*) 'Tests of sind() in degrees'
+  call test%real_scalar(sind_m6(-45.), -0.5*sqrt(2.), 'sin(-45)=-sqrt(0.5)', robits=1)
+  call test%real_scalar(sind_m6(-30.), -0.5, 'sin(-30)=-0.5', robits=1)
   call test%real_scalar(sind_m6(0.0), 0., 'sin(0)')
-  call test%real_scalar(sind_m6(30.), .5, 'sin(30)=0.5', robits=1)
+  call test%real_scalar(sind_m6(30.), 0.5, 'sin(30)=0.5', robits=1)
   call test%real_scalar(sind_m6(45.), 0.5*sqrt(2.), 'sin(45)=sqrt(0.5)', robits=1)
   call test%real_scalar(sind_m6(60.), 0.5*sqrt(3.), 'sin(60)=sqrt(3/4)', robits=1)
   call test%real_scalar(sind_m6(90.), 1.0, 'sin(90)=1')
-  call test%real_scalar(sind_m6(180.), 0., 'sin(180)')
-  call test%real_scalar(sind_m6(270.), -1.0, 'sin(270)')
+  call test%real_scalar(sind_m6(120.), 0.5*sqrt(3.), 'sin(120)=sqrt(3/4)', robits=1)
+  call test%real_scalar(sind_m6(135.), 0.5*sqrt(2.), 'sin(135)=sqrt(0.5)', robits=1)
+  call test%real_scalar(sind_m6(180.), 0., 'sin(180)=0')
+  call test%real_scalar(sind_m6(225.), -0.5*sqrt(2.), 'sin(225)=-sqrt(0.5)', robits=1)
+  call test%real_scalar(sind_m6(240.), -0.5*sqrt(3.), 'sin(240)=-sqrt(3/4)', robits=1)
+  call test%real_scalar(sind_m6(270.), -1.0, 'sin(270)=-1')
+  call test%real_scalar(sind_m6(300.), -0.5*sqrt(3.), 'sin(300)=-sqrt(3/4)', robits=1)
+  call test%real_scalar(sind_m6(315.), -0.5*sqrt(2.), 'sin(315)=-sqrt(0.5)', robits=1)
+  call test%real_scalar(sind_m6(330.), -0.5, 'sin(330)=-0.5', robits=1)
+  call test%real_scalar(sind_m6(360.), 0., 'sin(360)')
 
   ! Cosine tests in degrees
   if (verbose) write(stdout,*) 'Tests of cosd() in degrees'
+  call test%real_scalar(cosd_m6(90.), 0., 'cos(-90)=0')
+  call test%real_scalar(cosd_m6(-45.), sqrt(0.5), 'cos(-45)=sqrt(0.5)', robits=1)
+  call test%real_scalar(cosd_m6(-30.), 0.5*sqrt(3.), 'cos(-30)=sqrt(3/4)', robits=1)
   call test%real_scalar(cosd_m6(0.), 1., 'cos(0)=1')
-  call test%real_scalar(cosd_m6(45.), sqrt(0.5), 'cos(45)=sqrt(0.5)',robits=1)
+  call test%real_scalar(cosd_m6(30.), 0.5*sqrt(3.), 'cos(30)=sqrt(3/4)', robits=1)
+  call test%real_scalar(cosd_m6(45.), sqrt(0.5), 'cos(45)=sqrt(0.5)', robits=1)
   call test%real_scalar(cosd_m6(90.), 0., 'cos(90)=0')
+  call test%real_scalar(cosd_m6(135.), -sqrt(0.5), 'cos(135)=-sqrt(0.5)')
   call test%real_scalar(cosd_m6(180.), -1., 'cos(180)=-1')
+  call test%real_scalar(cosd_m6(225.), -sqrt(0.5), 'cos(225)=-sqrt(0.5)', robits=1)
   call test%real_scalar(cosd_m6(270.), 0., 'cos(270)=0')
+  call test%real_scalar(cosd_m6(315.), sqrt(0.5), 'cos(315)=sqrt(0.5)')
   call test%real_scalar(cosd_m6(360.), 1., 'cos(360)=-1')
 
   ! Test pow()
@@ -675,6 +770,9 @@ function intrinsic_functions_unit_tests(verbose) result(fail)
   x = rootin(2.,2)
   call test%real_scalar(x**2, 2.0, 'rootin(2,2)**2=2', robits=1)
 
+  call test%test( test_fn(sin_m6, f_sin, -9., 9., 'sin_m6<->sin_f'), 'sin_m6<->sin_f')
+  call test%test( test_fn(cos_m6, f_cos, -9., 9., 'cos_m6<->cos_f'), 'cos_m6<->cos_f')
+
   fail = test%summarize('intrinsic_functions_unit_tests')
 
   contains
@@ -690,6 +788,30 @@ function intrinsic_functions_unit_tests(verbose) result(fail)
     call test%real_scalar( cuberoot(val)**3, val, 'cuberoot '//trim(str), robits=2)
 
   end subroutine Test_cuberoot
+
+  !> True if the |fn(x)-ifn(x)| is significantly different
+  logical function test_fn(fn, ifn, xs, xe, label)
+    real :: fn  !< The locally coded *function* to be tested
+    real :: ifn !< The intrinsic *function* that fn is an approximation to
+    real, intent(in) :: xs  !< Beginning of x range [A]
+    real, intent(in) :: xe  !< Beginning of x range [A]
+    character(len=*), intent(in) :: label !< Label for messages
+    ! Local variables
+    type(testing) :: test !< Unit testing convenience functions
+    character(len=32) :: str
+    real :: x ! Arbitrary values [A]
+    integer, parameter :: ni=113
+    integer :: i
+
+    call test%set(verbose=.false.)
+    do i = 0, ni
+      x = ( real(i) / real(ni) ) * ( xe - xs ) + xs
+      write(str,'(1pe24.16)') x
+      call test%real_scalar( fn(x), ifn(x), trim(label)//' '//trim(str), tol=4e-16)
+    enddo
+    test_fn = test%summarize(trim(label)//' sweep')
+
+  end function test_fn
 
 end function intrinsic_functions_unit_tests
 

@@ -55,6 +55,8 @@ contains
   !> Not reflection symmetric because, to reproduce PPM_H4, f() at x=1/2, and
   !! average() over intervals centered on x=1/2, use the form based on the right edge value
   procedure, nopass :: claims_reflection => claim_is_unsupported
+  !> The fewest cells in a column that PPM_H4_2019 can be used for, which is four
+  procedure, nopass :: min_cells => four_cells
   !> Implementation of unit tests for the PPM_H4_2019 reconstruction
   procedure :: unit_tests => unit_tests
 
@@ -66,6 +68,13 @@ contains
 end type PPM_H4_2019
 
 contains
+
+!> Returns 4, the fewest cells that the h4 edge-value estimates can use
+integer function four_cells()
+
+  four_cells = 4
+
+end function four_cells
 
 !> Initialize a 1D PPM_H4_2019 reconstruction for n cells
 subroutine init(this, n, h_neglect, check)

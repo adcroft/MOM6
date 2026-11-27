@@ -77,6 +77,9 @@ contains
   !> True if the reconstruction scales with the cell means, including a change of sign
   procedure, nopass :: claims_u_scaling => claim_is_supported
 
+  !> The fewest cells in a column that the reconstruction can be used for
+  procedure, nopass :: min_cells => one_cell
+
   ! The following functions usually point to the same implementation as above but
   ! for derived secondary children these allow invocation of the parent class function.
 
@@ -407,6 +410,13 @@ logical function claim_is_unsupported()
   claim_is_unsupported = .false.
 
 end function claim_is_unsupported
+
+!> Returns 1, the fewest cells that most reconstructions can be used for, as the default min_cells()
+integer function one_cell()
+
+  one_cell = 1
+
+end function one_cell
 
 !> Runs the generic property tests that apply to all reconstructions and returns True for
 !! any fails, False otherwise

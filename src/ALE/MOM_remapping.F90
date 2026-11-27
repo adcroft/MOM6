@@ -2100,10 +2100,12 @@ subroutine compare_two_schemes(test, CS1, CS2, n0, n1, niter, msg, frac_vanished
     call random_number( h0 ) ! In range 0-1
     h0(:) = max(0., h0(:) - f_van) ! Make a fraction f_van of values equal to zero
     h0_tot = 0.0 ; do k=1,n0 ; h0_tot = h0_tot + h0(k) ; enddo
+    if (h0_tot == 0.) then ; h0(:) = 1. ; h0_tot = real(n0) ; endif ! All vanished, which can happen for small n0
     h0(:) = h0(:) / h0_tot ! Approximately normalize to total depth of 1
     call random_number(h1) ! In range 0-1
     h1(:) = max(0., h1(:) - f_van) ! Make a fraction f_van of values equal to zero
     h1_tot = 0.0 ; do k=1,n1 ; h1_tot = h1_tot + h1(k) ; enddo
+    if (h1_tot == 0.) then ; h1(:) = 1. ; h1_tot = real(n1) ; endif ! All vanished
     h1(:) = h1(:) / h1_tot ! Approximately normalize to total depth of 1
     call random_number( u0 ) ! In range 0-1
 
@@ -2161,6 +2163,7 @@ logical function remapping_unit_tests(verbose, num_comp_samp)
   integer :: om4 ! Loop parameter, 0 or 1
   integer :: ntests ! Number of iterations when brute force testing
   character(len=4) :: om4_tag ! Generated label
+  character(len=2) :: n0_str ! The number of source cells, as a label
   type(PCM) :: PCM_instance
   type(PLM_CW) :: PLM_CW_instance
   type(PLM_hybgen) :: PLM_hybgen_instance
@@ -3004,81 +3007,97 @@ logical function remapping_unit_tests(verbose, num_comp_samp)
                             h_neglect=h_neglect, h_neglect_edge=h_neglect_edge)
   call compare_two_schemes(test, CS, CS2, n0, n1, ntests, 'PPM_CW <-> PPM_HYBGEN OM4 bounded', frac_vanished=0.)
 
-  ! PCM <-> C_PCM
-  call initialize_remapping(CS, 'PCM', answer_date=99990101, om4_remap_via_sub_cells=.false., &
-                            force_bounds_in_subcell=.false.)
-  call initialize_remapping(CS2, 'C_PCM', nk=n0, h_neglect=h_neglect)
-  call compare_two_schemes(test, CS, CS2, n0, n1, ntests, 'PCM <-> C_PCM')
+  ! The OM4-era schemes use simpler schemes for short columns (PCM for one cell, PLM for up to
+  ! three cells, and PPM_H4 for four cells), which the classes that reproduce them must also do.
+  do n0 = 1, 7
+    write(n0_str,'(i0)') n0
+    ! PCM <-> C_PCM
+    call initialize_remapping(CS, 'PCM', answer_date=99990101, om4_remap_via_sub_cells=.false., &
+                              force_bounds_in_subcell=.false.)
+    call initialize_remapping(CS2, 'C_PCM', nk=n0, h_neglect=h_neglect)
+    call compare_two_schemes(test, CS, CS2, n0, n1, ntests, &
+                             'n0='//trim(n0_str)//' PCM <-> C_PCM')
 
-  ! PLM <-> C_MPLM_WA_POLY
-  call initialize_remapping(CS, 'PLM', answer_date=99990101, boundary_extrapolation=.false., &
-                            om4_remap_via_sub_cells=.false., force_bounds_in_subcell=.false., &
-                            h_neglect=h_neglect, h_neglect_edge=h_neglect_edge)
-  call initialize_remapping(CS2, 'C_MPLM_WA_POLY', nk=n0, h_neglect=h_neglect)
-  call compare_two_schemes(test, CS, CS2, n0, n1, ntests, 'PLM <-> C_MPLM_WA_poly')
+    ! PLM <-> C_MPLM_WA_POLY
+    call initialize_remapping(CS, 'PLM', answer_date=99990101, boundary_extrapolation=.false., &
+                              om4_remap_via_sub_cells=.false., force_bounds_in_subcell=.false., &
+                              h_neglect=h_neglect, h_neglect_edge=h_neglect_edge)
+    call initialize_remapping(CS2, 'C_MPLM_WA_POLY', nk=n0, h_neglect=h_neglect)
+    call compare_two_schemes(test, CS, CS2, n0, n1, ntests, &
+                             'n0='//trim(n0_str)//' PLM <-> C_MPLM_WA_poly')
 
-  ! PLM (with subcell bounds) <-> C_MPLM_WA_POLY
-  call initialize_remapping(CS, 'PLM', answer_date=99990101, boundary_extrapolation=.false., &
-                            om4_remap_via_sub_cells=.false., force_bounds_in_subcell=.true., &
-                            h_neglect=h_neglect, h_neglect_edge=h_neglect_edge)
-  call initialize_remapping(CS2, 'C_MPLM_WA_POLY', nk=n0, h_neglect=h_neglect)
-  call compare_two_schemes(test, CS, CS2, n0, n1, ntests, 'PLM bounded <-> C_MPLM_WA_poly')
+    ! PLM (with subcell bounds) <-> C_MPLM_WA_POLY
+    call initialize_remapping(CS, 'PLM', answer_date=99990101, boundary_extrapolation=.false., &
+                              om4_remap_via_sub_cells=.false., force_bounds_in_subcell=.true., &
+                              h_neglect=h_neglect, h_neglect_edge=h_neglect_edge)
+    call initialize_remapping(CS2, 'C_MPLM_WA_POLY', nk=n0, h_neglect=h_neglect)
+    call compare_two_schemes(test, CS, CS2, n0, n1, ntests, &
+                             'n0='//trim(n0_str)//' PLM bounded <-> C_MPLM_WA_poly')
 
-  ! PLM + extrapolation <-> C_EMPLM_WA_POLY
-  call initialize_remapping(CS, 'PLM', answer_date=99990101, boundary_extrapolation=.true., &
-                            om4_remap_via_sub_cells=.false., force_bounds_in_subcell=.false., &
-                            h_neglect=h_neglect, h_neglect_edge=h_neglect_edge)
-  call initialize_remapping(CS2, 'C_EMPLM_WA_POLY', nk=n0, h_neglect=h_neglect)
-  call compare_two_schemes(test, CS, CS2, n0, n1, ntests, 'PLM <-> C_EMPLM_WA_poly')
+    ! PLM + extrapolation <-> C_EMPLM_WA_POLY
+    call initialize_remapping(CS, 'PLM', answer_date=99990101, boundary_extrapolation=.true., &
+                              om4_remap_via_sub_cells=.false., force_bounds_in_subcell=.false., &
+                              h_neglect=h_neglect, h_neglect_edge=h_neglect_edge)
+    call initialize_remapping(CS2, 'C_EMPLM_WA_POLY', nk=n0, h_neglect=h_neglect)
+    call compare_two_schemes(test, CS, CS2, n0, n1, ntests, &
+                             'n0='//trim(n0_str)//' PLM <-> C_EMPLM_WA_poly')
 
-  ! PLM + extrapolation (with subcell bounds) <-> C_EMPLM_WA_POLY
-  call initialize_remapping(CS, 'PLM', answer_date=99990101, boundary_extrapolation=.true., &
-                            om4_remap_via_sub_cells=.false., force_bounds_in_subcell=.true., &
-                            h_neglect=h_neglect, h_neglect_edge=h_neglect_edge)
-  call initialize_remapping(CS2, 'C_EMPLM_WA_POLY', nk=n0, h_neglect=h_neglect)
-  call compare_two_schemes(test, CS, CS2, n0, n1, ntests, 'PLM bounded <-> C_EMPLM_WA_poly')
+    ! PLM + extrapolation (with subcell bounds) <-> C_EMPLM_WA_POLY
+    call initialize_remapping(CS, 'PLM', answer_date=99990101, boundary_extrapolation=.true., &
+                              om4_remap_via_sub_cells=.false., force_bounds_in_subcell=.true., &
+                              h_neglect=h_neglect, h_neglect_edge=h_neglect_edge)
+    call initialize_remapping(CS2, 'C_EMPLM_WA_POLY', nk=n0, h_neglect=h_neglect)
+    call compare_two_schemes(test, CS, CS2, n0, n1, ntests, &
+                             'n0='//trim(n0_str)//' PLM bounded <-> C_EMPLM_WA_poly')
 
-  ! PPM_H4 (2018 answers) <-> C_PPM_H4_2018
-  call initialize_remapping(CS, 'PPM_H4', answer_date=20180101, boundary_extrapolation=.false., &
-                            om4_remap_via_sub_cells=.false., force_bounds_in_subcell=.false., &
-                            h_neglect=h_neglect, h_neglect_edge=h_neglect_edge)
-  call initialize_remapping(CS2, 'C_PPM_H4_2018', nk=n0, h_neglect=h_neglect)
-  call compare_two_schemes(test, CS, CS2, n0, n1, ntests, 'PPM_H4 2018 <-> C_PPM_H4_2018')
+    ! PPM_H4 (2018 answers) <-> C_PPM_H4_2018
+    call initialize_remapping(CS, 'PPM_H4', answer_date=20180101, boundary_extrapolation=.false., &
+                              om4_remap_via_sub_cells=.false., force_bounds_in_subcell=.false., &
+                              h_neglect=h_neglect, h_neglect_edge=h_neglect_edge)
+    call initialize_remapping(CS2, 'C_PPM_H4_2018', nk=n0, h_neglect=h_neglect)
+    call compare_two_schemes(test, CS, CS2, n0, n1, ntests, &
+                             'n0='//trim(n0_str)//' PPM_H4 2018 <-> C_PPM_H4_2018')
 
-  ! PPM_H4 (2018 answers with subcell bounds) <-> C_PPM_H4_2018
-  call initialize_remapping(CS, 'PPM_H4', answer_date=20180101, boundary_extrapolation=.false., &
-                            om4_remap_via_sub_cells=.false., force_bounds_in_subcell=.true., &
-                            h_neglect=h_neglect, h_neglect_edge=h_neglect_edge)
-  call initialize_remapping(CS2, 'C_PPM_H4_2018', nk=n0, h_neglect=h_neglect)
-  call compare_two_schemes(test, CS, CS2, n0, n1, ntests, 'PPM_H4 2018 bounded <-> C_PPM_H4_2018')
+    ! PPM_H4 (2018 answers with subcell bounds) <-> C_PPM_H4_2018
+    call initialize_remapping(CS, 'PPM_H4', answer_date=20180101, boundary_extrapolation=.false., &
+                              om4_remap_via_sub_cells=.false., force_bounds_in_subcell=.true., &
+                              h_neglect=h_neglect, h_neglect_edge=h_neglect_edge)
+    call initialize_remapping(CS2, 'C_PPM_H4_2018', nk=n0, h_neglect=h_neglect)
+    call compare_two_schemes(test, CS, CS2, n0, n1, ntests, &
+                             'n0='//trim(n0_str)//' PPM_H4 2018 bounded <-> C_PPM_H4_2018')
 
-  ! PPM_H4 (latest answers) <-> C_PPM_H4_2019
-  call initialize_remapping(CS, 'PPM_H4', answer_date=99990101, boundary_extrapolation=.false., &
-                            om4_remap_via_sub_cells=.false., force_bounds_in_subcell=.false., &
-                            h_neglect=h_neglect, h_neglect_edge=h_neglect_edge)
-  call initialize_remapping(CS2, 'C_PPM_H4_2019', nk=n0, h_neglect=h_neglect)
-  call compare_two_schemes(test, CS, CS2, n0, n1, ntests, 'PPM_H4 <-> C_PPM_H4_2019')
+    ! PPM_H4 (latest answers) <-> C_PPM_H4_2019
+    call initialize_remapping(CS, 'PPM_H4', answer_date=99990101, boundary_extrapolation=.false., &
+                              om4_remap_via_sub_cells=.false., force_bounds_in_subcell=.false., &
+                              h_neglect=h_neglect, h_neglect_edge=h_neglect_edge)
+    call initialize_remapping(CS2, 'C_PPM_H4_2019', nk=n0, h_neglect=h_neglect)
+    call compare_two_schemes(test, CS, CS2, n0, n1, ntests, &
+                             'n0='//trim(n0_str)//' PPM_H4 <-> C_PPM_H4_2019')
 
-  ! PPM_H4 (latest answers with subcell bounds) <-> C_PPM_H4_2019
-  call initialize_remapping(CS, 'PPM_H4', answer_date=99990101, boundary_extrapolation=.false., &
-                            om4_remap_via_sub_cells=.false., force_bounds_in_subcell=.true., &
-                            h_neglect=h_neglect, h_neglect_edge=h_neglect_edge)
-  call initialize_remapping(CS2, 'C_PPM_H4_2019', nk=n0, h_neglect=h_neglect)
-  call compare_two_schemes(test, CS, CS2, n0, n1, ntests, 'PPM_H4 bounded <-> C_PPM_H4_2019')
+    ! PPM_H4 (latest answers with subcell bounds) <-> C_PPM_H4_2019
+    call initialize_remapping(CS, 'PPM_H4', answer_date=99990101, boundary_extrapolation=.false., &
+                              om4_remap_via_sub_cells=.false., force_bounds_in_subcell=.true., &
+                              h_neglect=h_neglect, h_neglect_edge=h_neglect_edge)
+    call initialize_remapping(CS2, 'C_PPM_H4_2019', nk=n0, h_neglect=h_neglect)
+    call compare_two_schemes(test, CS, CS2, n0, n1, ntests, &
+                             'n0='//trim(n0_str)//' PPM_H4 bounded <-> C_PPM_H4_2019')
 
-  ! PLM_HYBGEN (latest answers with subcell bounds) <-> C_PLM_hybgen_poly
-  call initialize_remapping(CS, 'PLM_HYBGEN', answer_date=99990101, boundary_extrapolation=.false., &
-                            om4_remap_via_sub_cells=.false., force_bounds_in_subcell=.true., &
-                            h_neglect=h_neglect, h_neglect_edge=h_neglect_edge)
-  call initialize_remapping(CS2, 'C_PLM_hybgen_poly', nk=n0, h_neglect=h_neglect)
-  call compare_two_schemes(test, CS, CS2, n0, n1, ntests, 'PLM_HYBGEN bounded <-> C_PLM_hybgen_poly')
+    ! PLM_HYBGEN (latest answers with subcell bounds) <-> C_PLM_hybgen_poly
+    call initialize_remapping(CS, 'PLM_HYBGEN', answer_date=99990101, boundary_extrapolation=.false., &
+                              om4_remap_via_sub_cells=.false., force_bounds_in_subcell=.true., &
+                              h_neglect=h_neglect, h_neglect_edge=h_neglect_edge)
+    call initialize_remapping(CS2, 'C_PLM_hybgen_poly', nk=n0, h_neglect=h_neglect)
+    call compare_two_schemes(test, CS, CS2, n0, n1, ntests, &
+                             'n0='//trim(n0_str)//' PLM_HYBGEN bounded <-> C_PLM_hybgen_poly')
 
-  ! PPM_HYBGEN (latest answers with subcell bounds) <-> C_PPM_hybgen_v1
-  call initialize_remapping(CS, 'PPM_HYBGEN', answer_date=99990101, boundary_extrapolation=.false., &
-                            om4_remap_via_sub_cells=.false., force_bounds_in_subcell=.true., &
-                            h_neglect=h_neglect, h_neglect_edge=h_neglect_edge)
-  call initialize_remapping(CS2, 'C_PPM_HYBGEN_V1', nk=n0, h_neglect=h_neglect)
-  call compare_two_schemes(test, CS, CS2, n0, n1, ntests, 'PPM_HYBGEN bounded <-> C_PPM_hybgen_v1')
+    ! PPM_HYBGEN (latest answers with subcell bounds) <-> C_PPM_hybgen_v1
+    call initialize_remapping(CS, 'PPM_HYBGEN', answer_date=99990101, boundary_extrapolation=.false., &
+                              om4_remap_via_sub_cells=.false., force_bounds_in_subcell=.true., &
+                              h_neglect=h_neglect, h_neglect_edge=h_neglect_edge)
+    call initialize_remapping(CS2, 'C_PPM_HYBGEN_V1', nk=n0, h_neglect=h_neglect)
+    call compare_two_schemes(test, CS, CS2, n0, n1, ntests, &
+                             'n0='//trim(n0_str)//' PPM_HYBGEN bounded <-> C_PPM_hybgen_v1')
+  enddo ! n0-loop over source column sizes
 
   call end_remapping(CS)
   call end_remapping(CS2)

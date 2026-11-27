@@ -58,6 +58,7 @@ subroutine reconstruct(this, h, u)
   call this%reconstruct_parent(h, u)
 
   n = this%n
+  if (n == 1) return ! A single cell is PCM, as for the OM4-era PLM with extrapolation
 
   ! Fix reconstruction for first cell
   slope = - PLM_extrapolate_slope( h(2), h(1), this%h_neglect, u(2), u(1) )

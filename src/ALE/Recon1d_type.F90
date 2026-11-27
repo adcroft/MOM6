@@ -74,6 +74,8 @@ contains
   procedure, nopass :: claims_reflection => claim_is_supported
   !> True if the reconstruction is unchanged when the thicknesses, and h_neglect, are scaled
   procedure, nopass :: claims_h_scaling => claim_is_supported
+  !> True if the reconstruction scales with the cell means, including a change of sign
+  procedure, nopass :: claims_u_scaling => claim_is_supported
 
   ! The following functions usually point to the same implementation as above but
   ! for derived secondary children these allow invocation of the parent class function.
@@ -426,8 +428,12 @@ logical function check_properties(this, verbose, stdout, stderr, label)
   character(len=8) :: n_str ! n as a string
   integer, parameter :: h_scale_exp(6) = (/ -60, -30, -10, 10, 30, 60 /) ! Exponents of 2 by
                         ! which to scale the thicknesses
+  integer, parameter :: u_scale_exp(5) = (/ -60, -10, 0, 10, 60 /) ! Exponents of 2 by which
+                        ! to scale the cell means, with both signs
+  real :: u_scale ! Factor by which to scale the cell means [nondim]
   logical :: fails ! True if any column fails
-  integer :: m ! Index into h_scale_exp
+  integer :: m ! Index into h_scale_exp or u_scale_exp
+  integer :: sgn ! Sign of u_scale
 
   call test%set( verbose=verbose, stdout=stdout, stderr=stderr )
 
@@ -454,6 +460,26 @@ logical function check_properties(this, verbose, stdout, stderr, label)
         if (test_h_scaling(this, n, 20, 2.**h_scale_exp(m), stdout)) fails = .true.
       enddo
       call test%test( fails, 'h scaling by 2**'//trim(n_str) )
+    enddo
+  endif
+
+  call random_seed( put=seed ) ! So that the columns do not depend on the tests above
+  if (this%claims_u_scaling()) then
+    do sgn = -1, 1, 2
+      do m = 1, size(u_scale_exp)
+        if (sgn == 1 .and. u_scale_exp(m) == 0) cycle ! Scaling by 1 is not a test
+        u_scale = real(sgn) * 2.**u_scale_exp(m)
+        write(n_str,'(i0)') u_scale_exp(m)
+        fails = .false.
+        do n = 4, 12
+          if (test_u_scaling(this, n, 20, u_scale, stdout)) fails = .true.
+        enddo
+        if (sgn == 1) then
+          call test%test( fails, 'u scaling by 2**'//trim(n_str) )
+        else
+          call test%test( fails, 'u scaling by -2**'//trim(n_str) )
+        endif
+      enddo
     enddo
   endif
 
@@ -608,6 +634,76 @@ logical function test_h_scaling(this, n, niter, h_scale, stdout)
   call that%destroy()
 
 end function test_h_scaling
+
+!> Returns true if the reconstruction of a column with cell means scaled by u_scale is not,
+!! bitwise, the reconstruction of the original column scaled by u_scale
+!!
+!! u_scale is a positive or negative power of two, so that scaling, and changing sign, are exact
+!! and any difference is a dependence of the reconstruction on the units or sign of the cell
+!! means, for example through a limiter that treats maxima and minima differently. The column has
+!! random cell means, of both signs, and random thicknesses of which 5% are zero.
+logical function test_u_scaling(this, n, niter, u_scale, stdout)
+  class(Recon1d), intent(inout) :: this    !< This reconstruction
+  integer,        intent(in)    :: n       !< Number of cells in the column
+  integer,        intent(in)    :: niter   !< Number of random columns to try
+  real,           intent(in)    :: u_scale !< Factor by which to scale cell means, a positive or
+                                           !! negative power of 2 [nondim]
+  integer,        intent(in)    :: stdout  !< I/O channel for stdout
+  ! Local variables
+  class(Recon1d), allocatable :: that ! The reconstruction of the scaled column
+  real :: h(n) ! Thicknesses of the column [H]
+  real :: u(n) ! Cell means of the column [A]
+  real :: r ! A random number [nondim]
+  real :: xa, xb ! Positions within a cell [nondim]
+  real :: val(3), val_s(3) ! f(xa), dfdx(xa) and the average from xa to xb for the original column
+                           ! scaled by u_scale, and for the scaled column [A]
+  integer :: iter, k, i, j
+
+  allocate( that, mold=this )
+  call this%init(n, h_neglect=1.e-30)
+  call that%init(n, h_neglect=1.e-30)
+
+  test_u_scaling = .false.
+  columns: do iter = 1, niter
+    do k = 1, n
+      call random_number( r )
+      if (r < 0.05) then
+        h(k) = 0.
+      else
+        call random_number( h(k) )
+      endif
+    enddo
+    call random_number( u )
+    u(:) = 2. * u(:) - 1.
+
+    call this%reconstruct(h, u)
+    call that%reconstruct(h, u_scale * u)
+
+    do k = 1, n
+      do i = 0, 8
+        xa = 0.125 * real(i)
+        do j = i, 8
+          xb = 0.125 * real(j)
+          val(:) = u_scale * (/ this%f(k, xa), this%dfdx(k, xa), this%average(k, xa, xb) /)
+          val_s(:) = (/ that%f(k, xa), that%dfdx(k, xa), that%average(k, xa, xb) /)
+          if (any( val(:) /= val_s(:) )) then ! Write the details of the first fail only
+            test_u_scaling = .true.
+            write(stdout,'(a,es9.1,a,i0,a,i0,a,f5.3,a,f5.3)') 'test_u_scaling: u_scale=', u_scale, &
+                  ' iter=', iter, ' k=', k, ' x=', xa, ' to ', xb
+            write(stdout,*) ' h=', h
+            write(stdout,*) ' u=', u
+            write(stdout,*) ' scaled f, dfdx, average=', val
+            write(stdout,*) ' for scaled column=', val_s
+            exit columns
+          endif
+        enddo
+      enddo
+    enddo
+  enddo columns
+
+  call that%destroy()
+
+end function test_u_scaling
 
 !> \namespace recon1d_type
 !!

@@ -21,26 +21,10 @@ use PPM_functions, only : PPM_monotonicity
 use PQM_functions, only : PQM_reconstruction, PQM_boundary_extrapolation_v1
 use MOM_hybgen_remap, only : hybgen_plm_coefs, hybgen_ppm_coefs, hybgen_weno_coefs
 
-use Recon1d_type, only : Recon1d
-use Recon1d_PCM, only : PCM
-use Recon1d_PLM_CW, only : PLM_CW
-use Recon1d_PLM_hybgen, only : PLM_hybgen
-use Recon1d_PLM_hybgen_poly, only : PLM_hybgen_poly
-use Recon1d_PLM_CWK, only : PLM_CWK
-use Recon1d_MPLM_CWK, only : MPLM_CWK
-use Recon1d_EMPLM_CWK, only : EMPLM_CWK
-use Recon1d_MPLM_WA, only : MPLM_WA
-use Recon1d_EMPLM_WA, only : EMPLM_WA
-use Recon1d_MPLM_WA_poly, only : MPLM_WA_poly
-use Recon1d_EMPLM_WA_poly, only : EMPLM_WA_poly
-use Recon1d_PPM_CW, only : PPM_CW
-use Recon1d_PPM_hybgen, only : PPM_hybgen
-use Recon1d_PPM_hybgen_v1, only : PPM_hybgen_v1
-use Recon1d_PPM_CWK, only : PPM_CWK
-use Recon1d_EPPM_CWK, only : EPPM_CWK
-use Recon1d_PPM_H4_2019, only : PPM_H4_2019
-use Recon1d_PPM_H4_2018, only : PPM_H4_2018
-use Recon1d_PLM_WLS, only : PLM_WLS
+use Recon1d_factory, only : Recon1d, new_recon1d
+use Recon1d_factory, only : PCM, PLM_CW, PLM_hybgen, PLM_hybgen_poly, PLM_CWK, MPLM_CWK, EMPLM_CWK
+use Recon1d_factory, only : MPLM_WA, EMPLM_WA, MPLM_WA_poly, EMPLM_WA_poly, PLM_WLS
+use Recon1d_factory, only : PPM_CW, PPM_hybgen, PPM_hybgen_v1, PPM_CWK, EPPM_CWK, PPM_H4_2019, PPM_H4_2018
 
 implicit none ; private
 
@@ -154,7 +138,7 @@ subroutine remapping_set_param(CS, remapping_scheme, boundary_extrapolation,  &
     call setReconstructionType( remapping_scheme, CS )
     if (index(trim(remapping_scheme),'C_')>0) then
       if (present(nk)) then
-        call CS%reconstruction%init(nk, h_neglect=h_neglect)
+        call new_recon1d(CS%reconstruction, remapping_scheme, nk, h_neglect=h_neglect)
       else
         call MOM_error( FATAL, 'MOM_remapping, remapping_set_param: '//&
            'Using the Recon1d class for remapping requires nk to be passed' )
@@ -1751,62 +1735,11 @@ subroutine setReconstructionType(string,CS)
     case ("PQM_IH6IH5")
       CS%remapping_scheme = REMAPPING_PQM_IH6IH5
       degree = 4
-    case ("C_PCM")
-      allocate( PCM :: CS%reconstruction )
-      CS%remapping_scheme = REMAPPING_VIA_CLASS
-    case ("C_PLM_CW")
-      allocate( PLM_CW :: CS%reconstruction )
-      CS%remapping_scheme = REMAPPING_VIA_CLASS
-    case ("C_PLM_HYBGEN")
-      allocate( PLM_hybgen :: CS%reconstruction )
-      CS%remapping_scheme = REMAPPING_VIA_CLASS
-    case ("C_PLM_HYBGEN_POLY")
-      allocate( PLM_hybgen_poly :: CS%reconstruction )
-      CS%remapping_scheme = REMAPPING_VIA_CLASS
-    case ("C_MPLM_WA")
-      allocate( MPLM_WA :: CS%reconstruction )
-      CS%remapping_scheme = REMAPPING_VIA_CLASS
-    case ("C_EMPLM_WA")
-      allocate( EMPLM_WA :: CS%reconstruction )
-      CS%remapping_scheme = REMAPPING_VIA_CLASS
-    case ("C_MPLM_WA_POLY")
-      allocate( MPLM_WA_poly :: CS%reconstruction )
-      CS%remapping_scheme = REMAPPING_VIA_CLASS
-    case ("C_EMPLM_WA_POLY")
-      allocate( EMPLM_WA_poly :: CS%reconstruction )
-      CS%remapping_scheme = REMAPPING_VIA_CLASS
-    case ("C_PLM_CWK")
-      allocate( PLM_CWK :: CS%reconstruction )
-      CS%remapping_scheme = REMAPPING_VIA_CLASS
-    case ("C_MPLM_CWK")
-      allocate( MPLM_CWK :: CS%reconstruction )
-      CS%remapping_scheme = REMAPPING_VIA_CLASS
-    case ("C_EMPLM_CWK")
-      allocate( EMPLM_CWK :: CS%reconstruction )
-      CS%remapping_scheme = REMAPPING_VIA_CLASS
-    case ("C_PPM_CW")
-      allocate( PPM_CW :: CS%reconstruction )
-      CS%remapping_scheme = REMAPPING_VIA_CLASS
-    case ("C_PPM_HYBGEN")
-      allocate( PPM_hybgen :: CS%reconstruction )
-      CS%remapping_scheme = REMAPPING_VIA_CLASS
-    case ("C_PPM_HYBGEN_V1")
-      allocate( PPM_hybgen_v1 :: CS%reconstruction )
-      CS%remapping_scheme = REMAPPING_VIA_CLASS
-    case ("C_PPM_CWK")
-      allocate( PPM_CWK :: CS%reconstruction )
-      CS%remapping_scheme = REMAPPING_VIA_CLASS
-    case ("C_EPPM_CWK")
-      allocate( EPPM_CWK :: CS%reconstruction )
-      CS%remapping_scheme = REMAPPING_VIA_CLASS
-    case ("C_PPM_H4_2019")
-      allocate( PPM_H4_2019 :: CS%reconstruction )
-      CS%remapping_scheme = REMAPPING_VIA_CLASS
-    case ("C_PPM_H4_2018")
-      allocate( PPM_H4_2018 :: CS%reconstruction )
-      CS%remapping_scheme = REMAPPING_VIA_CLASS
-    case ("C_PLM_WLS")
-      allocate( PLM_WLS :: CS%reconstruction )
+    case ("C_PCM", "C_PLM_CW", "C_PLM_HYBGEN", "C_PLM_HYBGEN_POLY", "C_MPLM_WA", "C_EMPLM_WA", &
+          "C_MPLM_WA_POLY", "C_EMPLM_WA_POLY", "C_PLM_CWK", "C_MPLM_CWK", "C_EMPLM_CWK", "C_PPM_CW", &
+          "C_PPM_HYBGEN", "C_PPM_HYBGEN_V1", "C_PPM_CWK", "C_EPPM_CWK", "C_PPM_H4_2019", &
+          "C_PPM_H4_2018", "C_PLM_WLS")
+      ! The reconstruction itself is created by new_recon1d(), which also needs the number of cells
       CS%remapping_scheme = REMAPPING_VIA_CLASS
     case default
       call MOM_error(FATAL, "setReconstructionType: "//&

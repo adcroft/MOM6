@@ -10,7 +10,7 @@ implicit none ; private
 public testing
 public numerical_testing_type_unit_tests
 
-!> Class to assist in unit tests, not to be used outside of Recon1d types
+!> Class to assist in unit tests of numerical methods
 type :: testing
   private
   !> True if any fail has been encountered since this instance of "testing" was created

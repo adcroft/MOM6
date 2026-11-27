@@ -55,7 +55,7 @@ use regrid_edge_values,   only : edge_values_implicit_h4
 use PLM_functions,        only : PLM_reconstruction, PLM_boundary_extrapolation
 use PLM_functions,        only : PLM_extrapolate_slope, PLM_monotonized_slope, PLM_slope_wa
 use PPM_functions,        only : PPM_reconstruction, PPM_boundary_extrapolation
-use Recon1d_PLM_WLS,      only : PLM_WLS
+use Recon1d_factory,      only : PLM_WLS
 
 implicit none ; private
 #include <MOM_memory.h>

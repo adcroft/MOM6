@@ -36,7 +36,7 @@ use MOM_variables,         only : thermo_var_ptrs, ocean_internal_state, p3d
 use MOM_variables,         only : accel_diag_ptrs, cont_diag_ptrs, surface
 use MOM_verticalGrid,      only : verticalGrid_type, get_thickness_units, get_flux_units
 use MOM_wave_speed,        only : wave_speed, wave_speed_CS, wave_speed_init
-use Recon1d_EPPM_CWK,      only : EPPM_CWK
+use Recon1d_factory,       only : EPPM_CWK
 
 implicit none ; private
 

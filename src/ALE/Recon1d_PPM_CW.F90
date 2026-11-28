@@ -125,8 +125,8 @@ subroutine reconstruct(this, h, u)
   ! Note: this is not conventional but helps retain accuracy near top/bottom
   ! boundaries and reduces the adverse influence of the boundaries in the interior
   ! reconstructions. The final PPM reconstruction is still bounded to PCM.
-  slp(1) = 2.0 * ( this%PLM%ul(2) - u(1) )
-  slp(n) = 2.0 * ( u(n) - this%PLM%ur(n-1) )
+  slp(1) = 2.0 * ( this%PLM%ul(min(2,n)) - u(1) )
+  slp(n) = 2.0 * ( u(n) - this%PLM%ur(max(1,n-1)) )
 
   do K = 2, n ! K=2 is interface between cells 1 and 2
     h0 = h( max( 1, k-2 ) ) ! This treatment implies a virtual mirror cell at k=0
@@ -157,7 +157,7 @@ subroutine reconstruct(this, h, u)
   this%ur(n) = u(n) ! PCM
   this%ul(n) = u(n) ! PCM
 
-  do K = 2, n-1 ! K=2 is interface between cells 1 and 2
+  do k = 2, n-1 ! Loop over interior cells
     u0 = u(k-1)
     u1 = u(k)
     u2 = u(k+1)

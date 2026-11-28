@@ -57,6 +57,9 @@ subroutine reconstruct(this, h, u)
   ! Use parent (MPLM_WA) reconstruction
   call this%reconstruct_parent(h, u)
 
+  n = this%n
+  if (n == 1) return ! A single cell is PCM
+
   ! Fix reconstruction for first cell
   ! Avoid division by zero for vanished cells
   hn = h(2) + this%h_neglect
@@ -75,7 +78,6 @@ subroutine reconstruct(this, h, u)
 ! this%ur(1) = u(1) + 0.5 * slope
 
   ! Fix reconstruction for last cell
-  n = this%n
   ! Avoid division by zero for vanished cells
   hn = h(n-1) + this%h_neglect
   hc = h(n) + this%h_neglect

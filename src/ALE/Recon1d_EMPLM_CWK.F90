@@ -52,17 +52,17 @@ subroutine reconstruct(this, h, u)
   real,             intent(in)    :: h(*) !< Grid spacing (thickness) [typically H]
   real,             intent(in)    :: u(*) !< Cell mean values [A]
   ! Local variables
-  real :: slp ! The PLM slopes (difference across cell) [A]
-  real :: sigma_l, sigma_c, sigma_r ! Left, central and right slope estimates as
-                                    ! differences across the cell [A]
-  real :: u_min, u_max ! Minimum and maximum value across cell [A]
-  real :: u_l, u_r, u_c ! Left, right, and center values [A]
-  real :: u_e(this%n+1) ! Average of edge values [A]
-  integer :: k, n
+  integer :: n
 
   n = this%n
 
   call this%reconstruct_parent(h, u)
+
+  if (n == 1) return ! A single cell is PCM
+  if (n == 2) then ! The interface value of a straight line through the two means
+    this%ur(1) = 0.5 * ( u(1) + u(2) )
+    this%ul(2) = this%ur(1)
+  endif
 
   this%ur(1) = this%ul(2)
   this%ul(1) = u(1) + ( u(1) - this%ur(1) )
@@ -138,7 +138,22 @@ logical function unit_tests(this, verbose, stdout, stderr)
   call test%real_arr(4, ul, (/-2.5,2.5,3.5,4.5/), 'Evaluation on left edge')
   call test%real_arr(4, ur, (/2.5,3.5,4.5,9.5/), 'Evaluation on right edge')
 
+  call this%destroy()
   deallocate( um, ul, ur )
+
+  allocate( ul(2), ur(2) )
+  call this%init(2)
+
+  ! Two cells are reconstructed by a straight line through the two means
+  call this%reconstruct( (/1.,1./), (/1.,3./) )
+  do k = 1, 2
+    ul(k) = this%f(k, 0.)
+    ur(k) = this%f(k, 1.)
+  enddo
+  call test%real_arr(2, ul, (/0.,2./), 'Evaluation on left edge, n=2')
+  call test%real_arr(2, ur, (/2.,4./), 'Evaluation on right edge, n=2')
+
+  deallocate( ul, ur )
 
   unit_tests = test%summarize('EMPLM_CWK:unit_tests')
 
